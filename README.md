@@ -243,6 +243,39 @@ print(response)
 
 All of Derek's family's apps automatically use the gaming PC first (priority 10), fall back to the Raspberry Pi if it's busy (priority 50), and... well, hopefully never hit the fallback server (priority 999).
 
+## Saturn Beacons: Ephemeral Credentials via mDNS
+
+Saturn Beacons represent Layer 1 of the three-layer Saturn architecture - the foundation for network-based ephemeral access control.
+
+**The Core Concept**: Instead of every device storing API keys, a beacon server generates short-lived credentials and broadcasts them via mDNS. Any device on the network automatically discovers and uses these ephemeral credentials without manual configuration.
+
+**How It Works**:
+1. Beacon server generates a scoped JWT from DeepInfra API (10-minute expiration)
+2. JWT is embedded in mDNS TXT record under `ephemeral_key`
+3. Clients discover the beacon and extract the credential from mDNS
+4. Clients call DeepInfra API **directly** using the ephemeral key (beacon is NOT a proxy)
+5. Every 5 minutes, beacon rotates to a fresh JWT and updates mDNS
+6. When you leave the network, credentials expire automatically
+
+**Security Model**: Network presence = access, leave network = credentials expire. No long-lived keys stored on client devices.
+
+**Quick Start**:
+```bash
+# Start beacon server
+export DEEPINFRA_API_KEY="your_key_here"
+python beacons/deepinfra_beacon.py --port 8090 --priority 10
+
+# Run test client
+python clients/beacon_client.py
+```
+
+**Files**:
+- `beacons/deepinfra_beacon.py` - Single-file beacon server with JWTManager, BeaconAnnouncer, and key rotation
+- `clients/beacon_client.py` - Test client demonstrating discovery and direct API usage
+- `beacons/README.md` - Detailed beacon documentation
+
+See `beacons/README.md` for complete documentation, architecture details, and troubleshooting.
+
 ## Architecture
 
 **Service Discovery**: Saturn uses mDNS (Multicast DNS) for zero-configuration service discovery

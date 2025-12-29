@@ -29,10 +29,13 @@ class JWTManager:
         if not self.api_key:
             raise ValueError("DEEPINFRA_API_KEY not found in environment or constructor")
 
+        # Token expires in 600s but we rotate every 300s to maintain a safety buffer
+        # This prevents gaps where old token expired but new one isn't ready yet
         self.expires_delta = expires_delta
         self.rotation_interval = rotation_interval
         self.api_endpoint = "https://api.deepinfra.com/v1/scoped-jwt"
 
+        # Thread safety: multiple threads may check token status concurrently
         self._lock = threading.Lock()
         self._current_token: Optional[str] = None
         self._expires_at: Optional[float] = None
@@ -171,6 +174,8 @@ class BeaconAnnouncer:
         logger.info("Beacon service unregistered successfully.")
 
     def re_register(self) -> None:
+        # mDNS TXT records are immutable - to update ephemeral_key we must unregister then re-register
+        # This is the standard pattern for dynamic TXT record updates in zeroconf
         logger.info("Re-registering beacon with updated ephemeral key...")
         self.unregister()
         self.register()
@@ -182,6 +187,8 @@ class BeaconAnnouncer:
 
 
 def rotation_loop(jwt_manager: JWTManager, beacon_announcer: BeaconAnnouncer) -> None:
+    # Runs in background thread - checks every 60s, rotates every 300s (5 min)
+    # Pattern: check often, rotate less often - allows quick startup while preventing excessive API calls
     logger.info("Key rotation loop started")
 
     while True:
@@ -192,6 +199,7 @@ def rotation_loop(jwt_manager: JWTManager, beacon_announcer: BeaconAnnouncer) ->
                 try:
                     jwt_manager.generate_token()
 
+                    # Update mDNS announcement with new key - clients listening for updates get notified
                     if beacon_announcer.is_registered:
                         beacon_announcer.re_register()
                     else:
@@ -200,6 +208,8 @@ def rotation_loop(jwt_manager: JWTManager, beacon_announcer: BeaconAnnouncer) ->
                     logger.info("Key rotation complete")
 
                 except requests.exceptions.HTTPError as e:
+                    # Rate limit handling - DeepInfra may throttle JWT generation
+                    # Non-fatal: old key still valid for up to 10 minutes
                     if e.response.status_code == 429:
                         logger.error("DeepInfra API rate limit exceeded (429). Will retry on next check.")
                     else:

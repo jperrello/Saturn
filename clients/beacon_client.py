@@ -19,10 +19,12 @@ DEEPINFRA_API_URL = "https://api.deepinfra.com/v1/chat/completions"
 
 
 class BeaconListener(ServiceListener):
+    # ServiceListener callbacks (add_service, update_service, remove_service) are called by zeroconf
+    # when mDNS announcements are detected - these run in zeroconf's internal thread
     def __init__(self):
         self.beacons: Dict[str, dict] = {}
-        self._lock = threading.Lock()
-        self.beacon_found = threading.Event()
+        self._lock = threading.Lock()  # Protect against concurrent callback access
+        self.beacon_found = threading.Event()  # Signal main thread when first beacon discovered
 
     def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
         info = zc.get_service_info(type_, name)
@@ -68,6 +70,8 @@ class BeaconListener(ServiceListener):
             self.beacon_found.set()
 
     def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+        # Called when beacon re-registers with new ephemeral key after rotation
+        # This is how clients detect key rotation without polling
         logger.info(f"🔄 Beacon updated: {name}")
 
         clean_name = name.replace('._saturn._tcp.local.', '')
@@ -106,6 +110,8 @@ class BeaconListener(ServiceListener):
 
 
 def chat_with_deepinfra(ephemeral_key: str, model: str, user_message: str) -> str:
+    # Key design: client calls DeepInfra API directly, NOT through beacon
+    # Beacon is credential dispenser, not proxy - this proves network-level access model
     headers = {
         "Authorization": f"Bearer {ephemeral_key}",
         "Content-Type": "application/json"
