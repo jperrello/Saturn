@@ -16,3 +16,6 @@ wheels/
 .claude
 
 references/
+
+# bv (beads viewer) local config and caches
+.bv/
