@@ -11,9 +11,11 @@ wheels/
 
 # Secrets
 *.env
+.env.example
 
 # Claude
 .claude
+CLAUDE.md
 
 references/
 
