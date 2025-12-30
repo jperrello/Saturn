@@ -3,6 +3,7 @@ import time
 import requests
 import threading
 import logging
+import hashlib
 from typing import Dict, Optional
 from dataclasses import dataclass
 from datetime import datetime
@@ -31,7 +32,6 @@ class SaturnService:
     ephemeral_key: Optional[str] = None  # JWT for beacon-provided credentials
 
 class ServiceDiscovery(ServiceListener):
-    """Background service discovery using zeroconf with beacon JWT support"""
     def __init__(self, on_service_change=None):
         self.services: Dict[str, SaturnService] = {}
         self.lock = threading.Lock()
@@ -41,7 +41,6 @@ class ServiceDiscovery(ServiceListener):
         self.service_found = threading.Event()
 
     def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        """Called when a new service is discovered"""
         info = zc.get_service_info(type_, name)
         if not info:
             logger.warning(f"Could not get service info for {name}")
@@ -64,8 +63,9 @@ class ServiceDiscovery(ServiceListener):
             ephemeral_key_bytes = info.properties.get(b'ephemeral_key')
             if ephemeral_key_bytes:
                 ephemeral_key = ephemeral_key_bytes.decode('utf-8')
+                key_hash = hashlib.sha256(ephemeral_key.encode()).hexdigest()[:12]
                 logger.info(f"✓ Discovered beacon with ephemeral key: {clean_name}")
-                logger.info(f"  Key prefix: {ephemeral_key[:60]}...")
+                logger.info(f"  Key fingerprint: {key_hash}")
             
             is_new = clean_name not in self.services
             
@@ -122,12 +122,11 @@ class ServiceDiscovery(ServiceListener):
             if clean_name in self.services:
                 new_key = self.services[clean_name].ephemeral_key
                 if old_key and new_key and old_key != new_key:
+                    new_hash = hashlib.sha256(new_key.encode()).hexdigest()[:12]
                     logger.info(f"🔄 Key rotated for {clean_name}")
-                    logger.info(f"  Old: {old_key[:40]}...")
-                    logger.info(f"  New: {new_key[:40]}...")
+                    logger.info(f"  New JWT token fingerprint: {new_hash}")
 
     def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        """Called when a service disappears"""
         clean_name = name.replace('._saturn._tcp.local.', '')
         with self.lock:
             if clean_name in self.services:
@@ -137,24 +136,21 @@ class ServiceDiscovery(ServiceListener):
                     self.on_service_change('removed', clean_name, service.url, service.priority)
 
     def get_all_services(self) -> list:
-        """Get all discovered services sorted by priority"""
         with self.lock:
             services = list(self.services.values())
             return sorted(services, key=lambda s: s.priority)
 
-    def get_best_service(self) -> Optional[SaturnService]:
-        """Get service with lowest priority (highest preference)"""
+    def get_priority_service(self) -> Optional[SaturnService]:
         with self.lock:
             if not self.services:
                 return None
             return min(self.services.values(), key=lambda s: s.priority)
 
     def stop(self):
-        """Stop background discovery"""
         self.zeroconf.close()
 
 def call_deepinfra_api(ephemeral_key: str, model: str, messages: list) -> Optional[dict]:
-    """Call DeepInfra API directly using beacon's ephemeral JWT"""
+
     headers = {
         "Authorization": f"Bearer {ephemeral_key}",
         "Content-Type": "application/json"
@@ -182,7 +178,6 @@ def main():
     notification_lock = threading.Lock()
 
     def handle_service_change(action, name, url, priority):
-        """Callback when services are added/removed"""
         with notification_lock:
             if action == 'added':
                 service_notifications.append(f"\n  ⚠️  New server discovered: {name} at {url} (priority: {priority})")
@@ -198,7 +193,7 @@ def main():
     print("Waiting for services (5 seconds)...")
     discovery.service_found.wait(timeout=5.0)
 
-    best_service = discovery.get_best_service()
+    best_service = discovery.get_priority_service()
     if not best_service:
         print("No Saturn services or beacons found.")
         discovery.stop()
@@ -208,12 +203,12 @@ def main():
     using_beacon = best_service.ephemeral_key is not None
     
     if using_beacon:
+        key_hash = hashlib.sha256(best_service.ephemeral_key.encode()).hexdigest()[:12]
         print(f"✓ Connected to BEACON: {best_service.name}")
         print(f"  URL: {best_service.url}")
         print(f"  Priority: {best_service.priority}")
-        print(f"  Using ephemeral JWT: {best_service.ephemeral_key[:60]}...")
-        print("  (Calling DeepInfra API directly with beacon credentials)")
-        model = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+        print(f"  JWT token fingerprint: {key_hash}")
+        print(f"  (Calling DeepInfra API with Saturn)")
     else:
         print(f"✓ Connected to Saturn server: {best_service.name}")
         print(f"  URL: {best_service.url}")
@@ -242,7 +237,7 @@ def main():
                     print()
 
             # Get current best service (might have changed)
-            best_service = discovery.get_best_service()
+            best_service = discovery.get_priority_service()
             if not best_service:
                 print("\n  ⚠️  All servers offline! Waiting for services...")
                 time.sleep(2)
@@ -279,7 +274,8 @@ def main():
             # Choose API call method based on whether we have ephemeral key
             if using_beacon:
                 # Direct DeepInfra API call using ephemeral JWT
-                logger.info(f"Using ephemeral JWT: {best_service.ephemeral_key[:40]}...")
+                key_hash = hashlib.sha256(best_service.ephemeral_key.encode()).hexdigest()[:12]
+                logger.info(f"Using ephemeral JWT with fingerprint: {key_hash}")
                 data = call_deepinfra_api(
                     ephemeral_key=best_service.ephemeral_key,
                     model=model,
