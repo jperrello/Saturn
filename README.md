@@ -265,14 +265,15 @@ Saturn Beacons represent Layer 1 of the three-layer Saturn architecture - the fo
 export DEEPINFRA_API_KEY="your_key_here"
 python beacons/deepinfra_beacon.py --port 8090 --priority 10
 
-# Run test client
-python clients/beacon_client.py
+# Run chat client (auto-discovers beacon and uses ephemeral JWT)
+python clients/simple_chat_client.py
 ```
 
 **Files**:
 - `beacons/deepinfra_beacon.py` - Single-file beacon server with JWTManager, BeaconAnnouncer, and key rotation
-- `clients/beacon_client.py` - Test client demonstrating discovery and direct API usage
+- `clients/simple_chat_client.py` - Production chat client with automatic beacon discovery and JWT authentication
 - `beacons/README.md` - Detailed beacon documentation
+- `legacy_code/beacon_client.py` - Original proof-of-concept (archived, see legacy_code/README.md)
 
 See `beacons/README.md` for complete documentation, architecture details, and troubleshooting.
 

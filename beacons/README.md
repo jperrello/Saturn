@@ -4,16 +4,15 @@ Saturn Beacon provides automatic network-level access to AI services using ephem
 
 ## Architecture
 
-The beacon system consists of:
+The beacon is a lightweight mDNS announcer (not a server). It consists of:
 
 1. **JWTManager** - Generates scoped JWT tokens from DeepInfra API
 2. **BeaconAnnouncer** - Announces service via mDNS with ephemeral key in TXT records
 3. **KeyRotation** - Background thread that rotates credentials every 5 minutes
-4. **DeepInfra Beacon Server** - FastAPI server that coordinates all components
 
 ## How It Works
 
-1. Beacon server generates a scoped JWT from DeepInfra API (expires in 10 minutes)
+1. Beacon generates a scoped JWT from DeepInfra API (expires in 10 minutes)
 2. JWT is embedded in mDNS TXT record under `ephemeral_key`
 3. Beacon announces itself as `_saturn._tcp.local.` service
 4. Clients discover beacon via mDNS and extract ephemeral key
@@ -25,16 +24,16 @@ The beacon system consists of:
 
 **The beacon is a credential dispenser, not a proxy.** Clients get ephemeral keys from the beacon but make API calls directly to DeepInfra. This proves "network presence = automatic AI access" without adding a proxy layer.
 
-## Running the Beacon Server
+## Running the Beacon
 
 ### Prerequisites
 
 ```bash
 export DEEPINFRA_API_KEY="your_api_key_here"
-pip install fastapi uvicorn zeroconf requests
+pip install zeroconf requests python-dotenv
 ```
 
-### Start the Server
+### Start the Beacon
 
 ```bash
 cd beacons
@@ -42,8 +41,7 @@ python deepinfra_beacon.py --port 8090 --priority 10
 ```
 
 Options:
-- `--host` - Host to bind to (default: 0.0.0.0)
-- `--port` - Port to bind to (default: 8090)
+- `--port` - Port for mDNS announcement (default: 8090)
 - `--priority` - Beacon priority, lower is higher priority (default: 10)
 
 ### Verify via mDNS
@@ -66,17 +64,25 @@ dns-sd -L DeepInfra-Beacon _saturn._tcp local
 ## File Structure
 
 ### beacons/deepinfra_beacon.py
-Single-file beacon server containing all components:
+Lightweight mDNS announcer script (~265 lines):
 - **JWTManager class**: Generates and manages scoped JWTs from DeepInfra API with automatic rotation tracking
 - **BeaconAnnouncer class**: Registers and updates mDNS announcements using zeroconf library with ephemeral key in TXT records  
 - **rotation_loop function**: Background thread that checks every minute and rotates keys every 5 minutes with error handling for network failures and rate limits
-- **FastAPI app**: Health check and model listing endpoints
+- **main function**: Simple script that initializes services, starts rotation thread, and waits for shutdown signals
 
-### clients/beacon_client.py
-Test client demonstrating beacon discovery and usage:
-- **BeaconListener class**: Discovers Saturn beacons via zeroconf ServiceBrowser callbacks
-- **chat_with_deepinfra function**: Makes direct API calls to DeepInfra using ephemeral credentials
-- **main function**: End-to-end test: discover beacon → extract key → call API → monitor rotation
+### clients/simple_chat_client.py
+Production chat client with integrated beacon support:
+- **ServiceDiscovery class**: Discovers both Saturn servers and beacons via zeroconf ServiceBrowser
+- **call_deepinfra_api function**: Makes direct API calls to DeepInfra using ephemeral credentials when beacon is discovered
+- **Automatic detection**: Switches between beacon mode (direct API calls with JWT) and proxy mode (calls through Saturn server)
+- **Full chat interface**: Maintains conversation history, supports server switching, and displays key rotation events
+- **main function**: Complete chat experience with automatic beacon discovery, JWT authentication, and key rotation handling
+
+### legacy_code/beacon_client.py (archived)
+Original proof-of-concept test client (replaced by simple_chat_client.py):
+- Minimal implementation that proved beacon concept works
+- Preserved for reference and understanding core beacon patterns
+- See `legacy_code/README.md` for details
 
 ## Security Model
 
@@ -96,14 +102,6 @@ We use the Python `zeroconf` library instead of `dns-sd` subprocess because:
 4. **Error Handling**: Raises proper Python exceptions instead of opaque exit codes.
 5. **Production Proven**: Used by Home Assistant, Cura, and many IoT projects.
 
-## Endpoints
-
-### GET /v1/health
-Returns beacon health status and token information.
-
-### GET /v1/models
-Returns list of available DeepInfra models.
-
 ## Success Criteria
 
 - ✓ Beacon generates DeepInfra scoped JWT with 600s expiration
@@ -119,8 +117,8 @@ Returns list of available DeepInfra models.
 
 **Beacon won't start:**
 - Ensure DEEPINFRA_API_KEY is set
-- Check port 8090 is available
-- Verify zeroconf library is installed
+- Verify zeroconf and requests libraries are installed
+- Check Python version (3.7+)
 
 **Clients can't discover beacon:**
 - Ensure firewall allows mDNS (UDP port 5353)

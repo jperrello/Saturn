@@ -8,10 +8,9 @@ import signal
 import sys
 import requests
 from typing import Optional
-from datetime import datetime, timedelta
-from fastapi import FastAPI
-import uvicorn
 from zeroconf import ServiceInfo, Zeroconf
+from dotenv import load_dotenv
+load_dotenv()
 
 
 logging.basicConfig(
@@ -80,27 +79,6 @@ class JWTManager:
 
             time_since_rotation = time.time() - self._last_rotation
             return time_since_rotation >= self.rotation_interval
-
-    def get_token_info(self) -> dict:
-        with self._lock:
-            if self._current_token is None:
-                return {
-                    "has_token": False,
-                    "expires_at": None,
-                    "time_until_expiry": None,
-                    "time_until_rotation": None
-                }
-
-            now = time.time()
-            time_until_expiry = self._expires_at - now if self._expires_at else None
-            time_until_rotation = self.rotation_interval - (now - self._last_rotation) if self._last_rotation else None
-
-            return {
-                "has_token": True,
-                "expires_at": datetime.fromtimestamp(self._expires_at).isoformat() if self._expires_at else None,
-                "time_until_expiry": time_until_expiry,
-                "time_until_rotation": time_until_rotation
-            }
 
 
 class BeaconAnnouncer:
@@ -211,7 +189,7 @@ def rotation_loop(jwt_manager: JWTManager, beacon_announcer: BeaconAnnouncer) ->
                     # Rate limit handling - DeepInfra may throttle JWT generation
                     # Non-fatal: old key still valid for up to 10 minutes
                     if e.response.status_code == 429:
-                        logger.error("DeepInfra API rate limit exceeded (429). Will retry on next check.")
+                        logger.error("DeepInfra API rate limit exceeded (429). Will retry on next check (one minute).")
                     else:
                         logger.error(f"HTTP error during rotation: {e}", exc_info=True)
 
@@ -228,57 +206,9 @@ def rotation_loop(jwt_manager: JWTManager, beacon_announcer: BeaconAnnouncer) ->
             time.sleep(60)
 
 
-app = FastAPI()
-jwt_manager = None
-beacon_announcer = None
-
-
-@app.get("/v1/health")
-async def health():
-    token_info = jwt_manager.get_token_info() if jwt_manager else {}
-    return {
-        "status": "healthy",
-        "provider": "DeepInfra",
-        "service_type": "beacon",
-        "ephemeral_credentials": True,
-        "token_info": token_info
-    }
-
-
-@app.get("/v1/models")
-async def models():
-    return {
-        "object": "list",
-        "data": [
-            {
-                "id": "meta-llama/Meta-Llama-3.1-8B-Instruct",
-                "object": "model",
-                "created": 1686935002,
-                "owned_by": "deepinfra"
-            },
-            {
-                "id": "Qwen/QwQ-32B-Preview",
-                "object": "model",
-                "created": 1686935002,
-                "owned_by": "deepinfra"
-            }
-        ]
-    }
-
-
-def shutdown_handler(signum, frame):
-    logger.info(f"Received signal {signum}, shutting down gracefully...")
-    if beacon_announcer:
-        beacon_announcer.unregister()
-    sys.exit(0)
-
-
 def main():
-    global jwt_manager, beacon_announcer
-
-    parser = argparse.ArgumentParser(description='DeepInfra Beacon Server')
-    parser.add_argument('--host', default='0.0.0.0', help='Host to bind to')
-    parser.add_argument('--port', type=int, default=8090, help='Port to bind to')
+    parser = argparse.ArgumentParser(description='DeepInfra Beacon - mDNS JWT Announcer')
+    parser.add_argument('--port', type=int, default=8090, help='Port for mDNS announcement')
     parser.add_argument('--priority', type=int, default=10, help='Beacon priority (lower is higher priority)')
     args = parser.parse_args()
 
@@ -286,17 +216,23 @@ def main():
         logger.error("DEEPINFRA_API_KEY environment variable not set")
         sys.exit(1)
 
-    signal.signal(signal.SIGINT, shutdown_handler)
-    signal.signal(signal.SIGTERM, shutdown_handler)
-
-    logger.info("Initializing DeepInfra Beacon Server...")
-
     jwt_manager = JWTManager(rotation_interval=300)
+    beacon_announcer = BeaconAnnouncer(jwt_manager, args.port, args.priority)
+
+    def shutdown_beacon(signum, frame):
+        logger.info(f"Received signal {signum}, shutting down gracefully...")
+        beacon_announcer.unregister()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, shutdown_beacon)
+    signal.signal(signal.SIGTERM, shutdown_beacon)
+
+    logger.info("Initializing DeepInfra Beacon...")
+
     logger.info("Generating initial JWT...")
     token = jwt_manager.generate_token()
     logger.info(f"✓ Generated JWT (len={len(token)} chars, expires in {jwt_manager.expires_delta}s)")
 
-    beacon_announcer = BeaconAnnouncer(jwt_manager, args.port, args.priority)
     logger.info("Registering beacon on mDNS network...")
     beacon_announcer.register()
     logger.info(f"✓ Beacon registered on port {args.port} with priority {args.priority}")
@@ -310,13 +246,16 @@ def main():
     rotation_thread.start()
     logger.info("✓ Key rotation thread started (rotation every 5 minutes)")
 
-    logger.info(f"Starting FastAPI server on {args.host}:{args.port}...")
     logger.info("Beacon is now discoverable on the network!")
+    logger.info("Press Ctrl+C to stop")
 
     try:
-        uvicorn.run(app, host=args.host, port=args.port, log_level="info")
-    finally:
-        logger.info("Cleaning up...")
+        signal.pause()
+    except AttributeError:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logger.info("Shutting down...")
         beacon_announcer.unregister()
         logger.info("Shutdown complete")
 
