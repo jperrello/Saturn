@@ -1,13 +1,14 @@
 import socket
+import subprocess
 import time
 import requests
 import threading
 import logging
 import hashlib
-from typing import Dict, Optional
-from dataclasses import dataclass
+import re
+from typing import Dict, Optional, List
+from dataclasses import dataclass, field
 from datetime import datetime
-from zeroconf import Zeroconf, ServiceListener, ServiceInfo, ServiceBrowser
 
 logging.basicConfig(
     level=logging.INFO,
@@ -17,11 +18,6 @@ logger = logging.getLogger(__name__)
 
 DEEPINFRA_API_URL = "https://api.deepinfra.com/v1/chat/completions"
 
-# Alternatively, you could run one of these commands to listen for Saturn servers:
-# Windows/macOS: dns-sd -B _saturn._tcp local
-# Linux: avahi-browse _saturn._tcp -t
-# For details: dns-sd -L <service_name> _saturn._tcp (or avahi-browse _saturn._tcp -t -r)
-
 @dataclass
 class SaturnService:
     name: str
@@ -29,116 +25,157 @@ class SaturnService:
     priority: int
     ip: str
     last_seen: datetime
-    ephemeral_key: Optional[str] = None  # JWT for beacon-provided credentials
+    ephemeral_key: Optional[str] = None
 
-class ServiceDiscovery(ServiceListener):
-    def __init__(self, on_service_change=None):
+class ServiceDiscovery:
+    def __init__(self, discovery_interval: int = 10, on_service_change=None):
         self.services: Dict[str, SaturnService] = {}
         self.lock = threading.Lock()
+        self.running = True
+        self.discovery_interval = discovery_interval
         self.on_service_change = on_service_change
-        self.zeroconf = Zeroconf()
-        self.browser = ServiceBrowser(self.zeroconf, "_saturn._tcp.local.", self)
         self.service_found = threading.Event()
+        self.thread = threading.Thread(target=self._discovery_loop, daemon=True)
+        self.thread.start()
 
-    def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        info = zc.get_service_info(type_, name)
-        if not info:
-            logger.warning(f"Could not get service info for {name}")
-            return
+    def _discovery_loop(self):
+        while self.running:
+            try:
+                self._discover_services()
+            except Exception as e:
+                logger.error(f"Error in service discovery: {e}")
+            time.sleep(self.discovery_interval)
 
-        clean_name = name.replace('._saturn._tcp.local.', '')
-        
-        with self.lock:
-            address = socket.inet_ntoa(info.addresses[0]) if info.addresses else None
-            if not address:
-                logger.warning(f"No address found for {name}")
-                return
-
-            port = info.port
-            url = f"http://{address}:{port}"
-            priority = int(info.properties.get(b'priority', b'50').decode('utf-8'))
-            
-            # Extract ephemeral_key if present (beacon service)
-            ephemeral_key = None
-            ephemeral_key_bytes = info.properties.get(b'ephemeral_key')
-            if ephemeral_key_bytes:
-                ephemeral_key = ephemeral_key_bytes.decode('utf-8')
-                key_hash = hashlib.sha256(ephemeral_key.encode()).hexdigest()[:12]
-                logger.info(f"✓ Discovered beacon with ephemeral key: {clean_name}")
-                logger.info(f"  Key fingerprint: {key_hash}")
-            
-            is_new = clean_name not in self.services
-            
-            self.services[clean_name] = SaturnService(
-                name=clean_name,
-                url=url,
-                priority=priority,
-                ip=address,
-                last_seen=datetime.now(),
-                ephemeral_key=ephemeral_key
+    def _discover_services(self):
+        try:
+            browse_proc = subprocess.Popen(
+                ['dns-sd', '-B', '_saturn._tcp', 'local'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
             )
-            
-            if is_new and self.on_service_change:
-                self.on_service_change('added', clean_name, url, priority)
-            
-            self.service_found.set()
 
-    def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        """Called when a service is updated (e.g., key rotation)
-        
-        This callback is triggered automatically when the beacon updates its mDNS TXT records
-        with a new ephemeral_key. This event-driven approach is why we use zeroconf instead
-        of dns-sd subprocess.
-        
-        Alternative with dns-sd (polling approach):
-            while True:
-                # Re-run discovery every N seconds
-                browse_proc = subprocess.Popen(['dns-sd', '-B', '_saturn._tcp', 'local'], ...)
-                lookup_proc = subprocess.Popen(['dns-sd', '-L', service_name, ...], ...)
-                # Parse output, extract TXT records
-                # Manually compare old_key vs new_key
-                # Detect changes yourself
-                time.sleep(30)  # Polling interval - trade-off between responsiveness and overhead
-        
-        With zeroconf (event-driven):
-            - ServiceBrowser automatically monitors mDNS traffic
-            - When beacon re-registers with new TXT records, this callback fires immediately
-            - No polling overhead, no manual parsing, instant rotation detection
-            - Beacon rotates every 5 minutes; we detect it within seconds, not on next poll
-        
-        This is the key architectural reason for using zeroconf on clients that need to handle
-        ephemeral credential rotation. For one-time discovery, dns-sd would suffice.
-        """
-        clean_name = name.replace('._saturn._tcp.local.', '')
-        
-        old_key = None
-        with self.lock:
-            if clean_name in self.services:
-                old_key = self.services[clean_name].ephemeral_key
-        
-        self.add_service(zc, type_, name)
-        
-        with self.lock:
-            if clean_name in self.services:
-                new_key = self.services[clean_name].ephemeral_key
-                if old_key and new_key and old_key != new_key:
-                    new_hash = hashlib.sha256(new_key.encode()).hexdigest()[:12]
-                    logger.info(f"🔄 Key rotated for {clean_name}")
-                    logger.info(f"  New JWT token fingerprint: {new_hash}")
+            time.sleep(2.0)
+            browse_proc.terminate()
 
-    def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        clean_name = name.replace('._saturn._tcp.local.', '')
-        with self.lock:
-            if clean_name in self.services:
-                service = self.services[clean_name]
-                del self.services[clean_name]
-                if self.on_service_change:
-                    self.on_service_change('removed', clean_name, service.url, service.priority)
+            try:
+                stdout, stderr = browse_proc.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                browse_proc.kill()
+                stdout, stderr = browse_proc.communicate()
 
-    def get_all_services(self) -> list:
+            service_names = []
+            for line in stdout.split('\n'):
+                if 'Add' in line and '_saturn._tcp' in line:
+                    parts = line.split()
+                    if len(parts) > 6:
+                        service_name = parts[6]
+                        service_names.append(service_name)
+
+            discovered_services = set()
+
+            for service_name in service_names:
+                try:
+                    lookup_proc = subprocess.Popen(
+                        ['dns-sd', '-L', service_name, '_saturn._tcp', 'local'],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    )
+
+                    time.sleep(1.5)
+                    lookup_proc.terminate()
+
+                    try:
+                        stdout, stderr = lookup_proc.communicate(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        lookup_proc.kill()
+                        stdout, stderr = lookup_proc.communicate()
+
+                    hostname = None
+                    port = None
+                    priority = 50
+                    ephemeral_key = None
+
+                    for line in stdout.split('\n'):
+                        if 'can be reached at' in line:
+                            match = re.search(r'can be reached at (.+):(\d+)', line)
+                            if match:
+                                hostname = match.group(1).rstrip('.')
+                                port = int(match.group(2))
+
+                        if 'priority=' in line:
+                            match = re.search(r'priority=(\d+)', line)
+                            if match:
+                                priority = int(match.group(1))
+
+                        if 'ephemeral_key=' in line:
+                            match = re.search(r'ephemeral_key=([^\s]+)', line)
+                            if match:
+                                ephemeral_key = match.group(1)
+
+                    if hostname and port:
+                        try:
+                            ip_address = socket.gethostbyname(hostname)
+                        except socket.gaierror:
+                            ip_address = hostname
+
+                        discovered_services.add(service_name)
+                        url = f"http://{ip_address}:{port}"
+
+                        with self.lock:
+                            is_new = service_name not in self.services
+                            old_key = None
+                            if not is_new:
+                                old_key = self.services[service_name].ephemeral_key
+
+                            self.services[service_name] = SaturnService(
+                                name=service_name,
+                                url=url,
+                                priority=priority,
+                                ip=ip_address,
+                                last_seen=datetime.now(),
+                                ephemeral_key=ephemeral_key
+                            )
+
+                            if ephemeral_key:
+                                key_hash = hashlib.sha256(ephemeral_key.encode()).hexdigest()[:12]
+                                if is_new:
+                                    logger.info(f"Discovered beacon: {service_name}")
+                                    logger.info(f"  JWT fingerprint: {key_hash}")
+                                elif old_key and old_key != ephemeral_key:
+                                    logger.info(f"Key rotated for {service_name}")
+                                    logger.info(f"  New JWT fingerprint: {key_hash}")
+                            elif is_new:
+                                logger.info(f"Discovered service: {service_name} at {ip_address}:{port} (priority: {priority})")
+
+                            if is_new and self.on_service_change:
+                                self.on_service_change('added', service_name, url, priority)
+
+                            self.service_found.set()
+
+                except (subprocess.TimeoutExpired, ValueError, IndexError) as e:
+                    logger.debug(f"Error looking up service {service_name}: {e}")
+                    continue
+
+            with self.lock:
+                services_to_remove = [name for name in self.services.keys() if name not in discovered_services]
+                for name in services_to_remove:
+                    service = self.services[name]
+                    del self.services[name]
+                    logger.info(f"Removed service: {name}")
+                    if self.on_service_change:
+                        self.on_service_change('removed', name, service.url, service.priority)
+
+        except FileNotFoundError:
+            logger.error("dns-sd not found. Install Bonjour (Windows) or avahi-utils (Linux).")
+            self.running = False
+        except Exception as e:
+            logger.error(f"Error during service discovery: {e}")
+
+    def get_all_services(self) -> List[SaturnService]:
         with self.lock:
-            services = list(self.services.values())
-            return sorted(services, key=lambda s: s.priority)
+            return sorted(self.services.values(), key=lambda s: s.priority)
 
     def get_priority_service(self) -> Optional[SaturnService]:
         with self.lock:
@@ -147,20 +184,20 @@ class ServiceDiscovery(ServiceListener):
             return min(self.services.values(), key=lambda s: s.priority)
 
     def stop(self):
-        self.zeroconf.close()
+        self.running = False
+
 
 def call_deepinfra_api(ephemeral_key: str, model: str, messages: list) -> Optional[dict]:
-
     headers = {
         "Authorization": f"Bearer {ephemeral_key}",
         "Content-Type": "application/json"
     }
-    
+
     payload = {
         "model": model,
         "messages": messages
     }
-    
+
     try:
         response = requests.post(DEEPINFRA_API_URL, headers=headers, json=payload, timeout=60)
         if response.ok:
@@ -180,16 +217,15 @@ def main():
     def handle_service_change(action, name, url, priority):
         with notification_lock:
             if action == 'added':
-                service_notifications.append(f"\n  ⚠️  New server discovered: {name} at {url} (priority: {priority})")
+                service_notifications.append(f"\n  New server discovered: {name} at {url} (priority: {priority})")
             elif action == 'removed':
-                service_notifications.append(f"\n  ⚠️  Server removed: {name}")
+                service_notifications.append(f"\n  Server removed: {name}")
 
     print("Searching for Saturn services and beacons...")
-    logger.info("Starting zeroconf-based discovery...")
+    logger.info("Starting dns-sd based discovery...")
 
     discovery = ServiceDiscovery(on_service_change=handle_service_change)
 
-    # Wait for initial discovery
     print("Waiting for services (5 seconds)...")
     discovery.service_found.wait(timeout=5.0)
 
@@ -199,26 +235,27 @@ def main():
         discovery.stop()
         return
 
-    # Determine if we're using beacon or regular Saturn server
     using_beacon = best_service.ephemeral_key is not None
-    
+    model = None
+
     if using_beacon:
         key_hash = hashlib.sha256(best_service.ephemeral_key.encode()).hexdigest()[:12]
-        print(f"✓ Connected to BEACON: {best_service.name}")
+        print(f"Connected to BEACON: {best_service.name}")
         print(f"  URL: {best_service.url}")
         print(f"  Priority: {best_service.priority}")
-        print(f"  JWT token fingerprint: {key_hash}")
-        print(f"  (Calling DeepInfra API with Saturn)")
+        print(f"  JWT fingerprint: {key_hash}")
+        print(f"  (Calling DeepInfra API directly)")
+        model = "meta-llama/Llama-3.3-70B-Instruct-Turbo"
     else:
-        print(f"✓ Connected to Saturn server: {best_service.name}")
+        print(f"Connected to Saturn server: {best_service.name}")
         print(f"  URL: {best_service.url}")
         print(f"  Priority: {best_service.priority}")
         print("  (Proxying through Saturn server)")
-        
-        # Fetch model from Saturn server
+
         try:
             models_response = requests.get(f"{best_service.url}/v1/models")
-            model = (models_response.json().get('models', []))[0]['id'] if models_response.ok else None
+            models = models_response.json().get('models', []) if models_response.ok else []
+            model = models[0]['id'] if models else None
         except:
             model = None
 
@@ -228,7 +265,6 @@ def main():
 
     try:
         while True:
-            # Display service change notifications
             with notification_lock:
                 if service_notifications:
                     for notification in service_notifications:
@@ -236,14 +272,12 @@ def main():
                     service_notifications.clear()
                     print()
 
-            # Get current best service (might have changed)
             best_service = discovery.get_priority_service()
             if not best_service:
-                print("\n  ⚠️  All servers offline! Waiting for services...")
+                print("\n  All servers offline! Waiting for services...")
                 time.sleep(2)
                 continue
 
-            # Update beacon status if it changed
             using_beacon = best_service.ephemeral_key is not None
 
             user_input = input("You: ").strip()
@@ -271,17 +305,15 @@ def main():
 
             current_message = chat_history + [{"role": "user", "content": user_input}]
 
-            # Choose API call method based on whether we have ephemeral key
             if using_beacon:
-                # Direct DeepInfra API call using ephemeral JWT
                 key_hash = hashlib.sha256(best_service.ephemeral_key.encode()).hexdigest()[:12]
-                logger.info(f"Using ephemeral JWT with fingerprint: {key_hash}")
+                logger.info(f"Using ephemeral JWT: {key_hash}")
                 data = call_deepinfra_api(
                     ephemeral_key=best_service.ephemeral_key,
                     model=model,
                     messages=current_message
                 )
-                
+
                 if data:
                     assistant_message = data['choices'][0]['message']['content']
                     print(f"AI: {assistant_message}")
@@ -290,12 +322,11 @@ def main():
                 else:
                     print("Error: Failed to get response from DeepInfra API")
             else:
-                # Regular Saturn server proxy call
                 payload = {
                     "model": model,
                     "messages": current_message
                 }
-                
+
                 try:
                     response = requests.post(f"{best_service.url}/v1/chat/completions", json=payload)
                     if response.ok:
