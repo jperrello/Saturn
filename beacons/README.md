@@ -1,136 +1,164 @@
-# Saturn Beacon - DeepInfra Ephemeral Credentials
+# Saturn Beacons
 
-Saturn Beacon provides automatic network-level access to AI services using ephemeral credentials distributed via mDNS.
+This directory contains Saturn beacon and awareness service implementations.
 
-## Architecture
+## Architecture Overview
 
-The beacon is a lightweight mDNS announcer (not a server). It consists of:
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ LAYER 2: Awareness Service (saturn_awareness_service.py)        │
+│                                                                 │
+│ MCP server giving Claude Code agents visibility into:          │
+│ - Model costs (pricing reference)                              │
+│ - Token usage (parsed from ~/.claude/projects/*.jsonl)         │
+│ - Network presence (mDNS discovery)                            │
+│                                                                 │
+│ NOT a proxy. Provides AWARENESS so agents can decide better.   │
+└─────────────────────────────────────────────────────────────────┘
+                              ▲
+                              │
+┌─────────────────────────────────────────────────────────────────┐
+│ LAYER 1: DeepInfra Beacon (winter_beacon.py)                    │
+│                                                                 │
+│ mDNS credential dispenser:                                      │
+│ - Generates scoped JWT from DeepInfra API                      │
+│ - Embeds in TXT record (ephemeral_key=...)                     │
+│ - Rotates every 5 minutes                                       │
+│                                                                 │
+│ Clients call DeepInfra DIRECTLY with extracted key.            │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-1. **JWTManager** - Generates scoped JWT tokens from DeepInfra API
-2. **BeaconAnnouncer** - Announces service via mDNS with ephemeral key in TXT records
-3. **KeyRotation** - Background thread that rotates credentials every 5 minutes
+---
 
-## How It Works
+## Layer 1: DeepInfra Beacon
+
+### How It Works
 
 1. Beacon generates a scoped JWT from DeepInfra API (expires in 10 minutes)
 2. JWT is embedded in mDNS TXT record under `ephemeral_key`
 3. Beacon announces itself as `_saturn._tcp.local.` service
 4. Clients discover beacon via mDNS and extract ephemeral key
-5. Clients call DeepInfra API DIRECTLY using the ephemeral key (not through beacon)
-6. Every 5 minutes, beacon rotates to a new JWT and updates mDNS announcement
-7. Clients detect TXT record update and automatically use new key
+5. Clients call DeepInfra API **DIRECTLY** using the key (not through beacon)
+6. Every 5 minutes, beacon rotates to a new JWT
 
-## Key Design Principle
-
-**The beacon is a credential dispenser, not a proxy.** Clients get ephemeral keys from the beacon but make API calls directly to DeepInfra. This proves "network presence = automatic AI access" without adding a proxy layer.
-
-## Running the Beacon
-
-### Prerequisites
+### Running the Beacon
 
 ```bash
 export DEEPINFRA_API_KEY="your_api_key_here"
 pip install zeroconf requests python-dotenv
+
+python beacons/winter_beacon.py --port 8090 --priority 10
 ```
-
-### Start the Beacon
-
-```bash
-cd beacons
-python deepinfra_beacon.py --port 8090 --priority 10
-```
-
-Options:
-- `--port` - Port for mDNS announcement (default: 8090)
-- `--priority` - Beacon priority, lower is higher priority (default: 10)
 
 ### Verify via mDNS
 
 ```bash
-# Browse for services
 dns-sd -B _saturn._tcp local
-
-# Lookup specific service
 dns-sd -L DeepInfra-Beacon _saturn._tcp local
 ```
 
-## Configuration
+---
 
-- **JWT Expiration**: 600 seconds (10 minutes)
-- **Rotation Interval**: 300 seconds (5 minutes)
-- **Service Type**: `_saturn._tcp.local.`
-- **Default Priority**: 10
+## Layer 2: Awareness Service
 
-## File Structure
+### What It Does
 
-### beacons/deepinfra_beacon.py
-Lightweight mDNS announcer script (~265 lines):
-- **JWTManager class**: Generates and manages scoped JWTs from DeepInfra API with automatic rotation tracking
-- **BeaconAnnouncer class**: Registers and updates mDNS announcements using zeroconf library with ephemeral key in TXT records  
-- **rotation_loop function**: Background thread that checks every minute and rotates keys every 5 minutes with error handling for network failures and rate limits
-- **main function**: Simple script that initializes services, starts rotation thread, and waits for shutdown signals
+An MCP server that gives Claude Code agents visibility into:
 
-### clients/simple_chat_client.py
-Production chat client with integrated beacon support:
-- **ServiceDiscovery class**: Discovers both Saturn servers and beacons via zeroconf ServiceBrowser
-- **call_deepinfra_api function**: Makes direct API calls to DeepInfra using ephemeral credentials when beacon is discovered
-- **Automatic detection**: Switches between beacon mode (direct API calls with JWT) and proxy mode (calls through Saturn server)
-- **Full chat interface**: Maintains conversation history, supports server switching, and displays key rotation events
-- **main function**: Complete chat experience with automatic beacon discovery, JWT authentication, and key rotation handling
+| Endpoint | Purpose |
+|----------|---------|
+| `/v1/model_costs` | Pricing per 1K tokens for Opus/Sonnet/Haiku/DeepInfra |
+| `/v1/usage` | Token usage from local logs (today/week/month) |
+| `/v1/presence` | Saturn beacons and servers on the network |
+| `/v1/cost_estimate` | Calculate cost for hypothetical request |
+| `/v1/recommendations` | Cost-saving suggestions based on patterns |
 
-### legacy_code/beacon_client.py (archived)
-Original proof-of-concept test client (replaced by simple_chat_client.py):
-- Minimal implementation that proved beacon concept works
-- Preserved for reference and understanding core beacon patterns
-- See `legacy_code/README.md` for details
+### Installation
+
+**Option 1: Add to Claude Code as MCP server**
+
+```bash
+claude mcp add saturn -- python /path/to/Saturn/beacons/saturn_awareness_service.py
+```
+
+Or manually add to `~/.claude/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "saturn": {
+      "command": "python",
+      "args": ["/path/to/Saturn/beacons/saturn_awareness_service.py"]
+    }
+  }
+}
+```
+
+**Option 2: Run as HTTP server**
+
+```bash
+pip install fastapi uvicorn fastapi-mcp
+python beacons/saturn_awareness_service.py
+```
+
+Server runs at `http://127.0.0.1:8090`. MCP endpoint at `/mcp`.
+
+### Example Agent Behavior
+
+With awareness data, an agent can:
+
+1. **Advise on model selection**: "This research task could burn ~$2 at Opus rates. Consider Sonnet for exploration."
+
+2. **Pace itself**: "You've used 45K tokens today ($1.35). At this rate, you'll hit typical daily spend by 3pm."
+
+3. **Know what's available**: "Found 2 Saturn beacons on the network: one with DeepInfra, one with OpenRouter."
+
+### Design Philosophy
+
+This is **awareness infrastructure**, not cognition proxy:
+- We don't do the thinking for agents
+- We give agents information so they can make better decisions
+- We don't intercept traffic (that would double costs)
+- We read local logs that Claude Code already writes
+
+---
 
 ## Security Model
 
+**Beacon (Layer 1):**
 - Credentials expire automatically after 10 minutes
-- New credentials generated every 5 minutes (buffer prevents gaps)
+- New credentials generated every 5 minutes
 - Leave network = lose access (mDNS is local-only)
-- No long-lived credentials stored on client devices
-- All clients share the same ephemeral key (intended behavior for network-level access)
+- No long-lived credentials stored on clients
 
-## Why Zeroconf Library?
+**Awareness Service (Layer 2):**
+- Runs locally, no external API calls for cost data
+- Reads only local Claude logs (no network data exfiltration)
+- mDNS discovery is read-only network scan
 
-We use the Python `zeroconf` library instead of `dns-sd` subprocess because:
+---
 
-1. **Dynamic TXT Updates**: Key rotation requires updating TXT records every few minutes. With zeroconf, we call `unregister_service()` then `register_service()` - clean and atomic.
-2. **Cross-Platform**: Works on macOS, Linux, and Windows without requiring dns-sd binary.
-3. **Native Python**: Direct property dictionary access, proper exceptions, no subprocess parsing.
-4. **Error Handling**: Raises proper Python exceptions instead of opaque exit codes.
-5. **Production Proven**: Used by Home Assistant, Cura, and many IoT projects.
+## File Structure
 
-## Success Criteria
+| File | Layer | Purpose |
+|------|-------|---------|
+| `winter_beacon.py` | 1 | DeepInfra JWT beacon with mDNS announcement |
+| `saturn_awareness_service.py` | 2 | MCP server for cost/usage/presence awareness |
 
-- ✓ Beacon generates DeepInfra scoped JWT with 600s expiration
-- ✓ Beacon announces via mDNS with ephemeral_key in TXT record
-- ✓ Beacon rotates key every 5 minutes and updates mDNS
-- ✓ Clients discover beacon via zeroconf within 5 seconds
-- ✓ Clients extract ephemeral key from TXT properties
-- ✓ Clients make successful API calls to DeepInfra using extracted key
-- ✓ Clients detect key rotation via update_service() callback
-- ✓ Old keys expire and are rejected after 10 minutes
+---
 
 ## Troubleshooting
 
 **Beacon won't start:**
-- Ensure DEEPINFRA_API_KEY is set
-- Verify zeroconf and requests libraries are installed
-- Check Python version (3.7+)
+- Ensure `DEEPINFRA_API_KEY` is set
+- Verify zeroconf and requests libraries installed
 
-**Clients can't discover beacon:**
-- Ensure firewall allows mDNS (UDP port 5353)
-- Check beacon is running and registered
-- Try `dns-sd -B _saturn._tcp local` to verify announcement
+**Awareness service can't find logs:**
+- Check `~/.claude/projects/` exists
+- Ensure Claude Code has been used (creates logs on first use)
 
-**API calls fail:**
-- Check ephemeral key is being extracted correctly
-- Verify key hasn't expired (check timestamp)
-- Ensure network connectivity to api.deepinfra.com
-
-**Keys not rotating:**
-- Check beacon logs for rotation events
-- Verify rotation thread is running
-- Check for API rate limit errors (429)
+**MCP tools not appearing in Claude Code:**
+- Verify `fastapi-mcp` is installed: `pip install fastapi-mcp`
+- Check settings.json path is correct
+- Restart Claude Code after config changes

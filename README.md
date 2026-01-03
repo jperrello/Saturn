@@ -27,10 +27,10 @@ python clients/simple_chat_client.py               # Terminal 2
 
 ## When to Use Saturn
 
-**Problem 2: You're already paying for AI. Why can't all your apps use it?**
+**Problem 1: You're already paying for AI. Why can't all your apps use it?**
 You subscribe to OpenRouter or run Ollama locally. You want your home/office network to share that access. Saturn servers announce themselves via mDNS. Every app with Saturn support automatically discovers and uses them—no per-app API keys.
 
-**Problem 1: API key distribution is painful.**
+**Problem 2: API key distribution is painful.**
 You're an open source developer who wants to add AI features to your app. Your options: force users to get their own API keys (47-step setup guide), pay for everyone's usage (goodbye rent), or skip AI entirely. Saturn lets your app discover AI on the network automatically—users on networks with Saturn servers get AI features with zero configuration.
 
 **Problem 3: API key security is a nightmare.**

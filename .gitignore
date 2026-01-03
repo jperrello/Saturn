@@ -5,6 +5,8 @@ build/
 dist/
 wheels/
 *.egg-info
+.vscode/
+
 
 # Virtual environments
 .venv
@@ -21,3 +23,6 @@ references/
 
 # bv (beads viewer) local config and caches
 .bv/
+
+#serena
+.serena/
