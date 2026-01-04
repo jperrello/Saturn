@@ -15,7 +15,7 @@ Joey's laptop connects to Adam's WiFi. Thirty seconds later, his terminal shows:
       └─ mcp: 2025-11-25
 ```
 
-Joey has been using Claude Sonnet for everything—reasoning steps, code generation, test writing. But looking at Adam's Ollama setup, he realizes the bulk work doesn't need cloud. A 70B model running locally is more than capable.
+Joey has been using Claude Opus for everything—reasoning steps, code generation, test writing. But looking at Adam's Ollama setup, he realizes the bulk work doesn't need cloud. A 70B model running locally is more than capable.
 
 He opens his Gas Town config and adds a routing rule:
 

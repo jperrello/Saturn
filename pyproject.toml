@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "saturn"
+version = "2.0.0"
+description = "Zero-configuration AI service discovery using mDNS/DNS-SD"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Joey Perrello", email = "jperrell@ucsc.edu"}
+]
+keywords = ["ai", "mcp", "dns-sd", "mdns", "service-discovery", "llm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.scripts]
+saturn-rings = "rings.saturn_rings:main"
+
+[project.urls]
+Homepage = "https://github.com/jperrello/Saturn"
+Repository = "https://github.com/jperrello/Saturn"
+
+[tool.setuptools.packages.find]
+include = ["rings*"]
