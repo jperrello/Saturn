@@ -6,22 +6,47 @@ Saturn is a service discovery protocol that uses mDNS and DNS-SD to automaticall
 
 **Tech stack:** Python 3.7+, FastAPI/uvicorn for servers, zeroconf library or dns-sd subprocess for discovery. All endpoints follow the OpenAI API specification (`/v1/health`, `/v1/models`, `/v1/chat/completions`).
 
+## Installation
+
+```bash
+# Clone and install
+git clone https://github.com/jperrello/Saturn.git && cd Saturn
+pip install -e .
+
+# Verify installation
+saturn discover        # Find services on network
+saturn-openrouter --help     # OpenRouter server options
+saturn-ollama --help         # Ollama server options
+aider-saturn --help          # Aider launcher options
+```
+
+**Windows users:** If commands aren't found, use `python -m saturn` instead:
+```bash
+python -m saturn discover       # Same as saturn discover
+python -m saturn openrouter     # Same as saturn-openrouter
+python -m saturn ollama         # Same as saturn-ollama
+python -m saturn aider          # Same as aider-saturn
+```
+
+Or add Python Scripts to your PATH once:
+1. Press Win+R, type `sysdm.cpl`, click Advanced → Environment Variables
+2. Under User variables, edit PATH and add: `%APPDATA%\Python\Python313\Scripts` (adjust Python version as needed)
+3. Restart your terminal
+
 ## Quick Start
 
 ```bash
-git clone https://github.com/jperrello/Saturn.git && cd Saturn
-pip install -r requirements.txt
-python servers/fallback_server.py --priority 999   # Terminal 1
-python clients/simple_chat_client.py               # Terminal 2
+saturn-openrouter --priority 50   # Terminal 1: Start server
+saturn discover             # Terminal 2: Find it
 ```
 
 **What you'll see:**
 
-1. **Terminal 1** (Server): Registers a mock Saturn service via mDNS announcement. You'll see `Service registered: Fallback-Server._saturn._tcp.local.` followed by API startup on an auto-detected port.
+1. **Terminal 1** (Server): Registers a Saturn service via mDNS as `OpenRouter._saturn._tcp.local.` and starts the API on an auto-detected port.
 
-2. **Terminal 2** (Client): Runs mDNS discovery, finds the server, displays available services with their priorities, and drops you into an interactive chat. Type a message—the mock server responds with intentionally unhelpful replies (it's called "dont_pick_me" for a reason).
+2. **Terminal 2** (Discovery): Finds the server automatically and displays its capabilities, models, and priority.
 
-**What this demonstrates:** Zero-configuration discovery. The client found the server automatically via mDNS without you specifying any IP, port, or endpoint. In a real deployment, you'd run an Ollama or OpenRouter server instead, and your apps would discover and use actual AI models the same way.
+**What this demonstrates:** Zero-configuration discovery. No IP addresses, ports, or configuration files needed.
 
 ---
 
@@ -78,10 +103,11 @@ This proves "network presence = AI access" with automatic credential expiration.
 
 | Directory | Contents |
 |-----------|----------|
-| [servers/](servers/README.md) | Server implementations, CLI arguments, setup |
-| [clients/](clients/README.md) | Client implementations, discovery patterns |
-| [beacons/](beacons/README.md) | Ephemeral JWT distribution via mDNS, can be used in place of a server |
-| [fiction/](fiction/README.md) | Design fictions about Saturn  |
+| [saturn/](saturn/README.md) | Core package: discovery, servers, beacon, CLI |
+| [clients/](clients/README.md) | Reference client implementations, discovery patterns |
+| [beacons/](beacons/README.md) | Ephemeral JWT distribution via mDNS |
+| [fiction/](fiction/README.md) | Design fictions about Saturn |
+| [flow.md](flow.md) | Code architecture guide ("show me where X does Y") |
 
 **Integrations:** See [jperrello.github.io/Saturn](https://jperrello.github.io/Saturn) for Open WebUI, VLC, and other integration guides.
 
@@ -137,7 +163,7 @@ from zeroconf import ServiceBrowser, Zeroconf
 - `clients/simple_chat_client.py` - DNS-SD subprocess pattern (~150 lines)
 - `clients/file_upload_client.py` - zeroconf event-driven pattern
 
-**Research tools:** You have access to web search, file reading, and code analysis. The codebase is small—read `servers/openrouter_server.py` for a complete server example, `clients/local_proxy_client.py` for a sophisticated proxy with failover. For deeper context, browse the [integration guides](https://jperrello.github.io/Saturn).
+**Research tools:** You have access to web search, file reading, and code analysis. The codebase is small—read `saturn/openrouter_server.py` for a complete server example, `clients/local_proxy_client.py` for a sophisticated proxy with failover. For deeper context, browse the [integration guides](https://jperrello.github.io/Saturn).
 
 **Start with an issue:** Before implementing, create a tracking issue (e.g., `bd create --title "Integrate Saturn discovery"`) to plan the approach and track progress.
 
