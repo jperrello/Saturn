@@ -1,3 +1,15 @@
-from .saturn_rings import RingsService, RingsDiscovery, RingsAdvertiser, discover_rings
+from .discovery import (
+    SaturnService,
+    SaturnDiscovery,
+    SaturnAdvertiser,
+    discover_services,
+    select_best_service,
+)
 
-__all__ = ['RingsService', 'RingsDiscovery', 'RingsAdvertiser', 'discover_rings']
+__all__ = [
+    'SaturnService',
+    'SaturnDiscovery',
+    'SaturnAdvertiser',
+    'discover_services',
+    'select_best_service',
+]

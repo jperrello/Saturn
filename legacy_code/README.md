@@ -24,6 +24,26 @@ This was created as a minimal test client to validate the beacon concept. Once p
 
 ---
 
+### standalone_servers/
+**Status:** Archived - Replaced by `saturn/` package servers
+
+**Purpose:** Original standalone server implementations with inline mDNS registration code.
+
+**What they contained:**
+- `openrouter_server.py` - OpenRouter proxy with inline `register_saturn()` function
+- `ollama_server.py` - Ollama proxy with inline `register_saturn()` function
+- `fallback_server.py` - Mock server with inline priority discovery
+
+**Why they were archived:**
+These servers duplicated ~50 lines of mDNS registration code each. The `saturn/` package consolidates this into `SaturnAdvertiser` in `saturn/discovery.py`, which all servers now import and use.
+
+**For production server usage, use:**
+- `saturn-openrouter` or `python -m saturn openrouter`
+- `saturn-ollama` or `python -m saturn ollama`
+- `python -m saturn fallback`
+
+---
+
 ## Other Archived Materials
 
 This directory may also contain:

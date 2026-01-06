@@ -1,4 +1,12 @@
-# Saturn Servers
+# Legacy Standalone Servers
+
+> **DEPRECATED**: These are the old standalone server implementations.
+> The active servers are now in `saturn/` and use the shared `SaturnAdvertiser` from `saturn/discovery.py`.
+> These files are kept for reference only.
+
+---
+
+# Saturn Servers (Legacy)
 
 Saturn servers expose AI backends via mDNS service discovery. Each server advertises itself as `_saturn._tcp.local.` and provides an OpenAI-compatible API.
 

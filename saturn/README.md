@@ -1,55 +1,81 @@
-# Saturn Rings
+# Saturn Discovery
 
-MCP-compatible service discovery for Saturn using `_rings._tcp` mDNS.
+MCP-compatible service discovery using `_saturn._tcp` mDNS with rich TXT records.
 
 ## Quick Start
 
-### Start a Server (Dual Registration)
+### Start a Server
 
 ```bash
 # Ollama server (requires Ollama running locally)
-python -m rings.ollama_server
+saturn-ollama
 
 # OpenRouter server (requires .env with OPENROUTER_API_KEY)
-python -m rings.openrouter_server
+saturn-openrouter
+
+# Windows alternative (if commands not on PATH)
+python -m saturn ollama
+python -m saturn openrouter
 ```
 
-Both servers advertise on `_saturn._tcp` (legacy) and `_rings._tcp` (new MCP-compatible).
+Servers advertise on `_saturn._tcp` with rich TXT records (models, capabilities, context, cost, etc.).
 
 ### Discover Services
 
 ```bash
-# CLI discovery
-python -m rings.saturn_rings discover
+# CLI discovery (human-readable)
+saturn discover
 
 # Select best service
-python -m rings.saturn_rings select
+saturn select
+
+# Select with filtering
+saturn select --needs=chat,code --min-context=8000
+
+# Get just the endpoint URL (for scripting)
+saturn select --endpoint-only
+
+# Windows alternative
+python -m saturn discover
+python -m saturn select
 ```
 
 ### Python API
 
 ```python
-from rings import RingsDiscovery, RingsAdvertiser, discover_rings
+from saturn import SaturnDiscovery, SaturnAdvertiser, discover_services, select_best_service
 
 # One-shot discovery
-services = discover_rings(timeout=5.0)
+services = discover_services(timeout=5.0)
 for svc in services:
     print(f"{svc.name}: {svc.endpoint} (priority={svc.priority})")
     print(f"  models: {svc.models}")
+    print(f"  capabilities: {svc.capabilities}")
+
+# Select best service with filtering
+best = select_best_service(
+    services,
+    needs=["code"],       # require specific capabilities
+    min_context=64000,    # minimum context window
+    prefer_free=True      # prefer free over paid
+)
+if best:
+    print(f"Selected: {best.endpoint}")
 
 # Background discovery with callbacks
 def on_change(event, service):
     print(f"{event}: {service.name}")
 
-discovery = RingsDiscovery(on_service_change=on_change)
+discovery = SaturnDiscovery(on_service_change=on_change)
 # ... discovery runs in background thread
 discovery.stop()
 
 # Advertise a service
-advertiser = RingsAdvertiser(
+advertiser = SaturnAdvertiser(
     name="MyService",
     port=8080,
     models=["gpt-4", "claude-3"],
+    capabilities=["chat", "code", "vision"],
     context=128000,
     cost="paid",
     priority=50,
@@ -57,6 +83,11 @@ advertiser = RingsAdvertiser(
 advertiser.register()
 # ... service is now discoverable
 advertiser.unregister()
+
+# Or use context manager
+with SaturnAdvertiser(name="MyService", port=8080, models=["llama3"]) as adv:
+    # service is advertised while in this block
+    pass
 ```
 
 ## Testing
@@ -65,20 +96,16 @@ advertiser.unregister()
 
 1. **Start a server in one terminal:**
    ```bash
-   python -m rings.ollama_server --priority 10
+   saturn-ollama --priority 10
    ```
 
 2. **Discover it from another terminal:**
    ```bash
-   python -m rings.saturn_rings discover
+   saturn discover
    ```
 
-3. **Verify dual registration with dns-sd:**
+3. **Verify registration with dns-sd:**
    ```bash
-   # Check _rings._tcp
-   dns-sd -B _rings._tcp local
-
-   # Check _saturn._tcp (legacy)
    dns-sd -B _saturn._tcp local
    ```
 
@@ -96,50 +123,41 @@ advertiser.unregister()
      -d '{"model": "llama3.2", "messages": [{"role": "user", "content": "Hello"}]}'
    ```
 
-### Quick Validation Script
-
-```python
-from rings import discover_rings
-
-services = discover_rings(timeout=5.0)
-if services:
-    print(f"Found {len(services)} service(s):")
-    for s in services:
-        print(f"  {s.name} @ {s.endpoint}")
-        print(f"    models: {', '.join(s.models) or 'none'}")
-        print(f"    priority: {s.priority}, cost: {s.cost}")
-else:
-    print("No services found. Is a server running?")
-```
-
 ## TXT Record Fields
 
 | Field | Description | Example |
 |-------|-------------|---------|
+| txtvers | TXT record version | `1` |
+| saturn | Saturn protocol version | `2.0` |
+| mcp | MCP support status | `none`, `2025-11-25` |
+| transport | Protocol | `http`, `https` |
 | models | Comma-separated model list | `llama3.2,mistral` |
-| context | Max context window | `4096` |
+| capabilities | Comma-separated capabilities | `chat,code,vision` |
+| context | Max context window | `4096`, `128000` |
 | cost | Pricing tier | `free`, `paid`, `unknown` |
 | priority | Lower = preferred | `10`, `50`, `100` |
-| mcp | MCP support status | `none`, `partial`, `full` |
-| transport | Protocol | `http`, `https`, `sse` |
-| auth | Auth requirement | `none`, `bearer`, `apikey` |
-| saturn | Saturn version | `2.0` |
+| auth | Auth requirement | `none`, `psk`, `bearer` |
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    Saturn Rings                          │
+│                    Saturn Discovery                      │
 ├─────────────────────────────────────────────────────────┤
 │                                                          │
 │  ┌──────────────┐        ┌──────────────────────────┐   │
-│  │ RingsService │        │     RingsDiscovery       │   │
+│  │SaturnService │        │    SaturnDiscovery       │   │
 │  │  (dataclass) │        │  (background discovery)  │   │
 │  └──────────────┘        └──────────────────────────┘   │
 │                                                          │
 │  ┌──────────────────────────────────────────────────┐   │
-│  │              RingsAdvertiser                      │   │
+│  │             SaturnAdvertiser                      │   │
 │  │  (server-side mDNS registration)                 │   │
+│  └──────────────────────────────────────────────────┘   │
+│                                                          │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │           select_best_service()                   │   │
+│  │  (filter by capabilities, context, cost)         │   │
 │  └──────────────────────────────────────────────────┘   │
 │                                                          │
 ├─────────────────────────────────────────────────────────┤
@@ -147,9 +165,10 @@ else:
 │  ┌─────────────────┐    ┌─────────────────────────┐     │
 │  │  ollama_server  │    │   openrouter_server     │     │
 │  │  (local LLMs)   │    │   (cloud models)        │     │
+│  │  caps: chat,code│    │  caps: chat,code,vision │     │
 │  └─────────────────┘    └─────────────────────────┘     │
 │                                                          │
-│  Both register on: _saturn._tcp + _rings._tcp            │
+│  All register on: _saturn._tcp with rich TXT records     │
 └─────────────────────────────────────────────────────────┘
 ```
 
