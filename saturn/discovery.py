@@ -36,6 +36,15 @@ class SaturnService:
     auth: str = "none"                                     # none, psk, bearer
     saturn: str = "2.0"                                    # Saturn protocol version
     txtvers: str = "1"                                     # TXT record schema version
+    # Beacon-specific fields (for pure mDNS announcers that broadcast ephemeral keys)
+    ephemeral_key: str = ""                                # API key/JWT for direct provider access
+    api: str = ""                                          # Provider name (e.g., "OpenRouter", "DeepInfra")
+    api_base: str = ""                                     # Provider API base URL (e.g., "https://openrouter.ai/api/v1")
+    beacon_features: str = ""                              # Feature flags (e.g., "ephemeral_auth")
+
+    @property
+    def is_beacon(self) -> bool:
+        return bool(self.ephemeral_key)
 
     @property
     def endpoint(self) -> str:
@@ -107,6 +116,11 @@ class SaturnDiscovery(ServiceListener):
             auth=props.get('auth', 'none'),
             saturn=props.get('saturn', '2.0'),
             txtvers=props.get('txtvers', '1'),
+            # Beacon-specific fields
+            ephemeral_key=props.get('ephemeral_key', ''),
+            api=props.get('api', ''),
+            api_base=props.get('api_base', ''),
+            beacon_features=props.get('features', ''),
         )
 
         with self.lock:
@@ -114,9 +128,13 @@ class SaturnDiscovery(ServiceListener):
             self.services[service_name] = service
 
             if is_new:
-                logger.info(f"Discovered Saturn service: {service_name} at {ip_address}:{info.port}")
-                logger.info(f"  models: {', '.join(models) if models else 'none'}")
-                logger.info(f"  context: {service.context} | cost: {service.cost} | priority: {service.priority}")
+                svc_type = "beacon" if service.is_beacon else "service"
+                logger.info(f"Discovered Saturn {svc_type}: {service_name} at {ip_address}:{info.port}")
+                if service.is_beacon:
+                    logger.info(f"  api: {service.api} | priority: {service.priority}")
+                else:
+                    logger.info(f"  models: {', '.join(models) if models else 'none'}")
+                    logger.info(f"  context: {service.context} | cost: {service.cost} | priority: {service.priority}")
                 if self.on_service_change:
                     self.on_service_change('added', service)
 
@@ -216,14 +234,23 @@ def format_service_tree(service: SaturnService, prefix: str = "   ") -> str:
     else:
         branch, tee, corner = '+-', '+-', '+-'
 
-    lines = [
-        f"{prefix}{corner} {service.name}._saturn._tcp.local",
-        f"{prefix}   {tee} models: {', '.join(service.models) if service.models else 'none'}",
-        f"{prefix}   {tee} capabilities: {', '.join(service.capabilities) if service.capabilities else 'none'}",
-        f"{prefix}   {tee} context: {service.context} | cost: {service.cost}",
-        f"{prefix}   {tee} priority: {service.priority}",
-        f"{prefix}   {corner} mcp: {service.mcp}",
-    ]
+    if service.is_beacon:
+        lines = [
+            f"{prefix}{corner} {service.name}._saturn._tcp.local (beacon)",
+            f"{prefix}   {tee} api: {service.api}",
+            f"{prefix}   {tee} api_base: {service.api_base or '(not set)'}",
+            f"{prefix}   {tee} priority: {service.priority}",
+            f"{prefix}   {corner} ephemeral_key: {service.ephemeral_key[:20]}..." if len(service.ephemeral_key) > 20 else f"{prefix}   {corner} ephemeral_key: {service.ephemeral_key}",
+        ]
+    else:
+        lines = [
+            f"{prefix}{corner} {service.name}._saturn._tcp.local",
+            f"{prefix}   {tee} models: {', '.join(service.models) if service.models else 'none'}",
+            f"{prefix}   {tee} capabilities: {', '.join(service.capabilities) if service.capabilities else 'none'}",
+            f"{prefix}   {tee} context: {service.context} | cost: {service.cost}",
+            f"{prefix}   {tee} priority: {service.priority}",
+            f"{prefix}   {corner} mcp: {service.mcp}",
+        ]
     return '\n'.join(lines)
 
 
