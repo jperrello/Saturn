@@ -316,8 +316,8 @@ def main():
     global _advertiser
 
     parser = argparse.ArgumentParser(
-        prog='saturn-beacon',
-        description='Saturn Beacon: Proxy with automatic JWT rotation for network guests'
+        prog='saturn-beacon-proxy',
+        description='Saturn Beacon Proxy: HTTP proxy server with automatic JWT rotation'
     )
     parser.add_argument('--host', type=str, default='0.0.0.0',
                         help='Host to bind to (default: 0.0.0.0)')
@@ -335,8 +335,12 @@ def main():
     port = args.port if args.port else find_port(args.host)
 
     print("=" * 55)
-    print("  Saturn Beacon")
+    print("  Saturn Beacon Proxy")
     print("=" * 55)
+    print()
+    print("  This is the HTTP proxy version. All client traffic")
+    print("  passes through this server to DeepInfra.")
+    print()
     print(f"  Proxy running at http://{args.host}:{port}")
     print()
     print("  Guests configure their tools with:")

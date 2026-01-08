@@ -31,7 +31,11 @@ classifiers = [
 
 [project.scripts]
 saturn = "saturn.__main__:main"
-saturn-beacon = "saturn.beacon:main"
+saturn-deepinfra-beacon = "saturn.deepinfra_beacon:main"
+saturn-dibeacon = "saturn.deepinfra_beacon:main"
+saturn-openrouter-beacon = "saturn.openrouter_beacon:main"
+saturn-orbeacon = "saturn.openrouter_beacon:main"
+saturn-beacon-proxy = "saturn.beacon_proxy:main"
 saturn-openrouter = "saturn.openrouter_server:main"
 saturn-ollama = "saturn.ollama_server:main"
 aider-saturn = "saturn.aider_saturn:main"
