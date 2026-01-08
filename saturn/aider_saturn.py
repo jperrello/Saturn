@@ -8,7 +8,29 @@ from .discovery import discover_services, select_best_service, SaturnService
 from typing import List
 
 
+def fetch_beacon_models(service: SaturnService) -> List[str]:
+    if not service.ephemeral_key or not service.api_base:
+        return []
+
+    try:
+        response = requests.get(
+            f"{service.api_base}/models",
+            headers={"Authorization": f"Bearer {service.ephemeral_key}"},
+            timeout=10
+        )
+        if response.ok:
+            data = response.json()
+            models = data.get("data", [])
+            return [m["id"] if isinstance(m, dict) else m for m in models]
+    except Exception:
+        pass
+    return []
+
+
 def fetch_service_models(service: SaturnService) -> List[str]:
+    if service.is_beacon:
+        return fetch_beacon_models(service)
+
     try:
         response = requests.get(f"{service.endpoint}/v1/models", timeout=5)
         if response.ok:
@@ -111,10 +133,14 @@ def main():
     if args.select:
         print(f"Saturn: Found {len(services)} service(s):")
         for i, svc in enumerate(services, 1):
-            models_preview = ', '.join(svc.models[:3]) + ('...' if len(svc.models) > 3 else '')
-            print(f"  [{i}] {svc.name} at {svc.endpoint}")
-            print(f"      models: {models_preview or 'none'}")
-            print(f"      context: {svc.context} | cost: {svc.cost} | priority: {svc.priority}")
+            if svc.is_beacon:
+                print(f"  [{i}] {svc.name} (beacon -> {svc.api})")
+                print(f"      priority: {svc.priority}")
+            else:
+                models_preview = ', '.join(svc.models[:3]) + ('...' if len(svc.models) > 3 else '')
+                print(f"  [{i}] {svc.name} at {svc.endpoint}")
+                print(f"      models: {models_preview or 'none'}")
+                print(f"      context: {svc.context} | cost: {svc.cost} | priority: {svc.priority}")
 
         while True:
             try:
@@ -160,14 +186,23 @@ def main():
         else:
             selected_model = models[0]
 
-    print(f"Saturn: Using {service.name} at {service.endpoint}")
-    print(f"Saturn: Model: {selected_model}")
+    if service.is_beacon:
+        if not service.api_base:
+            print(f"Saturn: Beacon {service.name} missing api_base", file=sys.stderr)
+            sys.exit(1)
+        base_url = service.api_base
+        print(f"Saturn: Using {service.name} beacon -> {service.api_base}")
+        print(f"Saturn: Model: {selected_model}")
+        api_key = service.ephemeral_key
+    else:
+        base_url = f"{service.endpoint}/v1"
+        print(f"Saturn: Using {service.name} at {service.endpoint}")
+        print(f"Saturn: Model: {selected_model}")
+        api_key = 'saturn'
 
-    # inject env vars so aider talks to saturn instead of openai directly
-    # api key can be anything, saturn servers don't validate it (auth is network-level)
     env = os.environ.copy()
-    env['OPENAI_BASE_URL'] = f"{service.endpoint}/v1"
-    env['OPENAI_API_KEY'] = 'saturn'
+    env['OPENAI_BASE_URL'] = base_url
+    env['OPENAI_API_KEY'] = api_key
 
     cmd = ['aider', '--model', f'openai/{selected_model}'] + aider_args
 
