@@ -402,15 +402,19 @@ class SaturnAdvertiser:
     def register(self) -> bool:
         actual_priority = self._find_available_priority()
 
-        # dns txt records max out at 255 bytes per string, we use 250 to be safe
-        # if model list is too long, truncate and clients can hit /v1/models for full list
+        # dns txt records: each key=value pair must be <= 255 bytes total
+        # account for the key name + '=' when calculating max value length
+        MODELS_KEY = 'models'
+        MAX_TXT_RECORD_BYTES = 255
+        MAX_VALUE_BYTES = MAX_TXT_RECORD_BYTES - len(MODELS_KEY) - 1  # -1 for '='
+
         models_str = ''
         models_truncated = False
         if self.models:
             parts = []
             for model in self.models:
                 candidate = ','.join(parts + [model]) if parts else model
-                if len(candidate.encode('utf-8')) <= 250:
+                if len(candidate.encode('utf-8')) <= MAX_VALUE_BYTES:
                     parts.append(model)
                 else:
                     models_truncated = True
