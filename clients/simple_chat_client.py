@@ -1,17 +1,22 @@
-import subprocess
 import socket
+import subprocess
 import time
 import requests
 import threading
+import logging
+import hashlib
 import re
-from typing import Dict, List, Optional
-from dataclasses import dataclass
+from typing import Dict, Optional, List
+from dataclasses import dataclass, field
 from datetime import datetime
 
-# Alternatively, you could run one of these commands to listen for Saturn servers:
-# Windows/macOS: dns-sd -B _saturn._tcp local
-# Linux: avahi-browse _saturn._tcp -t
-# For details: dns-sd -L <service_name> _saturn._tcp (or avahi-browse _saturn._tcp -t -r)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+DEEPINFRA_API_URL = "https://api.deepinfra.com/v1/chat/completions"
 
 @dataclass
 class SaturnService:
@@ -20,74 +25,29 @@ class SaturnService:
     priority: int
     ip: str
     last_seen: datetime
+    ephemeral_key: Optional[str] = None
 
 class ServiceDiscovery:
-    """Background service discovery using DNS-SD"""
     def __init__(self, discovery_interval: int = 10, on_service_change=None):
         self.services: Dict[str, SaturnService] = {}
         self.lock = threading.Lock()
         self.running = True
         self.discovery_interval = discovery_interval
         self.on_service_change = on_service_change
+        self.service_found = threading.Event()
         self.thread = threading.Thread(target=self._discovery_loop, daemon=True)
         self.thread.start()
 
     def _discovery_loop(self):
-        """Continuously discover services in background"""
         while self.running:
             try:
                 self._discover_services()
             except Exception as e:
-                print(f"Discovery error: {e}")
+                logger.error(f"Error in service discovery: {e}")
             time.sleep(self.discovery_interval)
 
     def _discover_services(self):
-        """Single discovery pass using DNS-SD"""
-        discovered = self._run_dns_sd_discovery()
-        if discovered is None:
-            return
-
-        current_time = datetime.now()
-        discovered_names = set()
-
-        with self.lock:
-            # Update or add discovered services
-            for svc in discovered:
-                discovered_names.add(svc['name'])
-
-                if svc['name'] not in self.services:
-                    # New service
-                    self.services[svc['name']] = SaturnService(
-                        name=svc['name'],
-                        url=svc['url'],
-                        priority=svc['priority'],
-                        ip=svc['ip'],
-                        last_seen=current_time
-                    )
-                    if self.on_service_change:
-                        self.on_service_change('added', svc['name'], svc['url'], svc['priority'])
-                else:
-                    # Update existing
-                    service = self.services[svc['name']]
-                    service.url = svc['url']
-                    service.priority = svc['priority']
-                    service.ip = svc['ip']
-                    service.last_seen = current_time
-
-            # Remove services that disappeared
-            removed = [name for name in self.services.keys() if name not in discovered_names]
-            for name in removed:
-                service = self.services[name]
-                del self.services[name]
-                if self.on_service_change:
-                    self.on_service_change('removed', name, service.url, service.priority)
-
-    def _run_dns_sd_discovery(self) -> Optional[List[dict]]:
-        """Run dns-sd discovery and return list of services"""
-        services = []
-
         try:
-            # Browse for services
             browse_proc = subprocess.Popen(
                 ['dns-sd', '-B', '_saturn._tcp', 'local'],
                 stdout=subprocess.PIPE,
@@ -104,15 +64,16 @@ class ServiceDiscovery:
                 browse_proc.kill()
                 stdout, stderr = browse_proc.communicate()
 
-            # Parse service names
             service_names = []
             for line in stdout.split('\n'):
                 if 'Add' in line and '_saturn._tcp' in line:
                     parts = line.split()
                     if len(parts) > 6:
-                        service_names.append(parts[6])
+                        service_name = parts[6]
+                        service_names.append(service_name)
 
-            # Get details for each service
+            discovered_services = set()
+
             for service_name in service_names:
                 try:
                     lookup_proc = subprocess.Popen(
@@ -134,6 +95,7 @@ class ServiceDiscovery:
                     hostname = None
                     port = None
                     priority = 50
+                    ephemeral_key = None
 
                     for line in stdout.split('\n'):
                         if 'can be reached at' in line:
@@ -143,10 +105,14 @@ class ServiceDiscovery:
                                 port = int(match.group(2))
 
                         if 'priority=' in line:
-                            parts = line.split('priority=')
-                            if len(parts) > 1:
-                                priority_str = parts[1].split()[0]
-                                priority = int(priority_str)
+                            match = re.search(r'priority=(\d+)', line)
+                            if match:
+                                priority = int(match.group(1))
+
+                        if 'ephemeral_key=' in line:
+                            match = re.search(r'ephemeral_key=([^\s]+)', line)
+                            if match:
+                                ephemeral_key = match.group(1)
 
                     if hostname and port:
                         try:
@@ -154,248 +120,144 @@ class ServiceDiscovery:
                         except socket.gaierror:
                             ip_address = hostname
 
-                        service_url = f"http://{ip_address}:{port}"
-                        services.append({
-                            'name': service_name,
-                            'url': service_url,
-                            'priority': priority,
-                            'ip': ip_address
-                        })
+                        discovered_services.add(service_name)
+                        url = f"http://{ip_address}:{port}"
 
-                except (subprocess.TimeoutExpired, ValueError, IndexError):
+                        with self.lock:
+                            is_new = service_name not in self.services
+                            old_key = None
+                            if not is_new:
+                                old_key = self.services[service_name].ephemeral_key
+
+                            self.services[service_name] = SaturnService(
+                                name=service_name,
+                                url=url,
+                                priority=priority,
+                                ip=ip_address,
+                                last_seen=datetime.now(),
+                                ephemeral_key=ephemeral_key
+                            )
+
+                            if ephemeral_key:
+                                key_hash = hashlib.sha256(ephemeral_key.encode()).hexdigest()[:12]
+                                if is_new:
+                                    logger.info(f"Discovered beacon: {service_name}")
+                                    logger.info(f"  JWT fingerprint: {key_hash}")
+                                elif old_key and old_key != ephemeral_key:
+                                    logger.info(f"Key rotated for {service_name}")
+                                    logger.info(f"  New JWT fingerprint: {key_hash}")
+                            elif is_new:
+                                logger.info(f"Discovered service: {service_name} at {ip_address}:{port} (priority: {priority})")
+
+                            if is_new and self.on_service_change:
+                                self.on_service_change('added', service_name, url, priority)
+
+                            self.service_found.set()
+
+                except (subprocess.TimeoutExpired, ValueError, IndexError) as e:
+                    logger.debug(f"Error looking up service {service_name}: {e}")
                     continue
 
+            with self.lock:
+                services_to_remove = [name for name in self.services.keys() if name not in discovered_services]
+                for name in services_to_remove:
+                    service = self.services[name]
+                    del self.services[name]
+                    logger.info(f"Removed service: {name}")
+                    if self.on_service_change:
+                        self.on_service_change('removed', name, service.url, service.priority)
+
         except FileNotFoundError:
-            return None
-        except Exception:
-            return None
-
-        # Deduplicate by name, preferring non-loopback
-        unique_services = {}
-        for svc in services:
-            name = svc['name']
-            ip = svc['ip']
-            is_loopback = ip.startswith('127.') or ip == 'localhost'
-
-            if name not in unique_services:
-                unique_services[name] = svc
-            else:
-                existing = unique_services[name]
-                existing_is_loopback = existing['ip'].startswith('127.') or existing['ip'] == 'localhost'
-
-                if (svc['priority'] < existing['priority']) or \
-                   (svc['priority'] == existing['priority'] and existing_is_loopback and not is_loopback):
-                    unique_services[name] = svc
-
-        return list(unique_services.values())
+            logger.error("dns-sd not found. Install Bonjour (Windows) or avahi-utils (Linux).")
+            self.running = False
+        except Exception as e:
+            logger.error(f"Error during service discovery: {e}")
 
     def get_all_services(self) -> List[SaturnService]:
-        """Get all discovered services sorted by priority"""
         with self.lock:
-            services = list(self.services.values())
-            return sorted(services, key=lambda s: s.priority)
+            return sorted(self.services.values(), key=lambda s: s.priority)
 
-    def get_best_service(self) -> Optional[SaturnService]:
-        """Get service with lowest priority (highest preference)"""
+    def get_priority_service(self) -> Optional[SaturnService]:
         with self.lock:
             if not self.services:
                 return None
             return min(self.services.values(), key=lambda s: s.priority)
 
     def stop(self):
-        """Stop background discovery"""
         self.running = False
 
-def discover_saturn_services():
-    services = []
+
+def call_deepinfra_api(ephemeral_key: str, model: str, messages: list) -> Optional[dict]:
+    headers = {
+        "Authorization": f"Bearer {ephemeral_key}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "model": model,
+        "messages": messages
+    }
 
     try:
-        print("Starting DNS-SD browsing for Saturn services...")
-        # DNS-SD service browsing
-        browse_proc = subprocess.Popen(
-            ['dns-sd', '-B', '_saturn._tcp', 'local'],
-            stdout=subprocess.PIPE, # The process writes to its stdout buffer while running.
-            stderr=subprocess.PIPE,
-            text=True
-        )
-
-        time.sleep(2.0)
-
-        # Terminate and wait for output
-        browse_proc.terminate() # buffer still exists in memory until communicate() is called
-        try:
-            stdout, stderr = browse_proc.communicate(timeout=2) #reads and returns the buffer contents
-        except subprocess.TimeoutExpired:
-            browse_proc.kill()
-            stdout, stderr = browse_proc.communicate()
-
-        print(f"DNS-SD browse output:\n{stdout}")
-        if stderr:
-            print(f"DNS-SD browse errors:\n{stderr}")
-
-        service_names = []
-        for line in stdout.split('\n'):
-            print(f"Parsing line: {line}")
-            if 'Add' in line and '_saturn._tcp' in line:
-                parts = line.split()
-                print(f"  Split into {len(parts)} parts: {parts}")
-                if len(parts) > 6:
-                    service_name = parts[6]
-                    print(f"  Found service: {service_name}")
-                    service_names.append(service_name)
-
-        print(f"Discovered {len(service_names)} services: {service_names}")
-
-        # DNS-SD service lookup to get details (hostname, port, priority)
-        for service_name in service_names:
-            try:
-                print(f"\nLooking up details for service: {service_name}")
-                lookup_proc = subprocess.Popen(
-                    ['dns-sd', '-L', service_name, '_saturn._tcp', 'local'],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
-
-                # Wait for lookup to complete this number is arbitrary
-                time.sleep(1.5)
-
-                # Terminate and get output
-                lookup_proc.terminate()
-                try:
-                    stdout, stderr = lookup_proc.communicate(timeout=2)
-                except subprocess.TimeoutExpired:
-                    lookup_proc.kill()
-                    stdout, stderr = lookup_proc.communicate()
-
-                if stderr:
-                    print(f"DNS-SD lookup errors:\n{stderr}")
-
-                hostname = None
-                port = None
-                priority = float('inf')
-
-                for line in stdout.split('\n'):
-                    if 'can be reached at' in line:
-                        match = re.search(r'can be reached at (.+):(\d+)', line)
-                        if match:
-                            hostname = match.group(1).rstrip('.')
-                            port = int(match.group(2))
-                            print(f"  Extracted hostname={hostname}, port={port}")
-
-                    if 'priority=' in line:
-                        parts = line.split('priority=')
-                        if len(parts) > 1:
-                            priority_str = parts[1].split()[0]
-                            priority = int(priority_str)
-                            
-
-                if hostname and port:
-                    try:
-                        ip_address = socket.gethostbyname(hostname)
-                        service_url = f"http://{ip_address}:{port}"
-                        print(f"  Resolved to: {service_url} (priority={priority})")
-                        services.append({
-                            'name': service_name,
-                            'url': service_url,
-                            'priority': priority,
-                            'ip': ip_address
-                        })
-                    except socket.gaierror as e:
-                        service_url = f"http://{hostname}:{port}"
-                        print(f"  Could not resolve hostname, using as-is: {service_url} (priority={priority})")
-                        services.append({
-                            'name': service_name,
-                            'url': service_url,
-                            'priority': priority,
-                            'ip': hostname
-                        })
-                else:
-                    print(f"  WARNING: Could not extract hostname/port from lookup")
-
-            except (subprocess.TimeoutExpired, ValueError, IndexError) as e:
-                print(f"  ERROR during lookup: {type(e).__name__}: {e}")
-                continue
-
-    except FileNotFoundError:
-        print("ERROR: dns-sd not found. Please install Bonjour services (Windows) or ensure dns-sd is available.")
-        return None, None
-    except Exception as e:
-        print(f"Error during service discovery: {e}")
-        return None, None
-
-    if not services:
-        print("\nNo Saturn services found. Make sure:")
-        print("  1. A Saturn server is running (e.g., python servers/openrouter_server.py)")
-        print("  2. The server successfully registered via mDNS")
-        print("  3. You're on the same network as the server")
-        return None, None
-
-    # The same service appears multiple times because machines have multiple network interfaces (WiFi, Ethernet, loopback). This means we need to deduplicate.
-    unique_services = {}
-    for svc in services:
-        name = svc['name']
-        ip = svc['ip']
-
-        # Prefer non-loopback addresses over loopback
-        is_loopback = ip.startswith('127.') or ip == 'localhost'
-
-        if name not in unique_services:
-            unique_services[name] = svc
+        response = requests.post(DEEPINFRA_API_URL, headers=headers, json=payload, timeout=60)
+        if response.ok:
+            return response.json()
         else:
-            existing = unique_services[name]
-            existing_is_loopback = existing['ip'].startswith('127.') or existing['ip'] == 'localhost'
-
-            # Replace if: better priority, OR same priority but prefer non-loopback
-            if (svc['priority'] < existing['priority']) or \
-               (svc['priority'] == existing['priority'] and existing_is_loopback and not is_loopback):
-                unique_services[name] = svc
-
-    services = list(unique_services.values())
-
-    print(f"\nFound {len(services)} unique Saturn service(s):")
-    for svc in sorted(services, key=lambda s: s['priority']):
-        print(f"  - {svc['name']}: {svc['url']} (priority={svc['priority']})")
-
-    best_service = min(services, key=lambda s: s['priority'])
-    print(f"\nSelecting best service: {best_service['url']} (priority={best_service['priority']})")
-    return best_service['url'], best_service['priority']
+            logger.error(f"DeepInfra API error: {response.status_code} - {response.text}")
+            return None
+    except Exception as e:
+        logger.error(f"DeepInfra API call failed: {e}")
+        return None
 
 
 def main():
-    # Track service change notifications
     service_notifications = []
     notification_lock = threading.Lock()
 
     def handle_service_change(action, name, url, priority):
-        """Callback when services are added/removed"""
         with notification_lock:
             if action == 'added':
-                service_notifications.append(f"\n  ⚠️  New server discovered: {name} at {url} (priority: {priority})")
+                service_notifications.append(f"\n  New server discovered: {name} at {url} (priority: {priority})")
             elif action == 'removed':
-                service_notifications.append(f"\n  ⚠️  Server removed: {name}")
+                service_notifications.append(f"\n  Server removed: {name}")
 
-    print("Searching for Saturn services...")
+    print("Searching for Saturn services and beacons...")
+    logger.info("Starting dns-sd based discovery...")
 
-    # Start background discovery
-    discovery = ServiceDiscovery(discovery_interval=10, on_service_change=handle_service_change)
+    discovery = ServiceDiscovery(on_service_change=handle_service_change)
 
-    # Wait for initial discovery
-    time.sleep(3)
+    print("Waiting for services (5 seconds)...")
+    discovery.service_found.wait(timeout=5.0)
 
-    best_service = discovery.get_best_service()
+    best_service = discovery.get_priority_service()
     if not best_service:
-        print("No Saturn services found.")
+        print("No Saturn services or beacons found.")
         discovery.stop()
         return
 
-    print(f"Connected to service: {best_service.name} at {best_service.url} (priority: {best_service.priority})")
-    print("  (Discovery continues in background - new servers will be detected automatically)")
+    using_beacon = best_service.ephemeral_key is not None
+    model = None
 
-    # Fetch initial model
-    current_service_url = best_service.url
-    models_response = requests.get(f"{current_service_url}/v1/models")
-    model = (models_response.json().get('models', []))[0]['id'] if models_response.ok else None
+    if using_beacon:
+        key_hash = hashlib.sha256(best_service.ephemeral_key.encode()).hexdigest()[:12]
+        print(f"Connected to BEACON: {best_service.name}")
+        print(f"  URL: {best_service.url}")
+        print(f"  Priority: {best_service.priority}")
+        print(f"  JWT fingerprint: {key_hash}")
+        print(f"  (Calling DeepInfra API directly)")
+        model = "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+    else:
+        print(f"Connected to Saturn server: {best_service.name}")
+        print(f"  URL: {best_service.url}")
+        print(f"  Priority: {best_service.priority}")
+        print("  (Proxying through Saturn server)")
+
+        try:
+            models_response = requests.get(f"{best_service.url}/v1/models")
+            models = models_response.json().get('models', []) if models_response.ok else []
+            model = models[0]['id'] if models else None
+        except:
+            model = None
 
     chat_history = []
 
@@ -403,7 +265,6 @@ def main():
 
     try:
         while True:
-            # Display any service change notifications
             with notification_lock:
                 if service_notifications:
                     for notification in service_notifications:
@@ -411,14 +272,13 @@ def main():
                     service_notifications.clear()
                     print()
 
-            # Get current best service (might have changed)
-            best_service = discovery.get_best_service()
+            best_service = discovery.get_priority_service()
             if not best_service:
-                print("\n  ⚠️  All servers offline! Waiting for services...")
+                print("\n  All servers offline! Waiting for services...")
                 time.sleep(2)
                 continue
 
-            current_service_url = best_service.url
+            using_beacon = best_service.ephemeral_key is not None
 
             user_input = input("You: ").strip()
 
@@ -435,28 +295,50 @@ def main():
                 else:
                     print(f"\nAvailable servers:")
                     for svc in all_services:
-                        marker = " <- current" if svc.url == current_service_url else ""
-                        print(f"  - {svc.name}: {svc.url} (priority: {svc.priority}){marker}")
+                        marker = " <- current" if svc.url == best_service.url else ""
+                        beacon_marker = " [BEACON]" if svc.ephemeral_key else ""
+                        print(f"  - {svc.name}: {svc.url} (priority: {svc.priority}){beacon_marker}{marker}")
                 continue
 
             if not user_input:
                 continue
 
             current_message = chat_history + [{"role": "user", "content": user_input}]
-            payload = {
-                "model": model,
-                "messages": current_message
-            }
 
-            response = requests.post(f"{current_service_url}/v1/chat/completions", json=payload)
-            if response.ok:
-                data = response.json()
-                assistant_message = data['choices'][0]['message']['content']
-                print(f"AI: {assistant_message}")
-                chat_history.append({"role": "user", "content": user_input})
-                chat_history.append({"role": "assistant", "content": assistant_message})
+            if using_beacon:
+                key_hash = hashlib.sha256(best_service.ephemeral_key.encode()).hexdigest()[:12]
+                logger.info(f"Using ephemeral JWT: {key_hash}")
+                data = call_deepinfra_api(
+                    ephemeral_key=best_service.ephemeral_key,
+                    model=model,
+                    messages=current_message
+                )
+
+                if data:
+                    assistant_message = data['choices'][0]['message']['content']
+                    print(f"AI: {assistant_message}")
+                    chat_history.append({"role": "user", "content": user_input})
+                    chat_history.append({"role": "assistant", "content": assistant_message})
+                else:
+                    print("Error: Failed to get response from DeepInfra API")
             else:
-                print(f"Error: {response.status_code} - {response.text}")
+                payload = {
+                    "model": model,
+                    "messages": current_message
+                }
+
+                try:
+                    response = requests.post(f"{best_service.url}/v1/chat/completions", json=payload)
+                    if response.ok:
+                        data = response.json()
+                        assistant_message = data['choices'][0]['message']['content']
+                        print(f"AI: {assistant_message}")
+                        chat_history.append({"role": "user", "content": user_input})
+                        chat_history.append({"role": "assistant", "content": assistant_message})
+                    else:
+                        print(f"Error: {response.status_code} - {response.text}")
+                except Exception as e:
+                    print(f"Error: {e}")
 
     finally:
         print("\nShutting down...")

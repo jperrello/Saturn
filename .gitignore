@@ -5,14 +5,25 @@ build/
 dist/
 wheels/
 *.egg-info
+.vscode/
+
 
 # Virtual environments
 .venv
 
 # Secrets
 *.env
+.env.example
 
 # Claude
 .claude
+CLAUDE.md
 
 references/
+
+# bv (beads viewer) local config and caches
+.bv/
+
+#serena
+.serena/
+.aider*
