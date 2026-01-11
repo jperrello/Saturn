@@ -70,6 +70,22 @@ bd init
 bd create "Try out Beads"
 ```
 
+## Label Conventions
+
+Standard labels for Saturn (limit 2-3 per issue):
+
+| Label | Use For |
+|-------|---------|
+| `documentation` | README updates, docs changes |
+| `refactoring` | Code restructuring, no new features |
+| `testing` | Test additions/fixes |
+| `client` | Client-related work |
+| `server` | Server-related work |
+| `saturn-beacon` | Beacon/ephemeral credential work |
+| `maintenance` | Admin tasks, cleanup |
+
+Add labels: `bd label add <id> <label>`
+
 ## Learn More
 
 - **Documentation**: [github.com/steveyegge/beads/docs](https://github.com/steveyegge/beads/tree/main/docs)
