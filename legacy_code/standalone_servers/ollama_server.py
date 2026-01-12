@@ -284,7 +284,7 @@ def register_saturn(port: int, priority: int, service_type: str) -> subprocess.P
     actual_priority = find_available_priority(priority, service_type)
 
     host = socket.gethostname()
-    service_name = f"OpenRouter"
+    service_name = "Ollama"
 
     try:
         registration_proc = subprocess.Popen(
@@ -293,8 +293,8 @@ def register_saturn(port: int, priority: int, service_type: str) -> subprocess.P
                 service_name, '_saturn._tcp', 'local',
                 str(port),
                 f'version=2.0',
-                f'api=OpenRouter',
-                f'features=multimodal,auto-routing,full-catalog',
+                f'api=ollama',
+                f'features=local,streaming',
                 f'priority={actual_priority}'
             ],
             stdout=subprocess.PIPE,
