@@ -115,10 +115,10 @@ class ServiceDiscovery:
                                 ephemeral_key = match.group(1)
 
                     if hostname and port:
-                        try:
-                            ip_address = socket.gethostbyname(hostname)
-                        except socket.gaierror:
-                            ip_address = hostname
+                        # Skip slow DNS resolution for .local mDNS names
+                        # Windows gethostbyname() takes ~5s to fail on .local
+                        # Just use the hostname directly - HTTP clients handle it
+                        ip_address = hostname
 
                         discovered_services.add(service_name)
                         url = f"http://{ip_address}:{port}"
@@ -226,8 +226,8 @@ def main():
 
     discovery = ServiceDiscovery(on_service_change=handle_service_change)
 
-    print("Waiting for services (5 seconds)...")
-    discovery.service_found.wait(timeout=5.0)
+    print("Waiting for services (8 seconds)...")
+    discovery.service_found.wait(timeout=8.0)
 
     best_service = discovery.get_priority_service()
     if not best_service:

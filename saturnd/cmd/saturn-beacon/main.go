@@ -154,7 +154,7 @@ func main() {
 			cfg.Name,
 			ServiceType,
 			Domain,
-			0,
+			5354, // Port for SRV record (beacon doesn't serve HTTP, but mDNS requires a port)
 			txt,
 			nil,
 		)
