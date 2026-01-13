@@ -1,0 +1,198 @@
+#!/bin/sh /etc/rc.common
+# Saturn Beacon procd init script
+# Zero-configuration AI service discovery
+
+USE_PROCD=1
+START=95
+STOP=10
+
+PROG=/usr/bin/saturn-beacon
+CONFIG_FILE=/tmp/saturn-beacon.json
+ACTIVE_PROVIDER=""
+
+generate_config() {
+	local provider_name="$1"
+	local enabled name priority rotation expires
+	local provider_enabled provider_key provider_priority provider_rotation provider_expires
+
+	config_load saturn
+
+	config_get enabled main enabled 1
+	[ "$enabled" = "0" ] && return 1
+
+	config_get name main name ""
+	config_get priority main priority 10
+	config_get rotation main rotation_interval 300
+	config_get expires main expires_interval 600
+
+	config_get provider_enabled "$provider_name" enabled 0
+	[ "$provider_enabled" = "0" ] && {
+		logger -t saturn -p daemon.err "Provider '$provider_name' is disabled"
+		return 1
+	}
+
+	config_get provider_key "$provider_name" api_key ""
+	[ -z "$provider_key" ] && {
+		logger -t saturn -p daemon.err "No API key configured for provider '$provider_name'"
+		return 1
+	}
+
+	config_get provider_priority "$provider_name" priority "$priority"
+	config_get provider_rotation "$provider_name" rotation_interval "$rotation"
+	config_get provider_expires "$provider_name" expires_interval "$expires"
+
+	if [ -z "$name" ]; then
+		name="$(cat /proc/sys/kernel/hostname)-beacon"
+	fi
+
+	cat > "$CONFIG_FILE" <<EOF
+{
+  "name": "$name",
+  "priority": $provider_priority,
+  "provider": {
+    "type": "$provider_name",
+    "api_key": "$provider_key",
+    "rotation_seconds": $provider_rotation,
+    "expires_seconds": $provider_expires
+  }
+}
+EOF
+
+	chmod 600 "$CONFIG_FILE"
+	return 0
+}
+
+check_provider() {
+	local name="$1"
+	local enabled api_key
+
+	config_get enabled "$name" enabled 0
+	[ "$enabled" = "1" ] || return 1
+
+	config_get api_key "$name" api_key ""
+	[ -n "$api_key" ] || return 1
+
+	ACTIVE_PROVIDER="$name"
+	return 0
+}
+
+find_active_provider() {
+	ACTIVE_PROVIDER=""
+	config_load saturn
+	config_foreach check_provider provider
+	echo "$ACTIVE_PROVIDER"
+}
+
+start_service() {
+	local enabled provider
+
+	config_load saturn
+	config_get enabled main enabled 1
+	[ "$enabled" = "0" ] && {
+		logger -t saturn -p daemon.info "Saturn beacon disabled in config"
+		return 0
+	}
+
+	provider=$(find_active_provider)
+	[ -z "$provider" ] && {
+		logger -t saturn -p daemon.err "No enabled provider with API key found"
+		logger -t saturn -p daemon.err "Configure with: uci set saturn.deepinfra.api_key='YOUR_KEY'"
+		return 1
+	}
+
+	generate_config "$provider" || {
+		logger -t saturn -p daemon.err "Failed to generate config for provider '$provider'"
+		return 1
+	}
+
+	logger -t saturn -p daemon.info "Starting saturn-beacon with provider '$provider'"
+
+	procd_open_instance "saturn-beacon"
+	procd_set_param command "$PROG" --config "$CONFIG_FILE"
+	procd_set_param respawn 3600 5 5
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param file /etc/config/saturn
+	procd_set_param pidfile /var/run/saturn-beacon.pid
+	procd_close_instance
+}
+
+stop_service() {
+	logger -t saturn -p daemon.info "Stopping saturn-beacon"
+	rm -f "$CONFIG_FILE"
+}
+
+reload_service() {
+	logger -t saturn -p daemon.info "Reloading saturn-beacon config"
+	stop
+	start
+}
+
+service_triggers() {
+	procd_add_reload_trigger "saturn"
+}
+
+status() {
+	local pid
+	pid=$(cat /var/run/saturn-beacon.pid 2>/dev/null)
+	if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+		echo "saturn-beacon is running (PID: $pid)"
+		return 0
+	else
+		echo "saturn-beacon is not running"
+		return 1
+	fi
+}
+
+print_provider() {
+	local name="$1"
+	local enabled api_key priority key_len key_preview
+
+	config_get enabled "$name" enabled 0
+	config_get api_key "$name" api_key ""
+	config_get priority "$name" priority "default"
+
+	key_len="${#api_key}"
+	if [ "$key_len" -gt 0 ]; then
+		key_preview="(${key_len} chars)"
+	else
+		key_preview="(not set)"
+	fi
+
+	echo "  $name:"
+	echo "    Enabled: $enabled"
+	echo "    API Key: $key_preview"
+	echo "    Priority: $priority"
+}
+
+show_config() {
+	local enabled name priority rotation expires
+
+	config_load saturn
+	config_get enabled main enabled 1
+	config_get name main name ""
+	config_get priority main priority 10
+	config_get rotation main rotation_interval 300
+	config_get expires main expires_interval 600
+
+	[ -z "$name" ] && name="$(cat /proc/sys/kernel/hostname)-beacon"
+
+	echo "=== Saturn Beacon Configuration ==="
+	echo "Enabled: $enabled"
+	echo "Name: $name"
+	echo "Default Priority: $priority"
+	echo "Rotation Interval: ${rotation}s"
+	echo "Expires Interval: ${expires}s"
+	echo ""
+	echo "=== Providers ==="
+
+	config_foreach print_provider provider
+}
+
+boot() {
+	start "$@"
+}
+
+EXTRA_COMMANDS="status show_config"
+EXTRA_HELP="	status		Show running status
+	show_config	Display current configuration"
