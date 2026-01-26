@@ -1,0 +1,256 @@
+#!/bin/sh
+
+. /usr/share/libubox/jshn.sh
+
+check_process_status() {
+	local section="$1"
+	local pidfile="/var/run/saturn-${section}.pid"
+	
+	if [ -f "$pidfile" ]; then
+		local pid=$(cat "$pidfile" 2>/dev/null)
+		if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+			echo "running"
+			return 0
+		fi
+	fi
+	echo "stopped"
+	return 1
+}
+
+check_service_health() {
+	local deployment="$1"
+	local api_type="$2"
+	local base_url="$3"
+	local api_key="$4"
+	local url=""
+	local auth_header=""
+	
+	case "$api_type" in
+		ollama)
+			url="${base_url}/api/tags"
+			;;
+		openai)
+			url="${base_url}/models"
+			;;
+		*)
+			url="${base_url}/health"
+			;;
+	esac
+	
+	if [ "$deployment" = "cloud" ] && [ -n "$api_key" ]; then
+		auth_header="Authorization: Bearer ${api_key}"
+	fi
+	
+	local http_code
+	if [ -n "$auth_header" ]; then
+		http_code=$(curl -s -m 5 -o /dev/null -w "%{http_code}" -H "$auth_header" "$url" 2>/dev/null)
+	else
+		http_code=$(curl -s -m 5 -o /dev/null -w "%{http_code}" "$url" 2>/dev/null)
+	fi
+	
+	if [ "$http_code" = "200" ]; then
+		echo "healthy"
+		return 0
+	elif [ -z "$http_code" ] || [ "$http_code" = "000" ]; then
+		echo "unreachable"
+		return 1
+	else
+		echo "error:$http_code"
+		return 1
+	fi
+}
+
+get_all_status() {
+	. /lib/functions.sh
+	config_load saturn
+	
+	local global_enabled
+	config_get global_enabled main enabled 1
+	
+	json_init
+	json_add_boolean "global_enabled" "$global_enabled"
+	json_add_array "services"
+	
+	get_service_status() {
+		local section="$1"
+		local name deployment api_type base_url enabled priority api_key
+		local process_status health_status
+		
+		config_get name "$section" name "$section"
+		config_get deployment "$section" deployment ""
+		config_get api_type "$section" api_type ""
+		config_get base_url "$section" base_url ""
+		config_get enabled "$section" enabled 0
+		config_get priority "$section" priority 10
+		config_get api_key "$section" api_key ""
+		
+		process_status=$(check_process_status "$section")
+		
+		if [ "$enabled" = "1" ] && [ "$global_enabled" = "1" ]; then
+			health_status=$(check_service_health "$deployment" "$api_type" "$base_url" "$api_key")
+		else
+			health_status="disabled"
+		fi
+		
+		json_add_object ""
+		json_add_string "section" "$section"
+		json_add_string "name" "$name"
+		json_add_string "deployment" "$deployment"
+		json_add_string "api_type" "$api_type"
+		json_add_boolean "enabled" "$enabled"
+		json_add_int "priority" "$priority"
+		json_add_string "process" "$process_status"
+		json_add_string "health" "$health_status"
+		json_close_object
+	}
+	
+	config_foreach get_service_status service
+	
+	json_close_array
+	json_dump
+}
+
+start_service() {
+	/etc/init.d/saturn start >/dev/null 2>&1
+	sleep 1
+	if pgrep -f "/tmp/saturn" >/dev/null 2>&1; then
+		echo '{ "success": true, "message": "Saturn service started" }'
+	else
+		local last_error=$(logread | grep saturn | tail -5)
+		echo "{ \"success\": false, \"error\": \"Service failed to start\", \"log\": \"$last_error\" }"
+	fi
+}
+
+stop_service() {
+	/etc/init.d/saturn stop >/dev/null 2>&1
+	sleep 1
+	if pgrep -f "/tmp/saturn" >/dev/null 2>&1; then
+		echo '{ "success": false, "error": "Failed to stop service" }'
+	else
+		echo '{ "success": true, "message": "Saturn service stopped" }'
+	fi
+}
+
+restart_service() {
+	/etc/init.d/saturn restart >/dev/null 2>&1
+	sleep 1
+	if pgrep -f "/tmp/saturn" >/dev/null 2>&1; then
+		echo '{ "success": true, "message": "Saturn service restarted" }'
+	else
+		local last_error=$(logread | grep saturn | tail -5)
+		echo "{ \"success\": false, \"error\": \"Service failed to restart\", \"log\": \"$last_error\" }"
+	fi
+}
+
+get_logs() {
+	local lines="${1:-50}"
+	local logs=$(logread | grep -i saturn | tail -$lines | sed 's/"/\\"/g' | tr '\n' '|')
+	echo "{ \"logs\": \"$logs\" }"
+}
+
+get_running_status() {
+	local running_count=$(pgrep -f "/tmp/saturn" | wc -l)
+	local pids=$(pgrep -f "/tmp/saturn" 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+
+	if [ "$running_count" -gt 0 ]; then
+		echo "{ \"running\": true, \"process_count\": $running_count, \"pids\": \"$pids\" }"
+	else
+		echo '{ "running": false, "process_count": 0, "pids": "" }'
+	fi
+}
+
+case "$1" in
+	list)
+		echo '{ "test_connection": { "deployment": "str", "api_type": "str", "base_url": "str", "host": "str", "port": 0, "api_key": "str" }, "get_status": {}, "uninstall": {}, "start": {}, "stop": {}, "restart": {}, "get_logs": { "lines": 0 }, "get_running_status": {} }'
+		;;
+	call)
+		case "$2" in
+			get_status)
+				get_all_status
+				;;
+			test_connection)
+				read input
+				json_load "$input"
+				json_get_var deployment deployment
+				json_get_var api_type api_type
+				json_get_var base_url base_url
+				json_get_var host host
+				json_get_var port port
+				json_get_var api_key api_key
+
+				case "$api_type" in
+					ollama)
+						url="${base_url}/api/tags"
+						;;
+					openai)
+						url="${base_url}/models"
+						;;
+					*)
+						url="${base_url}/health"
+						;;
+				esac
+
+				auth_header=""
+				if [ "$deployment" = "cloud" ] && [ -n "$api_key" ]; then
+					auth_header="Authorization: Bearer ${api_key}"
+				fi
+
+				if [ -n "$auth_header" ]; then
+					result=$(curl -s -m 5 -w "\n%{http_code}" -H "$auth_header" "$url" 2>&1)
+				else
+					result=$(curl -s -m 5 -w "\n%{http_code}" "$url" 2>&1)
+				fi
+				http_code=$(echo "$result" | tail -n1)
+				body=$(echo "$result" | head -n -1)
+
+				if [ "$http_code" = "200" ]; then
+					model_count=0
+					case "$api_type" in
+						ollama)
+							model_count=$(echo "$body" | jsonfilter -e '@.models[*]' 2>/dev/null | wc -l)
+							;;
+						openai)
+							model_count=$(echo "$body" | jsonfilter -e '@.data[*]' 2>/dev/null | wc -l)
+							;;
+					esac
+
+					if [ "$model_count" -gt 0 ]; then
+						echo "{ \"success\": true, \"message\": \"Connected successfully (found $model_count models)\" }"
+					else
+						echo '{ "success": true, "message": "Connected successfully" }'
+					fi
+				elif [ -z "$http_code" ] || [ "$http_code" = "000" ]; then
+					echo '{ "success": false, "error": "Connection failed - host unreachable or timeout" }'
+				else
+					echo "{ \"success\": false, \"error\": \"HTTP $http_code response\" }"
+				fi
+				;;
+			uninstall)
+				if [ -x /usr/bin/saturn-uninstall ]; then
+					/usr/bin/saturn-uninstall >/dev/null 2>&1
+					echo '{ "success": true, "message": "Saturn uninstalled successfully" }'
+				else
+					echo '{ "success": false, "error": "Uninstall script not found" }'
+				fi
+				;;
+			start)
+				start_service
+				;;
+			stop)
+				stop_service
+				;;
+			restart)
+				restart_service
+				;;
+			get_logs)
+				read input
+				json_load "$input"
+				json_get_var lines lines
+				get_logs "${lines:-50}"
+				;;
+			get_running_status)
+				get_running_status
+				;;
+		esac
+		;;
+esac

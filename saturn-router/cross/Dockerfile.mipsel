@@ -1,0 +1,39 @@
+# Custom cross image for MIPS builds
+# Based on Ubuntu 22.04 which has glibc 2.35 (compatible with most host systems)
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build essentials and MIPS cross-compiler
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    gcc \
+    g++ \
+    libc6-dev \
+    make \
+    pkg-config \
+    gcc-mipsel-linux-gnu \
+    g++-mipsel-linux-gnu \
+    libc6-dev-mipsel-cross \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install musl cross toolchain for mipsel (soft-float variant for routers without FPU)
+# The "sf" suffix means soft-float ABI, required for devices like GL-MT300N-V2
+RUN curl -sSL https://musl.cc/mipsel-linux-muslsf-cross.tgz | tar -xzC /opt
+ENV PATH="/opt/mipsel-linux-muslsf-cross/bin:$PATH"
+
+# Set up cross-compilation environment variables (soft-float toolchain)
+ENV CARGO_TARGET_MIPSEL_UNKNOWN_LINUX_MUSL_LINKER=mipsel-linux-muslsf-gcc
+ENV CC_mipsel_unknown_linux_musl=mipsel-linux-muslsf-gcc
+ENV CXX_mipsel_unknown_linux_musl=mipsel-linux-muslsf-g++
+ENV AR_mipsel_unknown_linux_musl=mipsel-linux-muslsf-ar
+
+# Install Rust inside container (for build-std to work correctly)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly
+ENV PATH="/root/.cargo/bin:$PATH"
+
+# Add rust-src for build-std
+RUN rustup component add rust-src --toolchain nightly
+
+WORKDIR /project

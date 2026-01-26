@@ -1,0 +1,14 @@
+{
+	"luci-app-saturn": {
+		"description": "Grant UCI and RPC access to Saturn configuration",
+		"read": {
+			"uci": ["saturn"],
+			"ubus": {
+				"luci.saturn": ["test_connection", "get_status", "uninstall", "start", "stop", "restart", "get_logs", "get_running_status"]
+			}
+		},
+		"write": {
+			"uci": ["saturn"]
+		}
+	}
+}

@@ -1,0 +1,28 @@
+# Cross configuration for Saturn MIPS builds
+# See: https://github.com/cross-rs/cross
+#
+# Note: mipsel-unknown-linux-musl is Tier 3, requires building std from source
+# which needs nightly Rust. The rust-toolchain.toml specifies nightly.
+
+[build]
+# Use nightly for build-std support
+default-target = "mipsel-unknown-linux-musl"
+
+[build.env]
+passthrough = [
+    "RUST_LOG",
+]
+
+[target.mipsel-unknown-linux-musl]
+# Custom image using soft-float musl toolchain (muslsf) for routers without FPU
+# The GL-MT300N-V2 and similar devices require soft-float binaries
+# Build with: docker build -t saturn-mips-builder -f cross/Dockerfile.mipsel .
+dockerfile = "./cross/Dockerfile.mipsel"
+
+# Build std from source since no pre-built library exists for Tier 3 target
+build-std = ["std", "panic_abort"]
+
+[target.mipsel-unknown-linux-musl.env]
+passthrough = [
+    "RUST_BACKTRACE",
+]

@@ -1,0 +1,21 @@
+{
+	"admin/services/saturn": {
+		"title": "Saturn",
+		"order": 90,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": ["luci-app-saturn"],
+			"uci": {"saturn": true}
+		}
+	},
+	"admin/services/saturn/services": {
+		"title": "Services",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "saturn/services"
+		}
+	}
+}

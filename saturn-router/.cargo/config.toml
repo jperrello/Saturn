@@ -1,0 +1,8 @@
+# Cross-compilation configuration for MIPS targets
+# The GL-MT300N-V2 router uses MIPS32 little-endian with musl libc
+
+[target.mipsel-unknown-linux-musl]
+# Linker is set via Docker environment (CARGO_TARGET_MIPSEL_UNKNOWN_LINUX_MUSL_LINKER)
+
+[build]
+# Default target for local development (not MIPS)
