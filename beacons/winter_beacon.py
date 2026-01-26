@@ -164,9 +164,7 @@ class BeaconAnnouncer:
         return self._is_registered
 
 
-def rotation_loop(jwt_manager: JWTManager, beacon_announcer: BeaconAnnouncer) -> None:
-    # Runs in background thread - checks every 60s, rotates every 300s (5 min)
-    # Pattern: check often, rotate less often - allows quick startup while preventing excessive API calls
+def rotation_loop(jwt_manager: JWTManager, beacon_announcer: BeaconAnnouncer, relay_publisher=None) -> None:
     logger.info("Key rotation loop started")
 
     while True:
@@ -175,19 +173,19 @@ def rotation_loop(jwt_manager: JWTManager, beacon_announcer: BeaconAnnouncer) ->
                 logger.info("Starting key rotation...")
 
                 try:
-                    jwt_manager.generate_token()
+                    token = jwt_manager.generate_token()
 
-                    # Update mDNS announcement with new key - clients listening for updates get notified
                     if beacon_announcer.is_registered:
                         beacon_announcer.re_register()
                     else:
                         beacon_announcer.register()
 
+                    if relay_publisher:
+                        relay_publisher.publish(token)
+
                     logger.info("Key rotation complete")
 
                 except requests.exceptions.HTTPError as e:
-                    # Rate limit handling - DeepInfra may throttle JWT generation
-                    # Non-fatal: old key still valid for up to 10 minutes
                     if e.response.status_code == 429:
                         logger.error("DeepInfra API rate limit exceeded (429). Will retry on next check (one minute).")
                     else:
@@ -210,6 +208,9 @@ def main():
     parser = argparse.ArgumentParser(description='DeepInfra Beacon - mDNS JWT Announcer')
     parser.add_argument('--port', type=int, default=8090, help='Port for mDNS announcement')
     parser.add_argument('--priority', type=int, default=10, help='Beacon priority (lower is higher priority)')
+    parser.add_argument('--relay-url', type=str, default=os.getenv('SATURN_RELAY_URL', ''), help='Saturn relay URL for remote access')
+    parser.add_argument('--relay-secret', type=str, default=os.getenv('SATURN_RELAY_SECRET', ''), help='Saturn relay secret')
+    parser.add_argument('--beacon-id', type=str, default=os.getenv('SATURN_BEACON_ID', ''), help='Beacon ID for relay registration')
     args = parser.parse_args()
 
     if not os.getenv('DEEPINFRA_API_KEY'):
@@ -219,9 +220,23 @@ def main():
     jwt_manager = JWTManager(rotation_interval=300)
     beacon_announcer = BeaconAnnouncer(jwt_manager, args.port, args.priority)
 
+    relay_publisher = None
+    if args.relay_url and args.relay_secret:
+        from saturn.relay_client import RelayPublisher
+        beacon_id = args.beacon_id or f"{socket.gethostname()}-beacon"
+        relay_publisher = RelayPublisher(
+            relay_url=args.relay_url,
+            relay_secret=args.relay_secret,
+            beacon_id=beacon_id,
+            provider="deepinfra"
+        )
+        logger.info(f"Relay publishing enabled: {args.relay_url} (beacon_id: {beacon_id})")
+
     def shutdown_beacon(signum, frame):
         logger.info(f"Received signal {signum}, shutting down gracefully...")
         beacon_announcer.unregister()
+        if relay_publisher:
+            relay_publisher.unregister()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, shutdown_beacon)
@@ -237,9 +252,14 @@ def main():
     beacon_announcer.register()
     logger.info(f"✓ Beacon registered on port {args.port} with priority {args.priority}")
 
+    if relay_publisher:
+        relay_publisher.publish(token)
+        relay_publisher.start_heartbeat()
+        logger.info("✓ Published to relay (heartbeat every 60s)")
+
     rotation_thread = threading.Thread(
         target=rotation_loop,
-        args=(jwt_manager, beacon_announcer),
+        args=(jwt_manager, beacon_announcer, relay_publisher),
         daemon=True,
         name="KeyRotationThread"
     )
@@ -247,6 +267,8 @@ def main():
     logger.info("✓ Key rotation thread started (rotation every 5 minutes)")
 
     logger.info("Beacon is now discoverable on the network!")
+    if relay_publisher:
+        logger.info(f"Remote access enabled via relay: {args.relay_url}")
     logger.info("Press Ctrl+C to stop")
 
     try:
@@ -257,6 +279,8 @@ def main():
     except KeyboardInterrupt:
         logger.info("Shutting down...")
         beacon_announcer.unregister()
+        if relay_publisher:
+            relay_publisher.unregister()
         logger.info("Shutdown complete")
 
 
