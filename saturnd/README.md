@@ -28,15 +28,15 @@ The Saturn Agent Daemon enables AI agents (like Claude Code) running on differen
 │                                                                              │
 │                        OPENWRT ROUTER                                        │
 │                    ┌─────────────────────┐                                  │
-│                    │   saturn-beacon     │                                  │
+│                    │      saturn         │                                  │
 │                    │   (mDNS credential  │◄──────────────────────────┐      │
 │                    │    broadcaster)     │                           │      │
 │                    └─────────────────────┘                           │      │
 │                              │                                       │      │
-│                              │ Ephemeral JWT                         │      │
+│                              │ Ephemeral API Key                     │      │
 │                              ▼                                       │      │
 │                    ┌─────────────────────┐                           │      │
-│                    │     DeepInfra       │    (or other providers)   │      │
+│                    │     OpenRouter      │    (or other providers)   │      │
 │                    └─────────────────────┘───────────────────────────┘      │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -48,7 +48,7 @@ This project produces two binaries:
 | Binary | Purpose | Target |
 |--------|---------|--------|
 | `saturnd` | Full daemon with MCP server, HTTP server, A2A task handling | Desktop/Laptop/Server |
-| `saturn-beacon` | Minimal mDNS beacon for credential broadcasting | OpenWRT routers, embedded devices |
+| `saturn` | Minimal mDNS beacon for credential broadcasting | OpenWRT routers, embedded devices |
 
 ## Building
 
@@ -59,11 +59,11 @@ cd saturnd
 go build -o saturnd ./cmd/saturnd
 
 # Build the embedded beacon
-go build -o saturn-beacon ./cmd/saturn-beacon
+go build -o saturn ./cmd/saturn
 
 # Cross-compile beacon for OpenWRT (MIPS)
 CGO_ENABLED=0 GOOS=linux GOARCH=mipsle GOMIPS=softfloat \
-  go build -ldflags "-s -w" -o saturn-beacon-mips ./cmd/saturn-beacon
+  go build -ldflags "-s -w" -o saturn-mips ./cmd/saturn
 ```
 
 ## Quick Start
@@ -105,13 +105,13 @@ SATURN_MCP_MODE=1 ./saturnd
 
 ```bash
 # With environment variable
-DEEPINFRA_API_KEY=your-key-here ./saturn-beacon
+OPENROUTER_PROVISIONING_KEY=your-key-here ./saturn
 
 # With config file
-./saturn-beacon --config=/etc/saturn/beacon.json
+./saturn --config=/etc/saturn/beacon.json
 
 # With CLI flags
-./saturn-beacon --api-key=your-key --priority=10
+./saturn --api-key=your-key --priority=10 --limit=5.00
 ```
 
 ## Features
@@ -189,7 +189,7 @@ saturnd/
 ├── cmd/
 │   ├── saturnd/              # Main daemon entry point
 │   │   └── main.go
-│   └── saturn-beacon/        # Embedded beacon for routers
+│   └── saturn/               # Embedded beacon for routers
 │       ├── main.go
 │       ├── README.md
 │       └── beacon.example.json
@@ -215,7 +215,7 @@ saturnd/
 │   │   ├── server.go         # MCP server (stdio transport)
 │   │   └── tools.go          # Tool definitions and handlers
 │   └── providers/            # API provider abstraction
-│       ├── deepinfra.go      # DeepInfra JWT generation
+│       ├── openrouter.go     # OpenRouter ephemeral key generation
 │       └── provider.go       # Provider interface
 ├── openwrt/                  # OpenWRT package
 │   ├── files/
@@ -274,11 +274,11 @@ See [openwrt/README.md](openwrt/README.md) for detailed instructions.
 Quick start:
 ```bash
 # Copy beacon to router
-scp saturn-beacon-mips root@192.168.1.1:/tmp/saturn-beacon
+scp saturn-mips root@192.168.1.1:/tmp/saturn
 
 # SSH and run
 ssh root@192.168.1.1
-DEEPINFRA_API_KEY=your-key /tmp/saturn-beacon
+OPENROUTER_PROVISIONING_KEY=your-key /tmp/saturn
 ```
 
 ## Configuration
@@ -292,10 +292,11 @@ Create a config file at `/etc/saturn/beacon.json`:
   "name": "my-beacon",
   "priority": 10,
   "provider": {
-    "type": "deepinfra",
-    "api_key": "your-deepinfra-api-key",
+    "type": "openrouter",
+    "api_key": "your-openrouter-provisioning-key",
     "rotation_seconds": 300,
-    "expires_seconds": 600
+    "expires_seconds": 600,
+    "spending_limit": 0
   }
 }
 ```
@@ -304,7 +305,7 @@ Create a config file at `/etc/saturn/beacon.json`:
 
 | Variable | Description |
 |----------|-------------|
-| `DEEPINFRA_API_KEY` | DeepInfra API key for beacon |
+| `OPENROUTER_PROVISIONING_KEY` | OpenRouter provisioning key for beacon |
 | `SATURN_MCP_MODE` | Set to "1" to run as MCP server |
 
 ### CLI Flags
@@ -316,21 +317,22 @@ Create a config file at `/etc/saturn/beacon.json`:
 --verbose       Enable verbose logging
 ```
 
-**saturn-beacon:**
+**saturn:**
 ```
 --config        Path to config file (default: /etc/saturn/beacon.json)
 --api-key       API key (overrides config)
 --priority      Service priority (overrides config)
+--limit         Spending limit per key in USD (default: 0 = no limit)
 ```
 
 ## Supported Providers
 
 Currently implemented:
-- **DeepInfra** - Full support with JWT generation
+- **OpenRouter** - Full support with ephemeral key generation and automatic cleanup
 
 Provider base URLs recognized:
-- DeepInfra: `https://api.deepinfra.com/v1/openai`
 - OpenRouter: `https://openrouter.ai/api/v1`
+- DeepInfra: `https://api.deepinfra.com/v1/openai`
 - OpenAI: `https://api.openai.com/v1`
 - Anthropic: `https://api.anthropic.com/v1`
 - Together: `https://api.together.xyz/v1`

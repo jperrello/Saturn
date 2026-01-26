@@ -116,28 +116,17 @@ func (c *Cache) Cleanup(maxAge time.Duration) {
 	}
 }
 
-type CredentialResponse struct {
-	OPENAI_API_KEY  string `json:"OPENAI_API_KEY"`
-	OPENAI_BASE_URL string `json:"OPENAI_BASE_URL"`
-	Provider        string `json:"provider"`
-	ExpiresIn       int    `json:"expires_in,omitempty"`
-}
+func (c *Cache) GetByProvider(provider string) (Credential, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
-func (c *Cache) GetCredentialResponse() (CredentialResponse, bool) {
-	cred, ok := c.GetBestCredential()
-	if !ok {
-		return CredentialResponse{}, false
+	for _, cred := range c.credentials {
+		if cred.Provider == provider {
+			if !cred.ExpiresAt.IsZero() && time.Now().After(cred.ExpiresAt) {
+				continue
+			}
+			return cred, true
+		}
 	}
-
-	expiresIn := 0
-	if !cred.ExpiresAt.IsZero() {
-		expiresIn = int(time.Until(cred.ExpiresAt).Seconds())
-	}
-
-	return CredentialResponse{
-		OPENAI_API_KEY:  cred.APIKey,
-		OPENAI_BASE_URL: cred.BaseURL,
-		Provider:        cred.Provider,
-		ExpiresIn:       expiresIn,
-	}, true
+	return Credential{}, false
 }

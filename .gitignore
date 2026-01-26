@@ -33,8 +33,9 @@ GLinet_ss/
 research/A2A_MCP/ss/
 
 # other files
-for_joey.md
 tmpclaude-*
-flow.md
-history.md
-for_adam.md
+
+# Compiled binaries
+*.exe
+saturn-mips
+saturnd/saturn-router/target/
