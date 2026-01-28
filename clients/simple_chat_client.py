@@ -29,13 +29,12 @@ class SaturnService:
     api_base: Optional[str] = None
 
 class ServiceDiscovery:
-    def __init__(self, discovery_interval: int = 10, on_service_change=None, relay_url: str = None):
+    def __init__(self, discovery_interval: int = 10, on_service_change=None):
         self.services: Dict[str, SaturnService] = {}
         self.lock = threading.Lock()
         self.running = True
         self.discovery_interval = discovery_interval
         self.on_service_change = on_service_change
-        self.relay_url = relay_url
         self.service_found = threading.Event()
         self.thread = threading.Thread(target=self._discovery_loop, daemon=True)
         self.thread.start()
@@ -165,8 +164,7 @@ class ServiceDiscovery:
                     continue
 
             with self.lock:
-                local_services = {name for name in self.services.keys() if not name.startswith("relay:")}
-                services_to_remove = [name for name in local_services if name not in discovered_services]
+                services_to_remove = [name for name in self.services.keys() if name not in discovered_services]
                 for name in services_to_remove:
                     service = self.services[name]
                     del self.services[name]
@@ -174,16 +172,9 @@ class ServiceDiscovery:
                     if self.on_service_change:
                         self.on_service_change('removed', name, service.url, service.priority)
 
-            if not discovered_services and self.relay_url:
-                self._discover_from_relay()
-
         except FileNotFoundError:
             logger.error("dns-sd not found. Install Bonjour (Windows) or avahi-utils (Linux).")
-            if self.relay_url:
-                logger.info("Falling back to relay discovery...")
-                self._discover_from_relay()
-            else:
-                self.running = False
+            self.running = False
         except Exception as e:
             logger.error(f"Error during service discovery: {e}")
 
@@ -197,53 +188,6 @@ class ServiceDiscovery:
                 return None
             return min(self.services.values(), key=lambda s: s.priority)
 
-
-    def _discover_from_relay(self):
-        if not self.relay_url:
-            return
-
-        try:
-            resp = requests.get(f"{self.relay_url.rstrip('/')}/beacons", timeout=10)
-            if not resp.ok:
-                logger.warning(f"Relay query failed: {resp.status_code}")
-                return
-
-            remote_beacons = resp.json()
-            for beacon in remote_beacons:
-                service_name = f"relay:{beacon['beacon_id']}"
-                ephemeral_key = beacon.get('ephemeral_key')
-
-                with self.lock:
-                    is_new = service_name not in self.services
-                    old_key = None
-                    if not is_new:
-                        old_key = self.services[service_name].ephemeral_key
-
-                    self.services[service_name] = SaturnService(
-                        name=service_name,
-                        url=f"relay:{beacon['beacon_id']}",
-                        priority=100,
-                        ip="relay",
-                        last_seen=datetime.now(),
-                        ephemeral_key=ephemeral_key
-                    )
-
-                    if ephemeral_key:
-                        key_hash = hashlib.sha256(ephemeral_key.encode()).hexdigest()[:12]
-                        if is_new:
-                            logger.info(f"Discovered remote beacon via relay: {beacon['beacon_id']}")
-                            logger.info(f"  JWT fingerprint: {key_hash}")
-                        elif old_key and old_key != ephemeral_key:
-                            logger.info(f"Key rotated for remote beacon {beacon['beacon_id']}")
-                            logger.info(f"  New JWT fingerprint: {key_hash}")
-
-                    if is_new and self.on_service_change:
-                        self.on_service_change('added', service_name, "relay", 100)
-
-                    self.service_found.set()
-
-        except requests.RequestException as e:
-            logger.warning(f"Relay discovery error: {e}")
 
     def stop(self):
         self.running = False
@@ -282,8 +226,6 @@ def main():
     import os
 
     parser = argparse.ArgumentParser(description='Saturn Chat Client')
-    parser.add_argument('--relay-url', type=str, default=os.getenv('SATURN_RELAY_URL', ''),
-                        help='Saturn relay URL for remote beacon discovery')
     args = parser.parse_args()
 
     service_notifications = []
@@ -297,11 +239,9 @@ def main():
                 service_notifications.append(f"\n  Server removed: {name}")
 
     print("Searching for Saturn services and beacons...")
-    if args.relay_url:
-        print(f"Relay fallback enabled: {args.relay_url}")
     logger.info("Starting dns-sd based discovery...")
 
-    discovery = ServiceDiscovery(on_service_change=handle_service_change, relay_url=args.relay_url)
+    discovery = ServiceDiscovery(on_service_change=handle_service_change)
 
     print("Waiting for services (8 seconds)...")
     discovery.service_found.wait(timeout=8.0)
@@ -313,15 +253,11 @@ def main():
         return
 
     using_beacon = best_service.ephemeral_key is not None
-    is_remote = best_service.name.startswith("relay:")
     model = None
 
     if using_beacon:
         key_hash = hashlib.sha256(best_service.ephemeral_key.encode()).hexdigest()[:12]
-        if is_remote:
-            print(f"Connected to REMOTE BEACON via relay: {best_service.name}")
-        else:
-            print(f"Connected to BEACON: {best_service.name}")
+        print(f"Connected to BEACON: {best_service.name}")
         print(f"  URL: {best_service.url}")
         print(f"  Priority: {best_service.priority}")
         print(f"  JWT fingerprint: {key_hash}")
@@ -383,8 +319,7 @@ def main():
                     for svc in all_services:
                         marker = " <- current" if svc.url == best_service.url else ""
                         beacon_marker = " [BEACON]" if svc.ephemeral_key else ""
-                        remote_marker = " [REMOTE]" if svc.name.startswith("relay:") else ""
-                        print(f"  - {svc.name}: {svc.url} (priority: {svc.priority}){beacon_marker}{remote_marker}{marker}")
+                        print(f"  - {svc.name}: {svc.url} (priority: {svc.priority}){beacon_marker}{marker}")
                 continue
 
             if not user_input:
