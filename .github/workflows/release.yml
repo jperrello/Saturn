@@ -1,0 +1,169 @@
+name: Release Saturn Router
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v1.0.0)'
+        required: true
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-mipsel:
+    name: Build MIPSEL (soft-float)
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build cross-compilation image
+        run: |
+          cd saturn-router
+          docker build -t saturn-mips-builder -f cross/Dockerfile.mipsel .
+
+      - name: Build with TLS (full)
+        run: |
+          cd saturn-router
+          mkdir -p target/mipsel-unknown-linux-musl/release
+          docker run --rm \
+            -v "${{ github.workspace }}/saturn-router:/project" \
+            -w /project \
+            saturn-mips-builder \
+            bash -c "
+              cargo +nightly build --release --target mipsel-unknown-linux-musl \
+                --no-default-features --features rustls \
+                -Zbuild-std=std,panic_abort
+            "
+          mv target/mipsel-unknown-linux-musl/release/saturn target/saturn-mipsel-sf-full
+          ls -la target/saturn-mipsel-sf-full
+
+      - name: Build network-only (no TLS)
+        run: |
+          cd saturn-router
+          docker run --rm \
+            -v "${{ github.workspace }}/saturn-router:/project" \
+            -w /project \
+            saturn-mips-builder \
+            bash -c "
+              cargo clean
+              cargo +nightly build --release --target mipsel-unknown-linux-musl \
+                --no-default-features --features network-only \
+                -Zbuild-std=std,panic_abort
+            "
+          mv target/mipsel-unknown-linux-musl/release/saturn target/saturn-mipsel-sf-network-only
+          ls -la target/saturn-mipsel-sf-network-only
+
+      - name: Get binary info
+        run: |
+          cd saturn-router/target
+          echo "=== Full binary (with TLS) ==="
+          file saturn-mipsel-sf-full
+          ls -lh saturn-mipsel-sf-full
+          echo ""
+          echo "=== Network-only binary (no TLS) ==="
+          file saturn-mipsel-sf-network-only
+          ls -lh saturn-mipsel-sf-network-only
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: saturn-mipsel-sf
+          path: |
+            saturn-router/target/saturn-mipsel-sf-full
+            saturn-router/target/saturn-mipsel-sf-network-only
+
+  release:
+    name: Create Release
+    needs: [build-mipsel]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download MIPSEL artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: saturn-mipsel-sf
+          path: artifacts/
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create checksums file
+        run: |
+          cd artifacts
+          sha256sum saturn-* > checksums.txt
+          cat checksums.txt
+
+      - name: Create release body
+        run: |
+          cat << 'EOF' > release_body.md
+          ## Saturn Router ${{ steps.version.outputs.version }}
+
+          Pre-built binaries for OpenWRT routers.
+
+          ### Quick Install
+
+          ```bash
+          # One-liner install (auto-detects architecture)
+          curl -sSL https://raw.githubusercontent.com/jperrello/Saturn/main/install-router.sh | sh
+          ```
+
+          ### Manual Install
+
+          ```bash
+          # Download binary (choose one based on your needs)
+          wget https://github.com/jperrello/Saturn/releases/download/${{ steps.version.outputs.version }}/saturn-mipsel-sf-full
+
+          # Copy to router
+          scp saturn-mipsel-sf-full root@192.168.8.1:/tmp/saturn
+          chmod +x /tmp/saturn
+          ```
+
+          ### Binary Variants
+
+          | File | Size | Description |
+          |------|------|-------------|
+          | `saturn-mipsel-sf-full` | ~2MB | Full build with TLS for OpenRouter/cloud APIs |
+          | `saturn-mipsel-sf-network-only` | ~500KB | Network-only, for local services (Ollama, vLLM) |
+
+          ### Supported Architectures
+
+          - **mipsel-sf**: GL.iNet GL-MT300N-V2 (Mango) and similar soft-float MIPS routers
+
+          ### Checksums
+
+          See `checksums.txt` for SHA256 hashes.
+          EOF
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Saturn Router ${{ steps.version.outputs.version }}
+          body_path: release_body.md
+          files: |
+            artifacts/saturn-mipsel-sf-full
+            artifacts/saturn-mipsel-sf-network-only
+            artifacts/checksums.txt
+          draft: false
+          prerelease: false

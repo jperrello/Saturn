@@ -4,7 +4,7 @@ Saturn is a service discovery protocol that uses mDNS and DNS-SD to automaticall
 
 **The core premise:** Services announce themselves as `_saturn._tcp.local.` with TXT records containing priority metadata. Clients browse, sort by priority, and connect—no hardcoded endpoints, no API key distribution, no configuration files.
 
-**Tech stack:** Python 3.7+, FastAPI/uvicorn for servers, zeroconf library or dns-sd subprocess for discovery. All endpoints follow the OpenAI API specification (`/v1/health`, `/v1/models`, `/v1/chat/completions`).
+**Tech stack:** Python 3.7+, FastAPI/uvicorn for servers, zeroconf library or dns-sd subprocess for discovery (plus Rust for router beacons and Go for the system daemon). All endpoints follow the OpenAI API specification (`/v1/health`, `/v1/models`, `/v1/chat/completions`).
 
 ## Installation
 
@@ -104,12 +104,44 @@ This proves "network presence = AI access" with automatic credential expiration.
 | Directory | Contents |
 |-----------|----------|
 | [saturn/](saturn/README.md) | Core package: discovery, servers, beacon, CLI |
+| [saturnd/](saturnd/README.md) | System daemon: MCP server, A2A protocol, credential caching |
+| [saturn-router/](saturn-router/openwrt/README.md) | Rust-based beacon for OpenWRT routers |
+| [vlc_extension/](vlc_extension/README.md) | VLC extensions: Saturn Chat and Saturn Roast |
 | [clients/](clients/README.md) | Reference client implementations, discovery patterns |
 | [beacons/](beacons/README.md) | Ephemeral JWT distribution via mDNS |
 | [fiction/](fiction/README.md) | Design fictions about Saturn |
 | [flow.md](flow.md) | Code architecture guide ("show me where X does Y") |
 
 **Integrations:** See [jperrello.github.io/Saturn](https://jperrello.github.io/Saturn) for Open WebUI, VLC, and other integration guides.
+
+---
+
+## OpenWRT / Router Installation
+
+Saturn runs on OpenWRT routers, providing network-wide AI service discovery at the network edge.
+
+**One-liner install:**
+```bash
+curl -sSL https://raw.githubusercontent.com/jperrello/Saturn/main/install-router.sh | sh
+```
+
+**Manual install (GL.iNet Mango, similar soft-float MIPS devices):**
+```bash
+# Download from releases
+wget https://github.com/jperrello/Saturn/releases/latest/download/saturn-mipsel-sf-full
+
+# Copy to router and run
+scp saturn-mipsel-sf-full root@192.168.8.1:/tmp/saturn
+ssh root@192.168.8.1 "chmod +x /tmp/saturn && /tmp/saturn --help"
+```
+
+**Binary variants:**
+| Variant | Size | Use case |
+|---------|------|----------|
+| `saturn-mipsel-sf-full` | ~2MB | Full build with TLS for OpenRouter/cloud |
+| `saturn-mipsel-sf-network-only` | ~500KB | Local services only (Ollama, vLLM) |
+
+See [saturn-router/openwrt/README.md](saturn-router/openwrt/README.md) for full documentation.
 
 ---
 
