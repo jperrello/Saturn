@@ -8,6 +8,7 @@ PROG=/tmp/saturn
 CONFIG_DIR=/tmp/saturn.d
 SERVICE_COUNT=0
 CLOUD_PORT_OFFSET=0
+LAST_CONFIG_FILE=""
 
 is_port_in_use() {
 	local port="$1"
@@ -103,6 +104,9 @@ generate_config() {
 
 	config_get ephemeral_keys "$section" ephemeral_keys 0
 	config_get key_endpoint "$section" key_endpoint ""
+	config_get key_request_body "$section" key_request_body ""
+	config_get key_response_field "$section" key_response_field ""
+	config_get key_hash_response_field "$section" key_hash_response_field ""
 	config_get rotation "$section" rotation_interval 300
 	config_get expires "$section" expires_interval 600
 	config_get spending_limit "$section" spending_limit 0
@@ -136,7 +140,10 @@ generate_config() {
 	local host_json=""
 	local port_json=""
 	local key_endpoint_json=""
-	
+	local key_request_body_json=""
+	local key_response_field_json=""
+	local key_hash_response_field_json=""
+
 	if [ -n "$host" ]; then
 		host_json="\"host\": \"$host\","
 	fi
@@ -145,6 +152,15 @@ generate_config() {
 	fi
 	if [ -n "$key_endpoint" ]; then
 		key_endpoint_json="\"key_endpoint\": \"$key_endpoint\","
+	fi
+	if [ -n "$key_request_body" ]; then
+		key_request_body_json="\"key_request_body\": \"$(echo "$key_request_body" | sed 's/"/\\"/g')\","
+	fi
+	if [ -n "$key_response_field" ]; then
+		key_response_field_json="\"key_response_field\": \"$key_response_field\","
+	fi
+	if [ -n "$key_hash_response_field" ]; then
+		key_hash_response_field_json="\"key_hash_response_field\": \"$key_hash_response_field\","
 	fi
 
 	cat > "$config_file" <<EOF
@@ -161,6 +177,9 @@ generate_config() {
     $port_json
     "ephemeral_keys": $([ "$ephemeral_keys" = "1" ] && echo "true" || echo "false"),
     $key_endpoint_json
+    $key_request_body_json
+    $key_response_field_json
+    $key_hash_response_field_json
     "rotation_seconds": $rotation,
     "expires_seconds": $expires,
     "spending_limit": $spending_limit
@@ -168,7 +187,7 @@ generate_config() {
 }
 EOF
 	chmod 600 "$config_file"
-	echo "$config_file"
+	LAST_CONFIG_FILE="$config_file"
 }
 
 start_service_instance() {
@@ -184,7 +203,8 @@ start_service_instance() {
 	}
 
 	validate_service "$section" || return 0
-	config_file=$(generate_config "$section")
+	generate_config "$section" || return 0
+	config_file="$LAST_CONFIG_FILE"
 
 	logger -t saturn -p daemon.info "Starting service '$name'"
 

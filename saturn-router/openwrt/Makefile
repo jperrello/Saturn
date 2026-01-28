@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: MIT
 # Saturn OpenWRT Package
 # Zero-configuration AI service discovery for local networks
+#
+# This package uses pre-built binaries since Rust cross-compilation
+# in OpenWRT SDK is complex. Binaries are built via GitHub Actions.
 
 include $(TOPDIR)/rules.mk
 
@@ -11,28 +14,28 @@ PKG_RELEASE:=1
 PKG_LICENSE:=MIT
 PKG_MAINTAINER:=Joey Perrello <jperrello@ucsc.edu>
 
-PKG_SOURCE_PROTO:=git
-PKG_SOURCE_URL:=https://github.com/joeyperrello/saturn.git
-PKG_SOURCE_VERSION:=HEAD
-PKG_MIRROR_HASH:=skip
-
-PKG_BUILD_DEPENDS:=golang/host
-PKG_BUILD_PARALLEL:=1
-PKG_BUILD_FLAGS:=no-mips16
-
-GO_PKG:=github.com/joeyperrello/saturn/saturnd
-GO_PKG_BUILD_PKG:=$(GO_PKG)/cmd/saturn-beacon
+# Pre-built binary - downloaded during install, not build
+# This avoids needing Rust in the OpenWRT SDK
+PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 
 include $(INCLUDE_DIR)/package.mk
-include ../../lang/golang/golang-package.mk
+
+# Architecture to binary name mapping
+ifeq ($(ARCH),mipsel)
+  SATURN_ARCH:=mipsel-sf
+  SATURN_VARIANT:=full
+endif
+
+SATURN_BINARY:=saturn-$(SATURN_ARCH)-$(SATURN_VARIANT)
+SATURN_URL:=https://github.com/jperrello/Saturn/releases/download/v$(PKG_VERSION)/$(SATURN_BINARY)
 
 define Package/saturn
   SECTION:=net
   CATEGORY:=Network
   SUBMENU:=AI Services
   TITLE:=Saturn - Network AI Service Discovery
-  URL:=https://github.com/joeyperrello/saturn
-  DEPENDS:=$(GO_ARCH_DEPENDS)
+  URL:=https://github.com/jperrello/Saturn
+  DEPENDS:=@(mipsel)
   PKGARCH:=all
 endef
 
@@ -54,13 +57,20 @@ define Package/saturn/conffiles
 /etc/config/saturn
 endef
 
+define Build/Prepare
+	mkdir -p $(PKG_BUILD_DIR)
+endef
+
 define Build/Compile
-	$(call GoPackage/Build/Compile)
+	# Download pre-built binary
+	wget -q -O $(PKG_BUILD_DIR)/saturn "$(SATURN_URL)" || \
+		curl -sSL -o $(PKG_BUILD_DIR)/saturn "$(SATURN_URL)"
+	chmod +x $(PKG_BUILD_DIR)/saturn
 endef
 
 define Package/saturn/install
-	$(INSTALL_DIR) $(1)/usr/bin
-	$(INSTALL_BIN) $(GO_PKG_BUILD_BIN_DIR)/saturn-beacon $(1)/usr/bin/saturn
+	$(INSTALL_DIR) $(1)/tmp
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/saturn $(1)/tmp/saturn
 
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/saturn.init $(1)/etc/init.d/saturn
@@ -80,6 +90,9 @@ define Package/saturn/postinst
 	echo ""
 	echo " Configure via LuCI: Services > Saturn"
 	echo " Or via command line: uci show saturn"
+	echo ""
+	echo " NOTE: Binary is in /tmp and will be lost on"
+	echo " reboot. Run 'opkg install saturn' after reboot."
 	echo "==============================================="
 }
 exit 0
@@ -94,5 +107,4 @@ define Package/saturn/prerm
 exit 0
 endef
 
-$(eval $(call GoBinPackage,saturn))
 $(eval $(call BuildPackage,saturn))

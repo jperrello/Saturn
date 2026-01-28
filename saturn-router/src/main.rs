@@ -82,23 +82,19 @@ fn run_beacon(config: BeaconConfig, health_interval_sec: u64) {
     
     if uses_ephemeral_keys {
         debug!("Generating initial credential...");
-        let cred = match provider.generate_credential() {
-            Ok(c) => {
-                debug!("Credential generated successfully");
-                c
+        match provider.generate_credential() {
+            Ok(cred) => {
+                info!(
+                    "Initial credential generated: base_url={}, has_key={}, expires_at={:?}",
+                    cred.base_url,
+                    cred.key.is_some(),
+                    cred.expires_at
+                );
             }
             Err(e) => {
-                error!("Failed to generate initial credential: {}", e);
-                process::exit(1);
+                warn!("Initial credential generation failed: {} — will retry during rotation", e);
             }
-        };
-
-        info!(
-            "Initial credential generated: base_url={}, has_key={}, expires_at={:?}",
-            cred.base_url,
-            cred.key.is_some(),
-            cred.expires_at
-        );
+        }
     } else {
         debug!("Running initial health check...");
         if let Err(e) = provider.check_health() {

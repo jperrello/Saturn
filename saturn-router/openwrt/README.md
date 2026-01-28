@@ -388,6 +388,27 @@ After installation, access the configuration at: **http://router-ip/cgi-bin/luci
 - **Test Connection**: For network services (Ollama, vLLM, LocalAI, Custom), test connectivity before saving
 - **Credential Validation**: Ensures expiration interval is always greater than rotation interval
 
+## Windows Firewall Setup (Ollama / Network Services)
+
+If you're announcing a service running on a Windows machine (e.g., Ollama), the router needs to reach it over the LAN for health checks. Windows Firewall blocks inbound connections by default.
+
+**1. Set your router's WiFi network to Private** (run in admin PowerShell):
+```powershell
+Set-NetConnectionProfile -InterfaceAlias "Wi-Fi" -NetworkCategory Private
+```
+
+**2. Allow Ollama through the firewall on Private networks:**
+```powershell
+New-NetFirewallRule -DisplayName "Ollama LAN Access" -Direction Inbound -Program "C:\users\<USERNAME>\appdata\local\programs\ollama\ollama.exe" -Action Allow -Profile Private
+```
+
+This only allows access on Private networks (your home LAN), not Public networks (coffee shops, airports). Ollama must also be configured to listen on all interfaces by setting the `OLLAMA_HOST` environment variable to `0.0.0.0:11434`.
+
+**Check existing rules:** If Ollama was previously blocked, you may see Block rules from the initial Windows prompt. Verify with:
+```powershell
+netsh advfirewall firewall show rule name="ollama.exe" verbose
+```
+
 ## License
 
 MIT License - See LICENSE file in repository root.

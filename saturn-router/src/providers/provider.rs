@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use log::warn;
-use serde::{Deserialize, Serialize};
+use log::{info, warn};
+use serde::Serialize;
 use time::OffsetDateTime;
 
 use crate::config::ServiceConfig;
@@ -12,22 +12,11 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Serialize)]
-struct CreateKeyRequest {
+struct DefaultKeyRequest {
     name: String,
     expires_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     limit: Option<f64>,
-}
-
-#[derive(Deserialize)]
-struct CreateKeyResponse {
-    key: String,
-    data: KeyData,
-}
-
-#[derive(Deserialize)]
-struct KeyData {
-    hash: String,
 }
 
 pub struct Credential {
@@ -48,6 +37,10 @@ pub struct SaturnProvider {
     rotation_seconds: u64,
     expires_seconds: u64,
     spending_limit: f64,
+
+    key_request_body: Option<String>,
+    key_response_field: String,
+    key_hash_response_field: Option<String>,
 
     current_key: Option<String>,
     current_hash: Option<String>,
@@ -72,12 +65,17 @@ impl SaturnProvider {
             rotation_seconds: config.rotation_seconds,
             expires_seconds: config.expires_seconds,
             spending_limit: config.spending_limit,
-            
+
+            key_request_body: config.key_request_body.clone(),
+            key_response_field: config.key_response_field.clone()
+                .unwrap_or_else(|| "key".to_string()),
+            key_hash_response_field: config.key_hash_response_field.clone(),
+
             current_key: None,
             current_hash: None,
             previous_hash: None,
             expires_at: None,
-            
+
             healthy: false,
             last_check: None,
         }
@@ -172,6 +170,37 @@ impl SaturnProvider {
         self.last_check
     }
 
+    fn build_request_body(&self) -> Result<serde_json::Value, Box<dyn Error>> {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let expires_at = SystemTime::now() + Duration::from_secs(self.expires_seconds);
+
+        if let Some(template) = &self.key_request_body {
+            let rendered = template
+                .replace("${name}", &format!("saturn-beacon-{}", timestamp))
+                .replace("${expires_seconds}", &self.expires_seconds.to_string())
+                .replace("${expires_iso}", &Self::format_iso8601(expires_at))
+                .replace("${spending_limit}", &self.spending_limit.to_string());
+
+            serde_json::from_str(&rendered)
+                .map_err(|e| format!("key_request_body template produced invalid JSON: {}", e).into())
+        } else {
+            let request = DefaultKeyRequest {
+                name: format!("saturn-beacon-{}", timestamp),
+                expires_at: Self::format_iso8601(expires_at),
+                limit: if self.spending_limit > 0.0 {
+                    Some(self.spending_limit)
+                } else {
+                    None
+                },
+            };
+            serde_json::to_value(&request)
+                .map_err(|e| format!("Failed to serialize default key request: {}", e).into())
+        }
+    }
+
     pub fn generate_credential(&mut self) -> Result<Credential, Box<dyn Error>> {
         if !self.ephemeral_keys {
             return Ok(Credential {
@@ -182,57 +211,56 @@ impl SaturnProvider {
         }
 
         let key_endpoint = self.key_endpoint.as_ref()
-            .ok_or("key_endpoint required for ephemeral keys")?;
+            .ok_or("key_endpoint required for ephemeral keys")?
+            .clone();
         let api_key = self.api_key.as_ref()
-            .ok_or("api_key required for ephemeral key generation")?;
+            .ok_or("api_key required for ephemeral key generation")?
+            .clone();
 
         let expires_at = SystemTime::now() + Duration::from_secs(self.expires_seconds);
-        let expires_at_str = Self::format_iso8601(expires_at);
+        let body = self.build_request_body()?;
 
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        info!("Key request to {}", key_endpoint);
 
-        let request = CreateKeyRequest {
-            name: format!("saturn-beacon-{}", timestamp),
-            expires_at: expires_at_str,
-            limit: if self.spending_limit > 0.0 {
-                Some(self.spending_limit)
-            } else {
-                None
-            },
-        };
-
-        let response = attohttpc::post(key_endpoint)
+        let response = attohttpc::post(&key_endpoint)
             .header("Authorization", format!("Bearer {}", api_key))
             .timeout(REQUEST_TIMEOUT)
-            .json(&request)?
+            .json(&body)?
             .send()?;
 
         let status = response.status().as_u16();
         if !(200..300).contains(&status) {
+            let err_body = response.text().unwrap_or_default();
             return Err(format!(
-                "Key generation API returned status {}",
-                status
+                "Key generation returned {} — {}", status, err_body
             ).into());
         }
 
-        let result: CreateKeyResponse = response.json()?;
+        let response_json: serde_json::Value = response.json()?;
 
-        if result.key.is_empty() {
+        let key = extract_json_field(&response_json, &self.key_response_field)
+            .ok_or_else(|| format!(
+                "Response missing '{}' field. Got: {}",
+                self.key_response_field,
+                serde_json::to_string(&response_json).unwrap_or_default()
+            ))?;
+
+        if key.is_empty() {
             return Err("Empty key in response".into());
         }
+
+        let hash = self.key_hash_response_field.as_ref()
+            .and_then(|field| extract_json_field(&response_json, field));
 
         if self.current_hash.is_some() {
             self.previous_hash = self.current_hash.take();
         }
-        self.current_key = Some(result.key.clone());
-        self.current_hash = Some(result.data.hash);
+        self.current_key = Some(key.clone());
+        self.current_hash = hash;
         self.expires_at = Some(expires_at);
 
         Ok(Credential {
-            key: Some(result.key),
+            key: Some(key),
             base_url: self.base_url.clone(),
             expires_at: Some(expires_at),
         })
@@ -240,13 +268,13 @@ impl SaturnProvider {
 
     pub fn txt_records(&self) -> HashMap<String, String> {
         let mut records = HashMap::new();
-        
+
         records.insert("version".to_string(), "1.0".to_string());
         records.insert("deployment".to_string(), self.deployment.clone());
         records.insert("api_type".to_string(), self.api_type.clone());
         records.insert("api_base".to_string(), self.base_url.clone());
         records.insert("priority".to_string(), self.priority.to_string());
-        
+
         if self.ephemeral_keys {
             records.insert(
                 "ephemeral_key".to_string(),
@@ -330,6 +358,14 @@ impl SaturnProvider {
             format!("1970-01-01T00:00:{}Z", duration.as_secs())
         })
     }
+}
+
+fn extract_json_field(value: &serde_json::Value, field_path: &str) -> Option<String> {
+    let mut current = value;
+    for part in field_path.split('.') {
+        current = current.get(part)?;
+    }
+    current.as_str().map(|s| s.to_string())
 }
 
 impl Drop for SaturnProvider {
