@@ -302,12 +302,13 @@ def main():
     advertiser = SaturnAdvertiser(
         name="OpenRouter",
         port=port,
+        deployment="network",
+        api_type="openai",
+        priority=args.priority,
         models=model_names,
         capabilities=["chat", "code", "vision"],
         context=128000,
         cost="paid",
-        priority=args.priority,
-        mcp="none",
     )
     advertiser.register()
 

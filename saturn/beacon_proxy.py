@@ -353,12 +353,13 @@ def main():
     _advertiser = SaturnAdvertiser(
         name="Beacon",
         port=port,
+        deployment="network",
+        api_type="openai",
+        priority=args.priority,
         models=["meta-llama/Llama-3.3-70B-Instruct", "deepseek-ai/DeepSeek-V3"],
         capabilities=["chat", "code"],
         context=128000,
         cost="paid",
-        priority=args.priority,
-        mcp="none",
     )
     _advertiser.register()
 

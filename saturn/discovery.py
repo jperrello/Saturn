@@ -26,25 +26,38 @@ class SaturnService:
     name: str
     host: str
     port: int
+    # Production schema fields (matches saturn-router Rust implementation)
+    version: str = "1.0"                                   # Schema version
+    deployment: str = "network"                            # "cloud" or "network"
+    api_type: str = "openai"                               # "openai" or "ollama"
+    api_base: str = ""                                     # Base URL for API calls
+    priority: int = 100                                    # lower = preferred
+    ephemeral_key: str = ""                                # API key for cloud deployments
+    rotation_interval: int = 0                             # Key rotation interval in seconds
+    features: str = ""                                     # "ephemeral_auth" or "network_proxy"
+    # Extended fields for Saturn proxies (backwards compatible)
     models: List[str] = field(default_factory=list)        # e.g., ["llama3.2", "mistral"]
     capabilities: List[str] = field(default_factory=list)  # e.g., ["chat", "code", "vision"]
     context: int = 4096                                    # max context window
     cost: str = "unknown"                                  # free, paid, unknown
-    priority: int = 100                                    # lower = preferred (same as old)
-    mcp: str = "none"                                      # MCP version or "none"
-    transport: str = "http"                                # http, https, stdio
-    auth: str = "none"                                     # none, psk, bearer
-    saturn: str = "2.0"                                    # Saturn protocol version
-    txtvers: str = "1"                                     # TXT record schema version
-    # Beacon-specific fields (for pure mDNS announcers that broadcast ephemeral keys)
-    ephemeral_key: str = ""                                # API key/JWT for direct provider access
-    api: str = ""                                          # Provider name (e.g., "OpenRouter", "DeepInfra")
-    api_base: str = ""                                     # Provider API base URL (e.g., "https://openrouter.ai/api/v1")
-    beacon_features: str = ""                              # Feature flags (e.g., "ephemeral_auth")
 
     @property
     def is_beacon(self) -> bool:
-        return bool(self.ephemeral_key)
+        return self.deployment == "cloud" and bool(self.ephemeral_key)
+
+    @property
+    def is_cloud(self) -> bool:
+        return self.deployment == "cloud"
+
+    @property
+    def is_network(self) -> bool:
+        return self.deployment == "network"
+
+    @property
+    def effective_endpoint(self) -> str:
+        if self.deployment == "cloud" and self.api_base:
+            return self.api_base
+        return f"http://{self.host}:{self.port}/v1"
 
     @property
     def endpoint(self) -> str:
@@ -102,25 +115,30 @@ class SaturnDiscovery(ServiceListener):
 
         service_name = name.replace(f'.{type_}', '')
 
+        rotation_str = props.get('rotation_interval', '0')
+        try:
+            rotation_interval = int(rotation_str)
+        except ValueError:
+            rotation_interval = 0
+
         service = SaturnService(
             name=service_name,
             host=ip_address,
             port=info.port,
+            # Production schema fields (saturn-router compatible)
+            version=props.get('version', '1.0'),
+            deployment=props.get('deployment', 'network'),
+            api_type=props.get('api_type', props.get('api', 'openai')),  # fallback to old 'api' field
+            api_base=props.get('api_base', ''),
+            priority=int(props.get('priority', 100)),
+            ephemeral_key=props.get('ephemeral_key', ''),
+            rotation_interval=rotation_interval,
+            features=props.get('features', ''),
+            # Extended fields for Saturn proxies
             models=models,
             capabilities=capabilities,
             context=int(props.get('context', 4096)),
             cost=props.get('cost', 'unknown'),
-            priority=int(props.get('priority', 100)),
-            mcp=props.get('mcp', 'none'),
-            transport=props.get('transport', 'http'),
-            auth=props.get('auth', 'none'),
-            saturn=props.get('saturn', '2.0'),
-            txtvers=props.get('txtvers', '1'),
-            # Beacon-specific fields
-            ephemeral_key=props.get('ephemeral_key', ''),
-            api=props.get('api', ''),
-            api_base=props.get('api_base', ''),
-            beacon_features=props.get('features', ''),
         )
 
         with self.lock:
@@ -130,11 +148,12 @@ class SaturnDiscovery(ServiceListener):
             if is_new:
                 svc_type = "beacon" if service.is_beacon else "service"
                 logger.info(f"Discovered Saturn {svc_type}: {service_name} at {ip_address}:{info.port}")
+                logger.info(f"  deployment: {service.deployment} | api_type: {service.api_type} | priority: {service.priority}")
                 if service.is_beacon:
-                    logger.info(f"  api: {service.api} | priority: {service.priority}")
+                    logger.info(f"  api_base: {service.api_base}")
                 else:
                     logger.info(f"  models: {', '.join(models) if models else 'none'}")
-                    logger.info(f"  context: {service.context} | cost: {service.cost} | priority: {service.priority}")
+                    logger.info(f"  context: {service.context} | cost: {service.cost}")
                 if self.on_service_change:
                     self.on_service_change('added', service)
 
@@ -234,22 +253,25 @@ def format_service_tree(service: SaturnService, prefix: str = "   ") -> str:
     else:
         branch, tee, corner = '+-', '+-', '+-'
 
+    deployment_label = "cloud" if service.is_cloud else "network"
     if service.is_beacon:
+        key_display = f"{service.ephemeral_key[:20]}..." if len(service.ephemeral_key) > 20 else service.ephemeral_key
         lines = [
-            f"{prefix}{corner} {service.name}._saturn._tcp.local (beacon)",
-            f"{prefix}   {tee} api: {service.api}",
+            f"{prefix}{corner} {service.name}._saturn._tcp.local ({deployment_label})",
+            f"{prefix}   {tee} api_type: {service.api_type}",
             f"{prefix}   {tee} api_base: {service.api_base or '(not set)'}",
             f"{prefix}   {tee} priority: {service.priority}",
-            f"{prefix}   {corner} ephemeral_key: {service.ephemeral_key[:20]}..." if len(service.ephemeral_key) > 20 else f"{prefix}   {corner} ephemeral_key: {service.ephemeral_key}",
+            f"{prefix}   {tee} features: {service.features}",
+            f"{prefix}   {corner} ephemeral_key: {key_display}",
         ]
     else:
         lines = [
-            f"{prefix}{corner} {service.name}._saturn._tcp.local",
+            f"{prefix}{corner} {service.name}._saturn._tcp.local ({deployment_label})",
+            f"{prefix}   {tee} api_type: {service.api_type}",
             f"{prefix}   {tee} models: {', '.join(service.models) if service.models else 'none'}",
             f"{prefix}   {tee} capabilities: {', '.join(service.capabilities) if service.capabilities else 'none'}",
             f"{prefix}   {tee} context: {service.context} | cost: {service.cost}",
-            f"{prefix}   {tee} priority: {service.priority}",
-            f"{prefix}   {corner} mcp: {service.mcp}",
+            f"{prefix}   {corner} priority: {service.priority}",
         ]
     return '\n'.join(lines)
 
@@ -319,29 +341,32 @@ class SaturnAdvertiser:
         self,
         name: str,
         port: int,
+        # Production schema fields (matches saturn-router Rust implementation)
+        deployment: str = "network",
+        api_type: str = "openai",
+        api_base: str = None,
+        priority: int = 100,
+        # Extended fields for Saturn proxies
         models: List[str] = None,
         capabilities: List[str] = None,
         context: int = 4096,
         cost: str = "unknown",
-        priority: int = 100,
+        # Legacy fields (kept for backwards compatibility but not advertised)
         mcp: str = "none",
-        transport: str = "http",
-        auth: str = "none",
-        saturn: str = "2.0",
-        txtvers: str = "1",
     ):
         self.name = name
         self.port = port
+        # Production schema
+        self.deployment = deployment
+        self.api_type = api_type
+        self.api_base = api_base  # Will be computed if not provided
+        self.priority = priority
+        # Extended fields
         self.models = models or []
         self.capabilities = capabilities or ["chat"]
         self.context = context
         self.cost = cost
-        self.priority = priority
         self.mcp = mcp
-        self.transport = transport
-        self.auth = auth
-        self.saturn = saturn
-        self.txtvers = txtvers
         self._zeroconf: Optional[Zeroconf] = None
         self._info: Optional[ServiceInfo] = None
 
@@ -430,6 +455,14 @@ class SaturnAdvertiser:
             host = socket.gethostname()
             host_ip = socket.gethostbyname(host)
 
+            # Compute api_base if not provided
+            api_base = self.api_base
+            if not api_base:
+                api_base = f"http://{host_ip}:{self.port}/v1"
+
+            # Determine features based on deployment type
+            features = "network_proxy" if self.deployment == "network" else ""
+
             self._zeroconf = Zeroconf()
             self._info = ServiceInfo(
                 type_=self.SERVICE_TYPE,
@@ -438,16 +471,18 @@ class SaturnAdvertiser:
                 addresses=[socket.inet_aton(host_ip)],
                 server=f"{host}.local.",
                 properties={
-                    'txtvers': self.txtvers,
-                    'saturn': self.saturn,
-                    'mcp': self.mcp,
-                    'transport': self.transport,
+                    # Production schema fields (matches saturn-router)
+                    'version': '1.0',
+                    'deployment': self.deployment,
+                    'api_type': self.api_type,
+                    'api_base': api_base,
+                    'priority': str(actual_priority),
+                    'features': features,
+                    # Extended fields for Saturn proxies
                     'models': models_str,
                     'capabilities': capabilities_str,
                     'context': str(self.context),
                     'cost': self.cost,
-                    'priority': str(actual_priority),
-                    'auth': self.auth,
                 },
             )
 

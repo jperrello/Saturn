@@ -178,8 +178,10 @@ class BeaconAnnouncer:
             addresses=[socket.inet_aton(host_ip)],
             server=f"{host}.local.",
             properties={
+                # Production schema (matches saturn-router)
                 'version': '1.0',
-                'api': 'OpenRouter',
+                'deployment': 'cloud',
+                'api_type': 'openai',
                 'api_base': OPENROUTER_API_BASE,
                 'priority': str(self.priority),
                 'ephemeral_key': key,

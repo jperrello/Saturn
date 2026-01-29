@@ -168,12 +168,13 @@ def main():
     advertiser = SaturnAdvertiser(
         name="Fallback",
         port=port,
+        deployment="network",
+        api_type="openai",
+        priority=args.priority,
         models=["dont_pick_me"],
         capabilities=["chat"],
         context=0,
         cost="free",
-        priority=args.priority,
-        mcp="none",
     )
     advertiser.register()
 

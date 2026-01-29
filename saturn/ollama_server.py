@@ -260,12 +260,13 @@ def main():
     advertiser = SaturnAdvertiser(
         name="Ollama",
         port=port,
+        deployment="network",
+        api_type="ollama",
+        priority=args.priority,
         models=model_names,
         capabilities=["chat", "code"],
         context=4096,
         cost="free",
-        priority=args.priority,
-        mcp="none",
     )
     advertiser.register()
 

@@ -74,18 +74,20 @@ discovery.stop()
 advertiser = SaturnAdvertiser(
     name="MyService",
     port=8080,
+    deployment="network",   # "network" or "cloud"
+    api_type="openai",      # "openai" or "ollama"
+    priority=50,
     models=["gpt-4", "claude-3"],
     capabilities=["chat", "code", "vision"],
     context=128000,
     cost="paid",
-    priority=50,
 )
 advertiser.register()
 # ... service is now discoverable
 advertiser.unregister()
 
 # Or use context manager
-with SaturnAdvertiser(name="MyService", port=8080, models=["llama3"]) as adv:
+with SaturnAdvertiser(name="MyService", port=8080, deployment="network", api_type="openai") as adv:
     # service is advertised while in this block
     pass
 ```
@@ -125,18 +127,27 @@ with SaturnAdvertiser(name="MyService", port=8080, models=["llama3"]) as adv:
 
 ## TXT Record Fields
 
+### Production Schema (saturn-router compatible)
+
+| Field | Required | Description | Example |
+|-------|----------|-------------|---------|
+| version | Yes | Schema version | `1.0` |
+| deployment | Yes | Deployment type | `cloud`, `network` |
+| api_type | Yes | API compatibility | `openai`, `ollama` |
+| api_base | Yes | Base URL for API calls | `https://openrouter.ai/api/v1` |
+| priority | Yes | Lower = preferred | `10`, `50`, `100` |
+| ephemeral_key | No | API key (cloud only) | `sk-or-v1-...` |
+| rotation_interval | No | Key rotation interval | `300` (seconds) |
+| features | No | Feature flags | `ephemeral_auth`, `network_proxy` |
+
+### Extended Fields (Saturn proxies)
+
 | Field | Description | Example |
 |-------|-------------|---------|
-| txtvers | TXT record version | `1` |
-| saturn | Saturn protocol version | `2.0` |
-| mcp | MCP support status | `none`, `2025-11-25` |
-| transport | Protocol | `http`, `https` |
 | models | Comma-separated model list | `llama3.2,mistral` |
 | capabilities | Comma-separated capabilities | `chat,code,vision` |
 | context | Max context window | `4096`, `128000` |
 | cost | Pricing tier | `free`, `paid`, `unknown` |
-| priority | Lower = preferred | `10`, `50`, `100` |
-| auth | Auth requirement | `none`, `psk`, `bearer` |
 
 ## Architecture
 

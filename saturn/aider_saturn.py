@@ -133,12 +133,13 @@ def main():
     if args.select:
         print(f"Saturn: Found {len(services)} service(s):")
         for i, svc in enumerate(services, 1):
-            if svc.is_beacon:
-                print(f"  [{i}] {svc.name} (beacon -> {svc.api})")
-                print(f"      priority: {svc.priority}")
+            if svc.is_cloud:
+                print(f"  [{i}] {svc.name} (cloud -> {svc.api_base})")
+                print(f"      deployment: {svc.deployment} | api_type: {svc.api_type} | priority: {svc.priority}")
             else:
                 models_preview = ', '.join(svc.models[:3]) + ('...' if len(svc.models) > 3 else '')
-                print(f"  [{i}] {svc.name} at {svc.endpoint}")
+                print(f"  [{i}] {svc.name} at {svc.effective_endpoint}")
+                print(f"      deployment: {svc.deployment} | api_type: {svc.api_type}")
                 print(f"      models: {models_preview or 'none'}")
                 print(f"      context: {svc.context} | cost: {svc.cost} | priority: {svc.priority}")
 
@@ -186,17 +187,17 @@ def main():
         else:
             selected_model = models[0]
 
-    if service.is_beacon:
+    if service.is_cloud:
         if not service.api_base:
-            print(f"Saturn: Beacon {service.name} missing api_base", file=sys.stderr)
+            print(f"Saturn: Cloud service {service.name} missing api_base", file=sys.stderr)
             sys.exit(1)
         base_url = service.api_base
-        print(f"Saturn: Using {service.name} beacon -> {service.api_base}")
+        print(f"Saturn: Using {service.name} (cloud) -> {service.api_base}")
         print(f"Saturn: Model: {selected_model}")
-        api_key = service.ephemeral_key
+        api_key = service.ephemeral_key or 'saturn'
     else:
-        base_url = f"{service.endpoint}/v1"
-        print(f"Saturn: Using {service.name} at {service.endpoint}")
+        base_url = service.effective_endpoint
+        print(f"Saturn: Using {service.name} (network) at {base_url}")
         print(f"Saturn: Model: {selected_model}")
         api_key = 'saturn'
 

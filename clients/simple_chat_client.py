@@ -25,8 +25,22 @@ class SaturnService:
     priority: int
     ip: str
     last_seen: datetime
-    ephemeral_key: Optional[str] = None
+    # Production schema fields
+    deployment: str = "network"
+    api_type: str = "openai"
     api_base: Optional[str] = None
+    ephemeral_key: Optional[str] = None
+    features: str = ""
+
+    @property
+    def is_cloud(self) -> bool:
+        return self.deployment == "cloud"
+
+    @property
+    def effective_endpoint(self) -> str:
+        if self.deployment == "cloud" and self.api_base:
+            return self.api_base
+        return f"{self.url}/v1"
 
 class ServiceDiscovery:
     def __init__(self, discovery_interval: int = 10, on_service_change=None):
@@ -96,8 +110,11 @@ class ServiceDiscovery:
                     hostname = None
                     port = None
                     priority = 50
-                    ephemeral_key = None
+                    deployment = "network"
+                    api_type = "openai"
                     api_base = None
+                    ephemeral_key = None
+                    features = ""
 
                     for line in stdout.split('\n'):
                         if 'can be reached at' in line:
@@ -111,15 +128,30 @@ class ServiceDiscovery:
                             if match:
                                 priority = int(match.group(1))
 
-                        if 'ephemeral_key=' in line:
-                            match = re.search(r'ephemeral_key=([^\s]+)', line)
+                        if 'deployment=' in line:
+                            match = re.search(r'deployment=(\w+)', line)
                             if match:
-                                ephemeral_key = match.group(1)
+                                deployment = match.group(1)
+
+                        if 'api_type=' in line:
+                            match = re.search(r'api_type=(\w+)', line)
+                            if match:
+                                api_type = match.group(1)
 
                         if 'api_base=' in line:
                             match = re.search(r'api_base=([^\s]+)', line)
                             if match:
                                 api_base = match.group(1)
+
+                        if 'ephemeral_key=' in line:
+                            match = re.search(r'ephemeral_key=([^\s]+)', line)
+                            if match:
+                                ephemeral_key = match.group(1)
+
+                        if 'features=' in line:
+                            match = re.search(r'features=([^\s]+)', line)
+                            if match:
+                                features = match.group(1)
 
                     if hostname and port:
                         ip_address = hostname
@@ -139,20 +171,24 @@ class ServiceDiscovery:
                                 priority=priority,
                                 ip=ip_address,
                                 last_seen=datetime.now(),
+                                deployment=deployment,
+                                api_type=api_type,
+                                api_base=api_base,
                                 ephemeral_key=ephemeral_key,
-                                api_base=api_base
+                                features=features,
                             )
 
-                            if ephemeral_key:
+                            if is_new:
+                                svc_type = "cloud" if deployment == "cloud" else "network"
+                                logger.info(f"Discovered {svc_type} service: {service_name} at {ip_address}:{port}")
+                                logger.info(f"  deployment: {deployment} | api_type: {api_type} | priority: {priority}")
+                                if ephemeral_key:
+                                    key_hash = hashlib.sha256(ephemeral_key.encode()).hexdigest()[:12]
+                                    logger.info(f"  ephemeral_key fingerprint: {key_hash}")
+                            elif ephemeral_key and old_key and old_key != ephemeral_key:
                                 key_hash = hashlib.sha256(ephemeral_key.encode()).hexdigest()[:12]
-                                if is_new:
-                                    logger.info(f"Discovered beacon: {service_name}")
-                                    logger.info(f"  JWT fingerprint: {key_hash}")
-                                elif old_key and old_key != ephemeral_key:
-                                    logger.info(f"Key rotated for {service_name}")
-                                    logger.info(f"  New JWT fingerprint: {key_hash}")
-                            elif is_new:
-                                logger.info(f"Discovered service: {service_name} at {ip_address}:{port} (priority: {priority})")
+                                logger.info(f"Key rotated for {service_name}")
+                                logger.info(f"  New key fingerprint: {key_hash}")
 
                             if is_new and self.on_service_change:
                                 self.on_service_change('added', service_name, url, priority)
@@ -252,24 +288,27 @@ def main():
         discovery.stop()
         return
 
-    using_beacon = best_service.ephemeral_key is not None
+    is_cloud = best_service.is_cloud
     model = None
 
-    if using_beacon:
-        key_hash = hashlib.sha256(best_service.ephemeral_key.encode()).hexdigest()[:12]
-        print(f"Connected to BEACON: {best_service.name}")
-        print(f"  URL: {best_service.url}")
+    if is_cloud:
+        print(f"Connected to CLOUD service: {best_service.name}")
+        print(f"  Deployment: {best_service.deployment}")
+        print(f"  API Type: {best_service.api_type}")
+        print(f"  API Base: {best_service.api_base}")
         print(f"  Priority: {best_service.priority}")
-        print(f"  JWT fingerprint: {key_hash}")
-        if best_service.api_base:
-            print(f"  API: {best_service.api_base}")
+        if best_service.ephemeral_key:
+            key_hash = hashlib.sha256(best_service.ephemeral_key.encode()).hexdigest()[:12]
+            print(f"  Key fingerprint: {key_hash}")
         print(f"  (Calling provider API directly)")
         if best_service.api_base and "openrouter" in best_service.api_base.lower():
             model = "meta-llama/llama-3.3-70b-instruct"
         else:
             model = "meta-llama/Llama-3.3-70B-Instruct-Turbo"
     else:
-        print(f"Connected to Saturn server: {best_service.name}")
+        print(f"Connected to NETWORK service: {best_service.name}")
+        print(f"  Deployment: {best_service.deployment}")
+        print(f"  API Type: {best_service.api_type}")
         print(f"  URL: {best_service.url}")
         print(f"  Priority: {best_service.priority}")
         print("  (Proxying through Saturn server)")
@@ -300,7 +339,7 @@ def main():
                 time.sleep(2)
                 continue
 
-            using_beacon = best_service.ephemeral_key is not None
+            is_cloud = best_service.is_cloud
 
             user_input = input("You: ").strip()
 
@@ -318,8 +357,8 @@ def main():
                     print(f"\nAvailable servers:")
                     for svc in all_services:
                         marker = " <- current" if svc.url == best_service.url else ""
-                        beacon_marker = " [BEACON]" if svc.ephemeral_key else ""
-                        print(f"  - {svc.name}: {svc.url} (priority: {svc.priority}){beacon_marker}{marker}")
+                        deploy_marker = f" [{svc.deployment.upper()}]"
+                        print(f"  - {svc.name}: {svc.url} (priority: {svc.priority}){deploy_marker}{marker}")
                 continue
 
             if not user_input:
@@ -327,9 +366,10 @@ def main():
 
             current_message = chat_history + [{"role": "user", "content": user_input}]
 
-            if using_beacon:
-                key_hash = hashlib.sha256(best_service.ephemeral_key.encode()).hexdigest()[:12]
-                logger.info(f"Using ephemeral JWT: {key_hash}")
+            if is_cloud:
+                if best_service.ephemeral_key:
+                    key_hash = hashlib.sha256(best_service.ephemeral_key.encode()).hexdigest()[:12]
+                    logger.info(f"Using ephemeral key: {key_hash}")
                 data = call_chat_api(
                     ephemeral_key=best_service.ephemeral_key,
                     model=model,
