@@ -10,7 +10,7 @@ SERVICE_COUNT=0
 
 # Auto-fetch configuration
 GITHUB_REPO="jperrello/Saturn"
-BINARY_NAME="saturn-mipsel-sf-full"
+BINARY_NAME="saturn-mipsel-sf"
 CLOUD_PORT_OFFSET=0
 LAST_CONFIG_FILE=""
 
@@ -49,9 +49,9 @@ ensure_binary() {
 	# Detect architecture for correct binary
 	local arch_binary="$BINARY_NAME"
 	if [ -f /lib/ld-musl-mipsel-sf.so.1 ]; then
-		arch_binary="saturn-mipsel-sf-full"
+		arch_binary="saturn-mipsel-sf"
 	elif [ -f /lib/ld-musl-mips-sf.so.1 ]; then
-		arch_binary="saturn-mips-sf-full"
+		arch_binary="saturn-mips-sf"
 	fi
 
 	# Get latest release download URL from GitHub API

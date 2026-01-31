@@ -18,7 +18,7 @@ jobs:
   build-mipsel:
     name: Build MIPSEL (soft-float)
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,7 +31,7 @@ jobs:
           cd saturn-router
           docker build -t saturn-mips-builder -f cross/Dockerfile.mipsel .
 
-      - name: Build with TLS (full)
+      - name: Build Saturn binary
         run: |
           cd saturn-router
           mkdir -p target
@@ -43,46 +43,22 @@ jobs:
               cargo +nightly build --release --target mipsel-unknown-linux-musl \
                 --no-default-features --features rustls \
                 -Zbuild-std=std,panic_abort && \
-              cp target/mipsel-unknown-linux-musl/release/saturn target/saturn-mipsel-sf-full && \
-              chmod 644 target/saturn-mipsel-sf-full
+              cp target/mipsel-unknown-linux-musl/release/saturn target/saturn-mipsel-sf && \
+              chmod 644 target/saturn-mipsel-sf
             "
-          ls -la target/saturn-mipsel-sf-full
-
-      - name: Build network-only (no TLS)
-        run: |
-          cd saturn-router
-          docker run --rm \
-            -v "${{ github.workspace }}/saturn-router:/project" \
-            -w /project \
-            saturn-mips-builder \
-            bash -c "
-              cargo clean && \
-              cargo +nightly build --release --target mipsel-unknown-linux-musl \
-                --no-default-features --features network-only \
-                -Zbuild-std=std,panic_abort && \
-              cp target/mipsel-unknown-linux-musl/release/saturn target/saturn-mipsel-sf-network-only && \
-              chmod 644 target/saturn-mipsel-sf-network-only
-            "
-          ls -la target/saturn-mipsel-sf-network-only
+          ls -la target/saturn-mipsel-sf
 
       - name: Get binary info
         run: |
           cd saturn-router/target
-          echo "=== Full binary (with TLS) ==="
-          file saturn-mipsel-sf-full
-          ls -lh saturn-mipsel-sf-full
-          echo ""
-          echo "=== Network-only binary (no TLS) ==="
-          file saturn-mipsel-sf-network-only
-          ls -lh saturn-mipsel-sf-network-only
+          file saturn-mipsel-sf
+          ls -lh saturn-mipsel-sf
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: saturn-mipsel-sf
-          path: |
-            saturn-router/target/saturn-mipsel-sf-full
-            saturn-router/target/saturn-mipsel-sf-network-only
+          path: saturn-router/target/saturn-mipsel-sf
 
   release:
     name: Create Release
@@ -90,7 +66,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -121,32 +97,21 @@ jobs:
           cat << 'EOF' > release_body.md
           ## Saturn Router ${{ steps.version.outputs.version }}
 
-          Pre-built binaries for OpenWRT routers.
+          Pre-built binary for OpenWRT routers.
 
           ### Quick Install
 
           ```bash
-          # One-liner install (auto-detects architecture)
           curl -sSL https://raw.githubusercontent.com/jperrello/Saturn/main/install-router.sh | sh
           ```
 
           ### Manual Install
 
           ```bash
-          # Download binary (choose one based on your needs)
-          wget https://github.com/jperrello/Saturn/releases/download/${{ steps.version.outputs.version }}/saturn-mipsel-sf-full
-
-          # Copy to router
-          scp saturn-mipsel-sf-full root@192.168.8.1:/tmp/saturn
+          wget https://github.com/jperrello/Saturn/releases/download/${{ steps.version.outputs.version }}/saturn-mipsel-sf
+          scp saturn-mipsel-sf root@192.168.8.1:/tmp/saturn
           chmod +x /tmp/saturn
           ```
-
-          ### Binary Variants
-
-          | File | Size | Description |
-          |------|------|-------------|
-          | `saturn-mipsel-sf-full` | ~2MB | Full build with TLS for OpenRouter/cloud APIs |
-          | `saturn-mipsel-sf-network-only` | ~500KB | Network-only, for local services (Ollama, vLLM) |
 
           ### Supported Architectures
 
@@ -164,8 +129,7 @@ jobs:
           name: Saturn Router ${{ steps.version.outputs.version }}
           body_path: release_body.md
           files: |
-            artifacts/saturn-mipsel-sf-full
-            artifacts/saturn-mipsel-sf-network-only
+            artifacts/saturn-mipsel-sf
             artifacts/checksums.txt
           draft: false
           prerelease: false

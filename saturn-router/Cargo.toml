@@ -9,9 +9,6 @@ description = "Saturn beacon service for mDNS/DNS-SD AI service discovery"
 default = ["native-tls"]
 native-tls = ["attohttpc/tls-native"]
 rustls = ["attohttpc/tls-rustls"]
-# No TLS - for network-only mode (local Ollama/vLLM health checks, no OpenRouter)
-# This produces the smallest binary (~500KB vs ~2MB)
-network-only = []
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

@@ -84,15 +84,12 @@ cd ../saturn-router && ./build-mips.sh --no-upx
 cd ../saturn-router && ./build-mips.sh --bloat
 ```
 
-### Expected Binary Sizes
+### Expected Binary Size
 
-| Mode | Raw Size | After UPX |
-|------|----------|-----------|
-| network-only (no TLS) | ~500 KB | ~200 KB |
-| rustls (with TLS for OpenRouter) | ~4 MB | ~2 MB |
+The binary with TLS support is ~2-3MB (raw) or ~1-2MB after UPX compression.
 
-**Note:** TLS builds (~2MB) don't fit in flash (~800KB free) on small routers. 
-The binary is stored in `/tmp` (RAM) instead and must be re-deployed after reboot.
+**Note:** The binary doesn't fit in flash (~800KB free) on small routers.
+It's stored in `/tmp` (RAM) and auto-downloaded from GitHub releases on boot.
 
 ## Installing Pre-built Package
 

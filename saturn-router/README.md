@@ -127,10 +127,10 @@ The target is `mipsel-unknown-linux-musl` — MIPS32 little-endian with musl lib
 - The Docker image (`cross/Dockerfile.mipsel`) installs the `mipsel-linux-muslsf` cross toolchain
 
 `build-mips-docker.sh` is the primary build entry point. It supports:
-- `--network-only` — no TLS, produces a ~500KB binary (for local-only services)
-- Default — builds with `rustls` feature for TLS, ~2MB+ binary (needed for cloud/OpenRouter)
 - `--rebuild` — forces Docker image rebuild
 - `--upx` — attempts UPX compression (often breaks on MIPS, disabled by default)
+
+The build uses the `rustls` feature for TLS support (~2MB binary).
 
 ### Deployment to Router
 
@@ -169,7 +169,7 @@ The developer works on Windows. Shell scripts run in Git Bash. The PowerShell de
 
 ### Binary size matters
 
-The `Cargo.toml` profile is aggressively optimized for size (`opt-level = "z"`, LTO, single codegen unit, panic=abort, stripped). The `network-only` feature flag removes TLS entirely. Any new dependency should be evaluated for its size impact — this binary runs on a router with ~128MB RAM.
+The `Cargo.toml` profile is aggressively optimized for size (`opt-level = "z"`, LTO, single codegen unit, panic=abort, stripped). Any new dependency should be evaluated for its size impact — this binary runs on a router with ~128MB RAM.
 
 ### Two deployment types, not more
 

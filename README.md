@@ -135,11 +135,7 @@ scp saturn-mipsel-sf-full root@192.168.8.1:/tmp/saturn
 ssh root@192.168.8.1 "chmod +x /tmp/saturn && /tmp/saturn --help"
 ```
 
-**Binary variants:**
-| Variant | Size | Use case |
-|---------|------|----------|
-| `saturn-mipsel-sf-full` | ~2MB | Full build with TLS for OpenRouter/cloud |
-| `saturn-mipsel-sf-network-only` | ~500KB | Local services only (Ollama, vLLM) |
+The binary (`saturn-mipsel-sf`, ~2MB) includes TLS support for both cloud APIs and local services.
 
 See [saturn-router/openwrt/README.md](saturn-router/openwrt/README.md) for full documentation.
 
