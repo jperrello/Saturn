@@ -293,14 +293,17 @@ def main():
     parser.add_argument("--priority", type=int, default=50)
     args = parser.parse_args()
 
-    port = args.port if args.port else find_port_number(args.host)
+    start_port = args.port if args.port else 8080
+    port = find_port_number(args.host, start_port=start_port)
+    if args.port and port != args.port:
+        logger.info(f"Port {args.port} in use, using {port} instead")
     logger.info(f"Starting OpenRouter proxy on {args.host}:{port} with priority {args.priority}")
 
     model_names = get_model_names()
     logger.info(f"Sample models: {', '.join(model_names[:5])}...")
 
     advertiser = SaturnAdvertiser(
-        name="OpenRouter",
+        name=f"OpenRouter-{port}",
         port=port,
         deployment="network",
         api_type="openai",
