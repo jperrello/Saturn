@@ -20,7 +20,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install musl cross toolchain for mipsel (soft-float variant for routers without FPU)
 # The "sf" suffix means soft-float ABI, required for devices like GL-MT300N-V2
-RUN curl -sSL https://musl.cc/mipsel-linux-muslsf-cross.tgz | tar -xzC /opt
+# musl.cc can be unreliable, so we use retries and longer timeout
+RUN curl --retry 5 --retry-delay 10 --connect-timeout 60 -sSL https://musl.cc/mipsel-linux-muslsf-cross.tgz | tar -xzC /opt
 ENV PATH="/opt/mipsel-linux-muslsf-cross/bin:$PATH"
 
 # Set up cross-compilation environment variables (soft-float toolchain)

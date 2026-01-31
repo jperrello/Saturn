@@ -46,6 +46,8 @@ pub struct ServiceConfig {
     pub key_response_field: Option<String>,
     #[serde(default)]
     pub key_hash_response_field: Option<String>,
+    #[serde(default)]
+    pub models_filter: Option<String>,
 }
 
 fn default_rotation_seconds() -> u64 {

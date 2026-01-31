@@ -7,6 +7,10 @@ STOP=10
 PROG=/tmp/saturn
 CONFIG_DIR=/tmp/saturn.d
 SERVICE_COUNT=0
+
+# Auto-fetch configuration
+GITHUB_REPO="jperrello/Saturn"
+BINARY_NAME="saturn-mipsel-sf-full"
 CLOUD_PORT_OFFSET=0
 LAST_CONFIG_FILE=""
 
@@ -34,6 +38,60 @@ find_available_port() {
 	logger -t saturn -p daemon.warn "Could not find available port starting from $base_port"
 	echo "$base_port"
 	return 1
+}
+
+ensure_binary() {
+	# Skip if binary already exists and is executable
+	[ -x "$PROG" ] && return 0
+
+	logger -t saturn -p daemon.info "Binary not found at $PROG, downloading from GitHub..."
+
+	# Detect architecture for correct binary
+	local arch_binary="$BINARY_NAME"
+	if [ -f /lib/ld-musl-mipsel-sf.so.1 ]; then
+		arch_binary="saturn-mipsel-sf-full"
+	elif [ -f /lib/ld-musl-mips-sf.so.1 ]; then
+		arch_binary="saturn-mips-sf-full"
+	fi
+
+	# Get latest release download URL from GitHub API
+	local release_url="https://api.github.com/repos/$GITHUB_REPO/releases/latest"
+	local release_json
+	local download_url
+
+	release_json=$(wget -qO- "$release_url" 2>/dev/null)
+	if [ -z "$release_json" ]; then
+		logger -t saturn -p daemon.err "Failed to fetch release info from GitHub"
+		return 1
+	fi
+
+	download_url=$(echo "$release_json" | grep -o "https://github.com/$GITHUB_REPO/releases/download/[^\"]*$arch_binary" | head -1)
+	if [ -z "$download_url" ]; then
+		logger -t saturn -p daemon.err "Could not find $arch_binary in latest release"
+		return 1
+	fi
+
+	logger -t saturn -p daemon.info "Downloading: $download_url"
+
+	# Download binary to temp location first
+	local temp_file="${PROG}.tmp"
+	if wget -q -O "$temp_file" "$download_url" 2>/dev/null; then
+		# Verify download has content
+		if [ ! -s "$temp_file" ]; then
+			logger -t saturn -p daemon.err "Downloaded file is empty"
+			rm -f "$temp_file"
+			return 1
+		fi
+
+		mv "$temp_file" "$PROG"
+		chmod +x "$PROG"
+		logger -t saturn -p daemon.info "Binary downloaded successfully to $PROG"
+		return 0
+	else
+		logger -t saturn -p daemon.err "Failed to download binary"
+		rm -f "$temp_file"
+		return 1
+	fi
 }
 
 validate_service() {
@@ -88,7 +146,7 @@ generate_config() {
 	local section="$1"
 	local name deployment api_type base_url priority
 	local api_key host port custom_advertise_port
-	local ephemeral_keys key_endpoint rotation expires spending_limit
+	local ephemeral_keys key_endpoint rotation expires spending_limit models_filter
 	local mdns_base_port advertise_port
 
 	config_get name "$section" name ""
@@ -110,6 +168,7 @@ generate_config() {
 	config_get rotation "$section" rotation_interval 300
 	config_get expires "$section" expires_interval 600
 	config_get spending_limit "$section" spending_limit 0
+	config_get models_filter "$section" models_filter ""
 
 	config_get mdns_base_port main mdns_base_port 8400
 
@@ -143,6 +202,7 @@ generate_config() {
 	local key_request_body_json=""
 	local key_response_field_json=""
 	local key_hash_response_field_json=""
+	local models_filter_json=""
 
 	if [ -n "$host" ]; then
 		host_json="\"host\": \"$host\","
@@ -162,6 +222,9 @@ generate_config() {
 	if [ -n "$key_hash_response_field" ]; then
 		key_hash_response_field_json="\"key_hash_response_field\": \"$key_hash_response_field\","
 	fi
+	if [ -n "$models_filter" ]; then
+		models_filter_json="\"models_filter\": \"$models_filter\","
+	fi
 
 	cat > "$config_file" <<EOF
 {
@@ -180,6 +243,7 @@ generate_config() {
     $key_request_body_json
     $key_response_field_json
     $key_hash_response_field_json
+    $models_filter_json
     "rotation_seconds": $rotation,
     "expires_seconds": $expires,
     "spending_limit": $spending_limit
@@ -231,6 +295,13 @@ start_service() {
 		logger -t saturn -p daemon.info "Saturn disabled in config"
 		return 0
 	}
+
+	# Ensure binary exists (auto-download if missing)
+	if ! ensure_binary; then
+		logger -t saturn -p daemon.err "Cannot start Saturn: binary unavailable"
+		logger -t saturn -p daemon.info "Manual install: wget -O $PROG https://github.com/$GITHUB_REPO/releases/latest/download/$BINARY_NAME && chmod +x $PROG"
+		return 1
+	fi
 
 	mkdir -p "$CONFIG_DIR"
 	chmod 700 "$CONFIG_DIR"
