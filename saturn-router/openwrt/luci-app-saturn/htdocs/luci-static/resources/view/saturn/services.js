@@ -389,12 +389,6 @@ return view.extend({
 			return true;
 		};
 
-		o = s.option(form.Value, 'models_filter', _('Models Filter'),
-			_('Optional: Comma-separated list of model names to advertise. Leave empty to advertise all models. Example: anthropic/claude-opus-4, openai/gpt-4o, meta-llama/llama-3-70b'));
-		o.rmempty = true;
-		o.placeholder = 'provider/model-1, provider/model-2';
-		o.depends('deployment', 'cloud');
-
 		o = s.option(form.Button, '_test_connection', _('Test Connection'));
 		o.inputtitle = _('Test');
 		o.inputstyle = 'action';

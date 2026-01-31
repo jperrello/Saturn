@@ -8,6 +8,58 @@ Saturn is a zero-configuration service discovery system for AI backends. It uses
 
 This directory (`saturn-router/`) contains the **Rust beacon binary** that runs on an OpenWRT router, plus all the OpenWRT packaging and LuCI web interface code needed to deploy it.
 
+## Critical Concept: Beacon, Not Proxy
+
+**Saturn is a service discovery beacon, not a traffic proxy.** This distinction is fundamental:
+
+```
+WHAT SATURN DOES (beacon):
+┌─────────────────┐     mDNS TXT records    ┌─────────────────┐
+│  Saturn Router  │ ───────────────────────►│     Client      │
+│    (beacon)     │   api_key, base_url     │                 │
+└─────────────────┘                         └────────┬────────┘
+                                                     │ Direct HTTPS
+                                                     ▼
+                                            ┌─────────────────┐
+                                            │   Upstream API  │
+                                            └─────────────────┘
+
+WHAT SATURN DOES NOT DO (proxy):
+┌─────────────────┐                         ┌─────────────────┐
+│  Saturn Router  │ ◄───────────────────────│     Client      │
+│                 │ ───────────────────────►│                 │
+└────────┬────────┘   API traffic proxied   └─────────────────┘
+         │            through router
+         ▼
+┌─────────────────┐
+│   Upstream API  │
+└─────────────────┘
+```
+
+**Implications:**
+- Clients discover services via mDNS, extract credentials from TXT records, then connect **directly** to the upstream provider
+- API traffic never flows through the router
+- The router cannot filter API responses, log requests, or modify traffic
+- Features that require traffic inspection (e.g., model filtering) must be implemented client-side or in a separate proxy
+
+### Ephemeral Keys vs Static Keys
+
+For cloud deployments, Saturn supports two credential modes:
+
+**Static Keys** (`ephemeral_keys` disabled):
+- Your API key is advertised directly in mDNS TXT records
+- Clients read the key and use it to connect to the upstream
+- Simple but exposes your key on the local network
+
+**Ephemeral Keys** (`ephemeral_keys` enabled):
+- Router uses your provisioning key to generate short-lived keys via the provider's API
+- These temporary keys are advertised instead of your real key
+- Keys rotate automatically (default: 5 min) and are deleted on rotation/shutdown
+- Spending limits can be enforced per key
+- Your real key never appears in mDNS announcements
+
+Both modes are beacon-only—clients still connect directly to the upstream.
+
 ## Directory Structure
 
 ```

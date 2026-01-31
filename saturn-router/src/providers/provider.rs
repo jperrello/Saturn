@@ -41,7 +41,6 @@ pub struct SaturnProvider {
     key_request_body: Option<String>,
     key_response_field: String,
     key_hash_response_field: Option<String>,
-    models_filter: Option<String>,
 
     current_key: Option<String>,
     current_hash: Option<String>,
@@ -71,7 +70,6 @@ impl SaturnProvider {
             key_response_field: config.key_response_field.clone()
                 .unwrap_or_else(|| "key".to_string()),
             key_hash_response_field: config.key_hash_response_field.clone(),
-            models_filter: config.models_filter.clone(),
 
             current_key: None,
             current_hash: None,
@@ -289,12 +287,6 @@ impl SaturnProvider {
             records.insert("features".to_string(), "ephemeral_auth".to_string());
         } else if self.deployment == "network" {
             records.insert("features".to_string(), "network_proxy".to_string());
-        }
-
-        if let Some(ref filter) = self.models_filter {
-            if !filter.is_empty() {
-                records.insert("models".to_string(), filter.clone());
-            }
         }
 
         records

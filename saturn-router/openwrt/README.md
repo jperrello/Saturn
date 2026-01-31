@@ -2,6 +2,49 @@
 
 Zero-configuration AI service discovery for OpenWRT routers.
 
+## Important: Saturn is a Beacon, Not a Proxy
+
+Saturn is a **service discovery beacon**—it announces where AI services are located, it does not proxy traffic through the router.
+
+```
+┌─────────────────┐     mDNS discovery      ┌─────────────────┐
+│  Saturn Router  │ ───────────────────────►│     Client      │
+│    (beacon)     │   "here's the API key"  │                 │
+└─────────────────┘   "here's the base_url" └────────┬────────┘
+                                                     │
+                                                     │ Direct HTTPS
+                                                     │ (not through router)
+                                                     ▼
+                                            ┌─────────────────┐
+                                            │   OpenRouter    │
+                                            │   (upstream)    │
+                                            └─────────────────┘
+```
+
+**What this means:**
+- Clients discover services via mDNS, read credentials from TXT records, then connect **directly** to the upstream provider
+- API traffic does NOT flow through the router
+- The router's job is credential management and service announcement, not request proxying
+
+### Cloud Deployments: Ephemeral Keys vs Static Keys
+
+When using `deployment='cloud'`, you have two options:
+
+**Static Keys (ephemeral_keys disabled):**
+- Your API key is advertised directly in mDNS TXT records
+- Simple setup, but your key is visible on the network
+- Router just announces the service and does health checks
+
+**Ephemeral Keys (ephemeral_keys enabled):**
+- Router generates short-lived API keys via the provider's key API (e.g., OpenRouter's `/api/v1/keys`)
+- These temporary keys are advertised instead of your real key
+- Keys rotate automatically (default: every 5 minutes)
+- Spending limits can be set per key
+- Old keys are deleted when rotated or on shutdown
+- Your real provisioning key never leaves the router
+
+Both modes are still beacon-only—clients connect directly to the upstream provider using the advertised credentials.
+
 ## Overview
 
 Saturn acts as a **Network AI Service Registry**. Each configured service becomes its own mDNS announcement, allowing all devices on your network to automatically discover AI services—both cloud APIs (OpenRouter, Anthropic) and local network services (Ollama, vLLM).

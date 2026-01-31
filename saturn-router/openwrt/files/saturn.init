@@ -146,7 +146,7 @@ generate_config() {
 	local section="$1"
 	local name deployment api_type base_url priority
 	local api_key host port custom_advertise_port
-	local ephemeral_keys key_endpoint rotation expires spending_limit models_filter
+	local ephemeral_keys key_endpoint rotation expires spending_limit
 	local mdns_base_port advertise_port
 
 	config_get name "$section" name ""
@@ -168,7 +168,6 @@ generate_config() {
 	config_get rotation "$section" rotation_interval 300
 	config_get expires "$section" expires_interval 600
 	config_get spending_limit "$section" spending_limit 0
-	config_get models_filter "$section" models_filter ""
 
 	config_get mdns_base_port main mdns_base_port 8400
 
@@ -202,7 +201,6 @@ generate_config() {
 	local key_request_body_json=""
 	local key_response_field_json=""
 	local key_hash_response_field_json=""
-	local models_filter_json=""
 
 	if [ -n "$host" ]; then
 		host_json="\"host\": \"$host\","
@@ -222,9 +220,6 @@ generate_config() {
 	if [ -n "$key_hash_response_field" ]; then
 		key_hash_response_field_json="\"key_hash_response_field\": \"$key_hash_response_field\","
 	fi
-	if [ -n "$models_filter" ]; then
-		models_filter_json="\"models_filter\": \"$models_filter\","
-	fi
 
 	cat > "$config_file" <<EOF
 {
@@ -243,7 +238,6 @@ generate_config() {
     $key_request_body_json
     $key_response_field_json
     $key_hash_response_field_json
-    $models_filter_json
     "rotation_seconds": $rotation,
     "expires_seconds": $expires,
     "spending_limit": $spending_limit
