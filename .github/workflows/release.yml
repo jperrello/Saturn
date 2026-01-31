@@ -34,7 +34,7 @@ jobs:
       - name: Build with TLS (full)
         run: |
           cd saturn-router
-          mkdir -p target/mipsel-unknown-linux-musl/release
+          mkdir -p target
           docker run --rm \
             -v "${{ github.workspace }}/saturn-router:/project" \
             -w /project \
@@ -42,9 +42,10 @@ jobs:
             bash -c "
               cargo +nightly build --release --target mipsel-unknown-linux-musl \
                 --no-default-features --features rustls \
-                -Zbuild-std=std,panic_abort
+                -Zbuild-std=std,panic_abort && \
+              cp target/mipsel-unknown-linux-musl/release/saturn target/saturn-mipsel-sf-full && \
+              chmod 644 target/saturn-mipsel-sf-full
             "
-          mv target/mipsel-unknown-linux-musl/release/saturn target/saturn-mipsel-sf-full
           ls -la target/saturn-mipsel-sf-full
 
       - name: Build network-only (no TLS)
@@ -55,12 +56,13 @@ jobs:
             -w /project \
             saturn-mips-builder \
             bash -c "
-              cargo clean
+              cargo clean && \
               cargo +nightly build --release --target mipsel-unknown-linux-musl \
                 --no-default-features --features network-only \
-                -Zbuild-std=std,panic_abort
+                -Zbuild-std=std,panic_abort && \
+              cp target/mipsel-unknown-linux-musl/release/saturn target/saturn-mipsel-sf-network-only && \
+              chmod 644 target/saturn-mipsel-sf-network-only
             "
-          mv target/mipsel-unknown-linux-musl/release/saturn target/saturn-mipsel-sf-network-only
           ls -la target/saturn-mipsel-sf-network-only
 
       - name: Get binary info
