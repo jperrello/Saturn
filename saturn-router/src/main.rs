@@ -242,6 +242,7 @@ fn run_beacon(config: BeaconConfig, health_interval_sec: u64) {
     info!("Shutting down...");
     if mdns_service.is_registered() {
         mdns_service.unregister();
+        thread::sleep(Duration::from_millis(500));
     }
     mdns_service.shutdown();
     
