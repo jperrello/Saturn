@@ -20,6 +20,47 @@ python -m saturn openrouter
 
 Servers advertise on `_saturn._tcp` with rich TXT records (models, capabilities, context, cost, etc.).
 
+## Configuration
+
+Most Saturn commands require API keys from their respective providers. You can configure these in two ways:
+
+### Option 1: `.env` file (recommended)
+
+Create a `.env` file in the directory where you run Saturn commands:
+
+```bash
+# If you're working in ~/projects/foo
+cd ~/projects/foo
+
+# Create .env file with your keys
+echo "OPENROUTER_PROVISIONING_KEY=sk-or-prov-xxx" >> .env
+echo "DEEPINFRA_API_KEY=your-deepinfra-key" >> .env
+
+# Now run Saturn from this directory
+saturn orbeacon
+```
+
+### Option 2: Shell environment variables
+
+```bash
+export OPENROUTER_PROVISIONING_KEY=sk-or-prov-xxx
+export DEEPINFRA_API_KEY=your-deepinfra-key
+saturn orbeacon
+```
+
+Or add them to your shell profile (`~/.bashrc`, `~/.zshrc`) for persistence.
+
+### Required keys by command
+
+| Command | Required Environment Variable |
+|---------|-------------------------------|
+| `saturn orbeacon` | `OPENROUTER_PROVISIONING_KEY` |
+| `saturn deepinfra` | `DEEPINFRA_API_KEY` |
+| `saturn beacon-proxy` | `DEEPINFRA_API_KEY` |
+| `saturn openrouter` | `OPENROUTER_API_KEY` + `OPENROUTER_BASE_URL` |
+| `saturn ollama` | None (uses local Ollama) |
+| `saturn discover` | None |
+
 ### Discover Services
 
 ```bash
@@ -187,5 +228,5 @@ with SaturnAdvertiser(name="MyService", port=8080, deployment="network", api_typ
 
 - Python 3.10+
 - Bonjour (Windows) or avahi-utils (Linux)
-- For ollama_server: Ollama running on localhost:11434
-- For openrouter_server: `.env` with `OPENROUTER_API_KEY` and `OPENROUTER_BASE_URL`
+- For `saturn ollama`: Ollama running on localhost:11434
+- API keys configured per the [Configuration](#configuration) section

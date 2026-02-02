@@ -1,0 +1,14 @@
+name = "openrouter"
+deployment = "cloud"
+api_type = "openai"
+priority = 50
+
+[upstream]
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+
+[server]
+port = 0
+
+[beacon]
+enabled = false

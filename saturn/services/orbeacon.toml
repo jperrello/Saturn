@@ -1,0 +1,18 @@
+name = "orbeacon"
+deployment = "network"
+api_type = "openai"
+priority = 10
+
+[upstream]
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_PROVISIONING_KEY"
+
+[server]
+port = 8090
+
+[beacon]
+enabled = true
+key_endpoint = "https://openrouter.ai/api/v1/keys"
+rotation_interval = 300
+spending_limit = 0
+expiration_interval = 600

@@ -1,0 +1,447 @@
+import os
+import sys
+import subprocess
+from pathlib import Path
+from dataclasses import dataclass, field
+from typing import Optional
+
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
+
+SERVICES_DIR = Path.home() / ".saturn" / "services"
+BUILTIN_SERVICES_DIR = Path(__file__).parent / "services"
+
+
+@dataclass
+class UpstreamConfig:
+    base_url: str
+    api_key_env: Optional[str] = None
+
+
+@dataclass
+class ServerConfig:
+    port: int = 0
+
+
+@dataclass
+class BeaconConfig:
+    enabled: bool = False
+    key_endpoint: Optional[str] = None
+    rotation_interval: int = 300
+    spending_limit: float = 0
+    expiration_interval: int = 600
+
+
+@dataclass
+class ServiceConfig:
+    name: str
+    deployment: str = "cloud"
+    api_type: str = "openai"
+    priority: int = 50
+    upstream: UpstreamConfig = field(default_factory=lambda: UpstreamConfig(base_url=""))
+    server: ServerConfig = field(default_factory=ServerConfig)
+    beacon: BeaconConfig = field(default_factory=BeaconConfig)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ServiceConfig":
+        upstream_data = data.get("upstream", {})
+        upstream = UpstreamConfig(
+            base_url=upstream_data.get("base_url", ""),
+            api_key_env=upstream_data.get("api_key_env"),
+        )
+
+        server_data = data.get("server", {})
+        server = ServerConfig(port=server_data.get("port", 0))
+
+        beacon_data = data.get("beacon", {})
+        beacon = BeaconConfig(
+            enabled=beacon_data.get("enabled", False),
+            key_endpoint=beacon_data.get("key_endpoint"),
+            rotation_interval=beacon_data.get("rotation_interval", 300),
+            spending_limit=beacon_data.get("spending_limit", 0),
+            expiration_interval=beacon_data.get("expiration_interval", 600),
+        )
+
+        return cls(
+            name=data.get("name", ""),
+            deployment=data.get("deployment", "cloud"),
+            api_type=data.get("api_type", "openai"),
+            priority=data.get("priority", 50),
+            upstream=upstream,
+            server=server,
+            beacon=beacon,
+        )
+
+    def validate(self) -> list[str]:
+        errors = []
+        if not self.name:
+            errors.append("name is required")
+        if self.deployment not in ("cloud", "local", "network"):
+            errors.append(f"invalid deployment type: {self.deployment}")
+        if self.api_type not in ("openai", "anthropic", "ollama"):
+            errors.append(f"invalid api_type: {self.api_type}")
+        if not 0 <= self.priority <= 100:
+            errors.append(f"priority must be 0-100, got: {self.priority}")
+        if not self.upstream.base_url and not self.beacon.enabled:
+            errors.append("upstream.base_url required when beacon not enabled")
+        return errors
+
+
+def get_services_dir() -> Path:
+    return SERVICES_DIR
+
+
+def ensure_services_dir() -> Path:
+    SERVICES_DIR.mkdir(parents=True, exist_ok=True)
+    return SERVICES_DIR
+
+
+def load_service_config(name: str) -> Optional[ServiceConfig]:
+    config_path = SERVICES_DIR / f"{name}.toml"
+    if not config_path.exists():
+        config_path = BUILTIN_SERVICES_DIR / f"{name}.toml"
+        if not config_path.exists():
+            return None
+
+    with open(config_path, "rb") as f:
+        data = tomllib.load(f)
+
+    return ServiceConfig.from_dict(data)
+
+
+def list_service_configs(include_builtin: bool = True) -> list[tuple[str, ServiceConfig, bool]]:
+    configs = []
+    seen = set()
+
+    if SERVICES_DIR.exists():
+        for path in sorted(SERVICES_DIR.glob("*.toml")):
+            name = path.stem
+            seen.add(name)
+            try:
+                config = load_service_config(name)
+                if config:
+                    configs.append((name, config, False))
+            except Exception as e:
+                print(f"Warning: failed to load {path}: {e}", file=sys.stderr)
+
+    if include_builtin and BUILTIN_SERVICES_DIR.exists():
+        for path in sorted(BUILTIN_SERVICES_DIR.glob("*.toml")):
+            name = path.stem
+            if name not in seen:
+                try:
+                    with open(path, "rb") as f:
+                        data = tomllib.load(f)
+                    config = ServiceConfig.from_dict(data)
+                    configs.append((name, config, True))
+                except Exception as e:
+                    print(f"Warning: failed to load {path}: {e}", file=sys.stderr)
+
+    return configs
+
+
+def get_config_path(name: str) -> Path:
+    return SERVICES_DIR / f"{name}.toml"
+
+
+def config_exists(name: str) -> bool:
+    return get_config_path(name).exists()
+
+
+DEFAULT_CONFIG_TEMPLATE = '''name = "{name}"
+deployment = "cloud"
+api_type = "openai"
+priority = 50
+
+[upstream]
+base_url = "https://api.example.com/v1"
+api_key_env = "EXAMPLE_API_KEY"
+
+[server]
+port = 0
+
+[beacon]
+enabled = false
+# key_endpoint = ""
+# rotation_interval = 300
+# spending_limit = 0
+# expiration_interval = 600
+'''
+
+
+def create_default_config(name: str) -> Path:
+    ensure_services_dir()
+    path = get_config_path(name)
+    content = DEFAULT_CONFIG_TEMPLATE.format(name=name)
+    path.write_text(content)
+    return path
+
+
+def edit_config(name: str) -> int:
+    path = get_config_path(name)
+    if not path.exists():
+        path = create_default_config(name)
+
+    editor = os.environ.get("EDITOR", "")
+    if not editor:
+        if sys.platform == "win32":
+            editor = "notepad"
+        else:
+            editor = "nano"
+
+    try:
+        return subprocess.call([editor, str(path)])
+    except FileNotFoundError:
+        print(f"Editor '{editor}' not found", file=sys.stderr)
+        print(f"Set EDITOR environment variable or edit manually: {path}")
+        return 1
+
+
+def cmd_config_list() -> int:
+    configs = list_service_configs()
+
+    if not configs:
+        print("No service configurations found.")
+        print(f"\nCreate one with: saturn config edit <name>")
+        print(f"Configs stored in: {SERVICES_DIR}")
+        return 0
+
+    print(f"{'NAME':<20} {'TYPE':<10} {'DEPLOY':<10} {'PRI':<5} {'SOURCE':<10}")
+    print("-" * 65)
+
+    for name, config, is_builtin in configs:
+        source = "built-in" if is_builtin else "user"
+        print(f"{name:<20} {config.api_type:<10} {config.deployment:<10} {config.priority:<5} {source:<10}")
+
+    print()
+    print(f"User configs: {SERVICES_DIR}")
+    print(f"Built-in:     {BUILTIN_SERVICES_DIR}")
+    return 0
+
+
+def cmd_config_edit(name: str) -> int:
+    return edit_config(name)
+
+
+def cmd_config_delete(name: str, force: bool = False) -> int:
+    import time
+    from .runner import is_service_running, stop_service, remove_pid_file
+
+    config_path = get_config_path(name)
+    builtin_path = BUILTIN_SERVICES_DIR / f"{name}.toml"
+
+    if builtin_path.exists() and not config_path.exists():
+        print(f"Cannot delete built-in service '{name}'", file=sys.stderr)
+        print("Create a user override first with: saturn config edit {name}")
+        return 1
+
+    if not config_path.exists():
+        print(f"Service '{name}' not found", file=sys.stderr)
+        return 1
+
+    if is_service_running(name):
+        if force:
+            print(f"Stopping running service '{name}'...")
+            stop_service(name)
+            for _ in range(10):
+                time.sleep(0.5)
+                if not is_service_running(name):
+                    break
+            remove_pid_file(name)
+        else:
+            print(f"Service '{name}' is currently running", file=sys.stderr)
+            print("Stop it first with: saturn stop {name}")
+            print("Or use --force to stop and delete")
+            return 1
+
+    config_path.unlink()
+    print(f"Deleted {config_path}")
+    return 0
+
+
+def prompt(question: str, default: str = "") -> str:
+    if default:
+        result = input(f"{question} [{default}]: ").strip()
+        return result if result else default
+    return input(f"{question}: ").strip()
+
+
+def prompt_choice(question: str, choices: list[str], default: int = 0) -> str:
+    print(f"\n{question}")
+    for i, choice in enumerate(choices):
+        marker = ">" if i == default else " "
+        print(f"  {marker} {i + 1}. {choice}")
+    while True:
+        answer = input(f"Choice [1-{len(choices)}]: ").strip()
+        if not answer:
+            return choices[default]
+        try:
+            idx = int(answer) - 1
+            if 0 <= idx < len(choices):
+                return choices[idx]
+        except ValueError:
+            pass
+        print(f"Please enter 1-{len(choices)}")
+
+
+def cmd_config_new() -> int:
+    print("=" * 55)
+    print("  Saturn Service Configuration Wizard")
+    print("=" * 55)
+    print()
+
+    name = prompt("Service name (e.g., myopenai, deepseek)")
+    if not name:
+        print("Name is required", file=sys.stderr)
+        return 1
+
+    if config_exists(name):
+        print(f"Service '{name}' already exists", file=sys.stderr)
+        print(f"Edit it with: saturn config edit {name}")
+        return 1
+
+    deployment = prompt_choice(
+        "Deployment type",
+        ["cloud - Remote API service (OpenRouter, OpenAI, etc.)",
+         "local - Local service (Ollama, LM Studio)",
+         "network - Shared network proxy"],
+        default=0
+    ).split(" - ")[0]
+
+    base_url = prompt("API base URL (e.g., https://openrouter.ai/api/v1)")
+    if not base_url:
+        print("Base URL is required", file=sys.stderr)
+        return 1
+
+    api_key_env = prompt("Environment variable for API key (leave empty if none)")
+
+    print()
+    print("Mode selection:")
+    print("  PROXY mode: Saturn keeps your API key server-side.")
+    print("              Clients connect to Saturn, which proxies to the API.")
+    print("              Best for: sharing access without exposing keys")
+    print()
+    print("  BEACON mode: Saturn broadcasts ephemeral keys via mDNS.")
+    print("               Clients call the API directly with rotated keys.")
+    print("               Best for: minimal latency, direct API access")
+    print()
+
+    mode = prompt_choice(
+        "Select mode",
+        ["proxy - Keep keys server-side (recommended)",
+         "beacon - Broadcast ephemeral keys"],
+        default=0
+    ).split(" - ")[0]
+
+    beacon_enabled = mode == "beacon"
+
+    key_endpoint = ""
+    rotation_interval = 300
+    spending_limit = 0.0
+
+    if beacon_enabled:
+        print()
+        print("Beacon configuration:")
+        key_endpoint = prompt("Key provisioning endpoint (for ephemeral key creation)")
+        rotation_str = prompt("Key rotation interval in seconds", "300")
+        try:
+            rotation_interval = int(rotation_str)
+        except ValueError:
+            rotation_interval = 300
+        limit_str = prompt("Spending limit per key in USD (0 = unlimited)", "0")
+        try:
+            spending_limit = float(limit_str)
+        except ValueError:
+            spending_limit = 0.0
+
+    priority_str = prompt("Priority (lower = preferred, 0-100)", "50")
+    try:
+        priority = int(priority_str)
+        priority = max(0, min(100, priority))
+    except ValueError:
+        priority = 50
+
+    port_str = prompt("Specific port (0 = auto-assign)", "0")
+    try:
+        port = int(port_str)
+    except ValueError:
+        port = 0
+
+    ensure_services_dir()
+    config_path = get_config_path(name)
+
+    lines = [
+        f'name = "{name}"',
+        f'deployment = "{deployment}"',
+        'api_type = "openai"',
+        f'priority = {priority}',
+        '',
+        '[upstream]',
+        f'base_url = "{base_url}"',
+    ]
+    if api_key_env:
+        lines.append(f'api_key_env = "{api_key_env}"')
+
+    lines.extend([
+        '',
+        '[server]',
+        f'port = {port}',
+        '',
+        '[beacon]',
+        f'enabled = {"true" if beacon_enabled else "false"}',
+    ])
+
+    if beacon_enabled:
+        if key_endpoint:
+            lines.append(f'key_endpoint = "{key_endpoint}"')
+        lines.append(f'rotation_interval = {rotation_interval}')
+        lines.append(f'spending_limit = {spending_limit}')
+
+    config_path.write_text('\n'.join(lines) + '\n')
+
+    print()
+    print("=" * 55)
+    print(f"  Created: {config_path}")
+    print("=" * 55)
+    print()
+    print("Next steps:")
+    print(f"  saturn run {name}     # Start the service")
+    print(f"  saturn config edit {name}   # Edit the config")
+    print(f"  saturn config list          # List all services")
+
+    return 0
+
+
+def main() -> int:
+    if len(sys.argv) < 2:
+        print("Usage: saturn config <command> [args]")
+        print()
+        print("Commands:")
+        print("  list              List all configured services")
+        print("  new               Interactive wizard to create a new service")
+        print("  edit <name>       Edit or create a service configuration")
+        print("  delete <name>     Delete a user service configuration")
+        return 1
+
+    command = sys.argv[1]
+
+    if command == "list":
+        return cmd_config_list()
+    elif command == "new":
+        return cmd_config_new()
+    elif command == "edit":
+        if len(sys.argv) < 3:
+            print("Usage: saturn config edit <name>", file=sys.stderr)
+            return 1
+        return cmd_config_edit(sys.argv[2])
+    elif command == "delete":
+        if len(sys.argv) < 3:
+            print("Usage: saturn config delete <name> [--force]", file=sys.stderr)
+            return 1
+        force = "--force" in sys.argv or "-f" in sys.argv
+        return cmd_config_delete(sys.argv[2], force=force)
+    else:
+        print(f"Unknown config command: {command}", file=sys.stderr)
+        print("Run 'saturn config' for usage", file=sys.stderr)
+        return 1

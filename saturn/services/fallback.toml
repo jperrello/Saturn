@@ -1,0 +1,13 @@
+name = "fallback"
+deployment = "network"
+api_type = "openai"
+priority = 99
+
+[upstream]
+base_url = "http://localhost:11434/v1"
+
+[server]
+port = 0
+
+[beacon]
+enabled = false

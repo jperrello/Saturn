@@ -10,21 +10,27 @@ def main():
         print("Commands:")
         print("  discover      Discover Saturn services on the network")
         print("  endpoint      Output best service endpoint URL (for scripts)")
-        print("  deepinfra     DeepInfra beacon - broadcasts JWT for direct calls")
-        print("  orbeacon      OpenRouter beacon - broadcasts keys for direct calls")
-        print("  beacon-proxy  HTTP proxy server - guests connect here, traffic proxied")
-        print("  openrouter    Start OpenRouter server with mDNS registration")
-        print("  ollama        Start Ollama server with mDNS registration")
-        print("  fallback      Start mock fallback server for testing")
+        print("  config        Manage service configurations")
+        print("  run           Run a configured service")
+        print("  stop          Stop a running service")
+        print()
+        print("Services (alias for 'saturn run <name>'):")
+        print("  openrouter    OpenRouter proxy server")
+        print("  ollama        Ollama proxy server")
+        print("  deepinfra     DeepInfra beacon (broadcasts JWT)")
+        print("  orbeacon      OpenRouter beacon (broadcasts ephemeral keys)")
+        print("  beacon-proxy  DeepInfra HTTP proxy with JWT rotation")
+        print("  fallback      Mock fallback server for testing")
+        print()
+        print("Tools:")
         print("  aider         Launch Aider with auto-discovered Saturn service")
         print()
         print("Examples:")
         print("  saturn discover")
-        print("  saturn deepinfra --priority 10")
-        print("  saturn orbeacon --priority 10")
-        print("  saturn beacon-proxy --priority 10")
-        print("  saturn openrouter --priority 50")
-        print("  saturn aider --select")
+        print("  saturn config list")
+        print("  saturn config edit myservice")
+        print("  saturn run myservice")
+        print("  saturn run -l")
         return 0
 
     command = sys.argv[1]
@@ -35,35 +41,52 @@ def main():
         from .discovery import main as discovery_main
         return discovery_main()
 
+    elif command == 'config':
+        sys.argv = ['saturn-config'] + remaining
+        from .config import main as config_main
+        return config_main()
+
+    elif command == 'run':
+        sys.argv = ['saturn-run'] + remaining
+        from .runner import main as runner_main
+        return runner_main()
+
+    elif command == 'stop':
+        if not remaining:
+            print("Usage: saturn stop <name>", file=sys.stderr)
+            return 1
+        from .runner import stop_service
+        return stop_service(remaining[0])
+
     elif command == 'deepinfra':
-        sys.argv = ['saturn-deepinfra'] + remaining
-        from .deepinfra_beacon import main as deepinfra_main
-        return deepinfra_main()
+        sys.argv = ['saturn-run', 'deepinfra'] + remaining
+        from .runner import main as runner_main
+        return runner_main()
 
     elif command == 'orbeacon':
-        sys.argv = ['saturn-orbeacon'] + remaining
-        from .openrouter_beacon import main as orbeacon_main
-        return orbeacon_main()
+        sys.argv = ['saturn-run', 'orbeacon'] + remaining
+        from .runner import main as runner_main
+        return runner_main()
 
     elif command == 'beacon-proxy':
-        sys.argv = ['saturn-beacon-proxy'] + remaining
-        from .beacon_proxy import main as beacon_proxy_main
-        return beacon_proxy_main()
+        sys.argv = ['saturn-run', 'beacon-proxy'] + remaining
+        from .runner import main as runner_main
+        return runner_main()
 
     elif command == 'openrouter':
-        sys.argv = ['saturn-openrouter'] + remaining
-        from .openrouter_server import main as openrouter_main
-        return openrouter_main()
+        sys.argv = ['saturn-run', 'openrouter'] + remaining
+        from .runner import main as runner_main
+        return runner_main()
 
     elif command == 'ollama':
-        sys.argv = ['saturn-ollama'] + remaining
-        from .ollama_server import main as ollama_main
-        return ollama_main()
+        sys.argv = ['saturn-run', 'ollama'] + remaining
+        from .runner import main as runner_main
+        return runner_main()
 
     elif command == 'fallback':
-        sys.argv = ['saturn-fallback'] + remaining
-        from .fallback_server import main as fallback_main
-        return fallback_main()
+        sys.argv = ['saturn-run', 'fallback'] + remaining
+        from .runner import main as runner_main
+        return runner_main()
 
     elif command == 'aider':
         sys.argv = ['aider-saturn'] + remaining

@@ -1,0 +1,13 @@
+name = "ollama"
+deployment = "local"
+api_type = "openai"
+priority = 50
+
+[upstream]
+base_url = "http://localhost:11434/v1"
+
+[server]
+port = 0
+
+[beacon]
+enabled = false
