@@ -334,6 +334,17 @@ def main():
     return args.func(args)
 
 
+def get_lan_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except Exception:
+        return socket.gethostbyname(socket.gethostname())
+    finally:
+        s.close()
+
+
 class SaturnAdvertiser:
     SERVICE_TYPE = "_saturn._tcp.local."
 
@@ -453,7 +464,7 @@ class SaturnAdvertiser:
 
         try:
             host = socket.gethostname()
-            host_ip = socket.gethostbyname(host)
+            host_ip = get_lan_ip()
 
             # Compute api_base if not provided
             api_base = self.api_base

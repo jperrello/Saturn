@@ -36,6 +36,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def get_lan_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except Exception:
+        return socket.gethostbyname(socket.gethostname())
+    finally:
+        s.close()
+
+
 OPENROUTER_KEYS_URL = "https://openrouter.ai/api/v1/keys"
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 
@@ -166,7 +177,7 @@ class BeaconAnnouncer:
             )
 
         host = socket.gethostname()
-        host_ip = socket.gethostbyname(host)
+        host_ip = get_lan_ip()
         service_name = f"OpenRouter-Beacon.{self.service_type}"
 
         self._zeroconf = Zeroconf()

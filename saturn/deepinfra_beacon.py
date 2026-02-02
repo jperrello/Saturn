@@ -32,6 +32,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def get_lan_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except Exception:
+        return socket.gethostbyname(socket.gethostname())
+    finally:
+        s.close()
+
+
 class JWTManager:
     def __init__(self, api_key: Optional[str] = None,
                  expires_delta: int = 600,
@@ -122,7 +133,7 @@ class BeaconAnnouncer:
             )
 
         host = socket.gethostname()
-        host_ip = socket.gethostbyname(host)
+        host_ip = get_lan_ip()
         service_name = f"DeepInfra-Beacon.{self.service_type}"
 
         self._zeroconf = Zeroconf()

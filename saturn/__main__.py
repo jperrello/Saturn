@@ -10,7 +10,8 @@ def main():
         print("Commands:")
         print("  discover      Discover Saturn services on the network")
         print("  endpoint      Output best service endpoint URL (for scripts)")
-        print("  beacon        mDNS announcer - broadcasts JWT for direct DeepInfra calls")
+        print("  deepinfra     DeepInfra beacon - broadcasts JWT for direct calls")
+        print("  orbeacon      OpenRouter beacon - broadcasts keys for direct calls")
         print("  beacon-proxy  HTTP proxy server - guests connect here, traffic proxied")
         print("  openrouter    Start OpenRouter server with mDNS registration")
         print("  ollama        Start Ollama server with mDNS registration")
@@ -19,7 +20,8 @@ def main():
         print()
         print("Examples:")
         print("  saturn discover")
-        print("  saturn beacon --priority 10")
+        print("  saturn deepinfra --priority 10")
+        print("  saturn orbeacon --priority 10")
         print("  saturn beacon-proxy --priority 10")
         print("  saturn openrouter --priority 50")
         print("  saturn aider --select")
@@ -28,16 +30,20 @@ def main():
     command = sys.argv[1]
     remaining = sys.argv[2:]
 
-    # rewrite sys.argv before importing submodules so argparse sees clean args
     if command in ('discover', 'endpoint'):
         sys.argv = ['saturn', command] + remaining
         from .discovery import main as discovery_main
         return discovery_main()
 
-    elif command == 'beacon':
-        sys.argv = ['saturn-beacon'] + remaining
-        from .beacon import main as beacon_main
-        return beacon_main()
+    elif command == 'deepinfra':
+        sys.argv = ['saturn-deepinfra'] + remaining
+        from .deepinfra_beacon import main as deepinfra_main
+        return deepinfra_main()
+
+    elif command == 'orbeacon':
+        sys.argv = ['saturn-orbeacon'] + remaining
+        from .openrouter_beacon import main as orbeacon_main
+        return orbeacon_main()
 
     elif command == 'beacon-proxy':
         sys.argv = ['saturn-beacon-proxy'] + remaining
