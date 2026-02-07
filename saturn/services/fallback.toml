@@ -4,10 +4,11 @@ api_type = "openai"
 priority = 99
 
 [upstream]
-base_url = "http://localhost:11434/v1"
+base_url = ""
 
 [server]
 port = 0
+module = "saturn.servers.fallback"
 
 [beacon]
 enabled = false

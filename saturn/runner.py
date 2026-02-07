@@ -619,14 +619,22 @@ def run_service(config: ServiceConfig, host: str = "0.0.0.0", port: Optional[int
             logger.error(f"Config error: {err}")
         return 1
 
-    runner = ServiceRunner(config)
-    app = runner.create_app()
-
     start_port = port if port else (config.server.port if config.server.port > 0 else 8080)
     actual_port = find_available_port(host, start_port)
 
     if port and actual_port != port:
         logger.info(f"Port {port} in use, using {actual_port}")
+
+    models_for_mdns = []
+
+    if config.server.module:
+        import importlib
+        mod = importlib.import_module(config.server.module)
+        app = mod.app
+    else:
+        runner = ServiceRunner(config)
+        app = runner.create_app()
+        models_for_mdns = runner.models_cache[:50]
 
     mdns_name = f"{config.name}-{actual_port}"
     advertiser = SaturnAdvertiser(
@@ -635,7 +643,7 @@ def run_service(config: ServiceConfig, host: str = "0.0.0.0", port: Optional[int
         deployment=config.deployment,
         api_type=config.api_type,
         priority=config.priority,
-        models=runner.models_cache[:50],
+        models=models_for_mdns,
         capabilities=["chat"],
     )
 

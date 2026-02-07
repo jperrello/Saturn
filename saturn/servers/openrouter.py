@@ -1,5 +1,3 @@
-import argparse
-import socket
 import json
 import time
 import logging
@@ -9,13 +7,10 @@ from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
-import uvicorn
 import requests
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
-
-from .discovery import SaturnAdvertiser
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,14 +20,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL")
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1/chat/completions")
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
-
-if not OPENROUTER_API_KEY or not OPENROUTER_BASE_URL:
-    raise ValueError(
-        "Missing environment variables. "
-        "Please set OPENROUTER_API_KEY and OPENROUTER_BASE_URL in your .env file"
-    )
 
 
 class ModelCache:
@@ -127,6 +116,11 @@ async def refresh_models_if_needed():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global OPENROUTER_API_KEY
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+    if not OPENROUTER_API_KEY:
+        logger.error("OPENROUTER_API_KEY not set. Set it in ~/.saturn/.env or environment.")
+        raise RuntimeError("OPENROUTER_API_KEY required")
     logger.info("=" * 50)
     logger.info("Starting up Saturn OpenRouter server...")
     logger.info("=" * 50)
@@ -186,7 +180,7 @@ async def get_models() -> dict:
             detail="No models available. Failed to fetch from OpenRouter API."
         )
 
-    return {"models": cached_models}
+    return {"object": "list", "data": cached_models}
 
 
 @app.post("/v1/chat/completions")
@@ -273,54 +267,3 @@ async def chat_completions(request: UserAIRequest):
         raise HTTPException(status_code=502, detail=f"OpenRouter connection error: {str(e)}")
 
 
-def find_port_number(host: str, start_port=8080, max_attempts=20) -> int:
-    for port in range(start_port, start_port + max_attempts):
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
-                s.bind((host, port))
-                return port
-        except OSError:
-            continue
-    raise RuntimeError(
-        f"No available ports in range {start_port} - {start_port + max_attempts}")
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Saturn OpenRouter Server")
-    parser.add_argument("--host", type=str, default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=None)
-    parser.add_argument("--priority", type=int, default=50)
-    args = parser.parse_args()
-
-    start_port = args.port if args.port else 8080
-    port = find_port_number(args.host, start_port=start_port)
-    if args.port and port != args.port:
-        logger.info(f"Port {args.port} in use, using {port} instead")
-    logger.info(f"Starting OpenRouter proxy on {args.host}:{port} with priority {args.priority}")
-
-    model_names = get_model_names()
-    logger.info(f"Sample models: {', '.join(model_names[:5])}...")
-
-    advertiser = SaturnAdvertiser(
-        name=f"OpenRouter-{port}",
-        port=port,
-        deployment="network",
-        api_type="openai",
-        priority=args.priority,
-        models=model_names,
-        capabilities=["chat", "code", "vision"],
-        context=128000,
-        cost="paid",
-    )
-    advertiser.register()
-
-    try:
-        uvicorn.run(app, host=args.host, port=port)
-    finally:
-        logger.info("Shutting down...")
-        advertiser.unregister()
-
-
-if __name__ == "__main__":
-    main()

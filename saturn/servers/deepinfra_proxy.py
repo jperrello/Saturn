@@ -1,22 +1,15 @@
 import os
-import sys
 import time
-import socket
-import argparse
 import logging
 import threading
-import json
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
-import uvicorn
 import requests
 from dotenv import load_dotenv
-
-from .discovery import SaturnAdvertiser
 
 load_dotenv()
 
@@ -149,7 +142,6 @@ class BeaconProxy:
 
 _jwt_manager: Optional[JWTManager] = None
 _beacon_proxy: Optional[BeaconProxy] = None
-_advertiser: Optional[SaturnAdvertiser] = None
 
 
 def rotation_loop(jwt_manager: JWTManager):
@@ -246,7 +238,7 @@ async def get_models():
         for m in models
     ]
 
-    return {"models": formatted}
+    return {"object": "list", "data": formatted}
 
 
 @app.post("/v1/chat/completions")
@@ -300,76 +292,3 @@ async def chat_completions(request: ChatRequest, raw_request: Request):
         return JSONResponse(content=response.json())
 
 
-def find_port(host: str, start_port: int = 8080, max_attempts: int = 20) -> int:
-    for port in range(start_port, start_port + max_attempts):
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
-                s.bind((host, port))
-                return port
-        except OSError:
-            continue
-    raise RuntimeError(f"No available ports in range {start_port}-{start_port + max_attempts}")
-
-
-def main():
-    global _advertiser
-
-    parser = argparse.ArgumentParser(
-        prog='saturn-beacon-proxy',
-        description='Saturn Beacon Proxy: HTTP proxy server with automatic JWT rotation'
-    )
-    parser.add_argument('--host', type=str, default='0.0.0.0',
-                        help='Host to bind to (default: 0.0.0.0)')
-    parser.add_argument('--port', type=int, default=None,
-                        help='Port to bind to (default: auto-detect)')
-    parser.add_argument('--priority', type=int, default=10,
-                        help='mDNS priority (default: 10, lower = preferred)')
-    args = parser.parse_args()
-
-    if not os.getenv('DEEPINFRA_API_KEY'):
-        logger.error("DEEPINFRA_API_KEY environment variable not set")
-        logger.error("Get your API key from https://deepinfra.com/dash/api_keys")
-        sys.exit(1)
-
-    port = args.port if args.port else find_port(args.host)
-
-    print("=" * 55)
-    print("  Saturn Beacon Proxy")
-    print("=" * 55)
-    print()
-    print("  This is the HTTP proxy version. All client traffic")
-    print("  passes through this server to DeepInfra.")
-    print()
-    print(f"  Proxy running at http://{args.host}:{port}")
-    print()
-    print("  Guests configure their tools with:")
-    print(f"    Base URL:  http://<your-ip>:{port}/v1")
-    print(f"    API Key:   saturn  (or any string)")
-    print()
-    print("  JWT rotation happens automatically every 5 minutes.")
-    print("=" * 55)
-
-    _advertiser = SaturnAdvertiser(
-        name="Beacon",
-        port=port,
-        deployment="network",
-        api_type="openai",
-        priority=args.priority,
-        models=["meta-llama/Llama-3.3-70B-Instruct", "deepseek-ai/DeepSeek-V3"],
-        capabilities=["chat", "code"],
-        context=128000,
-        cost="paid",
-    )
-    _advertiser.register()
-
-    try:
-        uvicorn.run(app, host=args.host, port=port, log_level="info")
-    finally:
-        logger.info("Shutting down...")
-        if _advertiser:
-            _advertiser.unregister()
-
-
-if __name__ == "__main__":
-    main()

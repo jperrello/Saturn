@@ -9,6 +9,7 @@ api_key_env = "OPENROUTER_API_KEY"
 
 [server]
 port = 0
+module = "saturn.servers.openrouter"
 
 [beacon]
 enabled = false

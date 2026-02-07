@@ -23,6 +23,7 @@ class UpstreamConfig:
 @dataclass
 class ServerConfig:
     port: int = 0
+    module: Optional[str] = None
 
 
 @dataclass
@@ -53,7 +54,10 @@ class ServiceConfig:
         )
 
         server_data = data.get("server", {})
-        server = ServerConfig(port=server_data.get("port", 0))
+        server = ServerConfig(
+            port=server_data.get("port", 0),
+            module=server_data.get("module"),
+        )
 
         beacon_data = data.get("beacon", {})
         beacon = BeaconConfig(
@@ -84,8 +88,8 @@ class ServiceConfig:
             errors.append(f"invalid api_type: {self.api_type}")
         if not 0 <= self.priority <= 100:
             errors.append(f"priority must be 0-100, got: {self.priority}")
-        if not self.upstream.base_url and not self.beacon.enabled:
-            errors.append("upstream.base_url required when beacon not enabled")
+        if not self.upstream.base_url and not self.beacon.enabled and not self.server.module:
+            errors.append("upstream.base_url required when beacon not enabled and no custom module")
         return errors
 
 
@@ -108,7 +112,14 @@ def load_service_config(name: str) -> Optional[ServiceConfig]:
     with open(config_path, "rb") as f:
         data = tomllib.load(f)
 
-    return ServiceConfig.from_dict(data)
+    config = ServiceConfig.from_dict(data)
+    if config.name and config.name != name:
+        raise ValueError(
+            f"Config name mismatch: file is '{name}.toml' but name field is '{config.name}'. "
+            f"Rename the file or fix the name field."
+        )
+    config.name = name
+    return config
 
 
 def list_service_configs(include_builtin: bool = True) -> list[tuple[str, ServiceConfig, bool]]:
@@ -299,6 +310,11 @@ def cmd_config_new() -> int:
     if config_exists(name):
         print(f"Service '{name}' already exists", file=sys.stderr)
         print(f"Edit it with: saturn config edit {name}")
+        return 1
+
+    builtin = BUILTIN_SERVICES_DIR / f"{name}.toml"
+    if builtin.exists():
+        print(f"'{name}' is a built-in service. Pick a different name.", file=sys.stderr)
         return 1
 
     deployment = prompt_choice(

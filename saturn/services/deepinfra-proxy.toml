@@ -1,4 +1,4 @@
-name = "beacon-proxy"
+name = "deepinfra-proxy"
 deployment = "network"
 api_type = "openai"
 priority = 10
@@ -9,6 +9,7 @@ api_key_env = "DEEPINFRA_API_KEY"
 
 [server]
 port = 0
+module = "saturn.servers.deepinfra_proxy"
 
 [beacon]
 enabled = false

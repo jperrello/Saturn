@@ -8,6 +8,7 @@ base_url = "http://localhost:11434/v1"
 
 [server]
 port = 0
+module = "saturn.servers.ollama"
 
 [beacon]
 enabled = false

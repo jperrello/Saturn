@@ -2,7 +2,6 @@ import socket
 import subprocess
 import sys
 import time
-import socket
 import threading
 import logging
 import argparse
