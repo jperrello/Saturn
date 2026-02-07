@@ -138,12 +138,14 @@ class CredentialManager(ABC):
 
 
 class DeepInfraJWTManager(CredentialManager):
-    def __init__(self, api_key: str, rotation_interval: int = 300, expiration_interval: int = 600):
+    def __init__(self, api_key: str, rotation_interval: int = 300, expiration_interval: int = 600,
+                 spending_limit: float = 0, key_endpoint: str = "", api_base: str = ""):
         self.api_key = api_key
         self.rotation_interval = rotation_interval
         self.expiration_interval = expiration_interval
-        self.api_endpoint = "https://api.deepinfra.com/v1/scoped-jwt"
-        self.api_base = "https://api.deepinfra.com/v1/openai"
+        self.spending_limit = spending_limit if spending_limit > 0 else None
+        self.api_endpoint = key_endpoint or "https://api.deepinfra.com/v1/scoped-jwt"
+        self.api_base = api_base or "https://api.deepinfra.com/v1/openai"
         self._lock = threading.Lock()
         self._current_token: Optional[str] = None
         self._last_rotation: Optional[float] = None
@@ -157,6 +159,8 @@ class DeepInfraJWTManager(CredentialManager):
             "api_key_name": "auto",
             "expires_delta": self.expiration_interval
         }
+        if self.spending_limit is not None:
+            payload["spending_limit"] = self.spending_limit
         response = requests.post(self.api_endpoint, headers=headers, json=payload)
         response.raise_for_status()
         token = response.json()["token"]
@@ -332,9 +336,12 @@ def run_beacon(config: ServiceConfig, port: int = 8090) -> int:
         credential_manager = DeepInfraJWTManager(
             api_key=api_key,
             rotation_interval=config.beacon.rotation_interval,
-            expiration_interval=config.beacon.expiration_interval
+            expiration_interval=config.beacon.expiration_interval,
+            spending_limit=config.beacon.spending_limit,
+            key_endpoint=config.beacon.key_endpoint or "",
+            api_base=config.upstream.base_url
         )
-        api_base = "https://api.deepinfra.com/v1/openai"
+        api_base = config.upstream.base_url or "https://api.deepinfra.com/v1/openai"
         provider_name = "DeepInfra"
     elif "openrouter" in key_endpoint.lower() or "openrouter" in config.upstream.base_url.lower():
         credential_manager = OpenRouterKeyManager(
