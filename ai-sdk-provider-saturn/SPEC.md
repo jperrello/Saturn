@@ -331,7 +331,7 @@ Current implementation only parses:
 | `callEndpoint()` | Uses `endpoint` | Use routing logic | **P0** |
 | Structured logging | None | Add discovery/routing logs | **P1** |
 | Error recovery | Basic try/catch | Retry, circuit breaker | **P1** |
-| `specificationVersion` | `'v2'` | `'V3'` | P2 |
+| `specificationVersion` | `'v3'` ✅ | `'v3'` | DONE |
 | Integration tests | None | Real OpenRouter tests | **P1** |
 | CI/CD | None | GitHub Actions | P2 |
 
@@ -996,9 +996,9 @@ Provide examples for:
 - [ ] Write integration tests with OpenRouter
 
 ### Phase 3: Make It Correct (P2)
-- [ ] Upgrade to LanguageModelV3
-- [ ] Add warnings for unsupported features
-- [ ] Follow Mistral patterns (getArgs, etc.)
+- [x] Upgrade to LanguageModelV3 ✅ (completed)
+- [x] Add warnings for unsupported features ✅ (completed)
+- [x] Follow Mistral patterns (getArgs, etc.) ✅ (completed)
 
 ### Phase 4: Publish (P2)
 - [ ] Clean up package.json (proper exports, types)

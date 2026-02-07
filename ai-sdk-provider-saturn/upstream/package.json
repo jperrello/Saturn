@@ -20,9 +20,11 @@
   },
   "files": [
     "dist/**/*",
-    "src/**/*"
+    "src/**/*",
+    "LICENSE"
   ],
   "scripts": {
+    "prepublishOnly": "npm run build",
     "build": "tsup",
     "dev": "tsup --watch",
     "mock": "tsx src/mock-server.ts",
@@ -31,12 +33,13 @@
     "example:chat": "tsx examples/chat-with-eliza.ts",
     "example:stream": "tsx examples/streaming-chat.ts",
     "example:discovery": "tsx examples/discovery-info.ts",
+    "test": "tsx --test test/index.test.ts",
     "test:comprehensive": "tsx examples/comprehensive-test.ts",
     "test:failover": "tsx scripts/failover-test.ts",
     "test:restart": "tsx test/restart-scenario.ts"
   },
   "dependencies": {
-    "@ai-sdk/provider": "3.0.7",
+    "@ai-sdk/provider": "^3.0.7",
     "@ai-sdk/provider-utils": "^3.0.0",
     "multicast-dns": "^7.2.5"
   },
@@ -49,7 +52,13 @@
     "typescript": "^5.0.0"
   },
   "peerDependencies": {
+    "ai": "^6.0.0",
     "zod": "^3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "zod": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=18"

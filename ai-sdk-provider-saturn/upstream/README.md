@@ -247,14 +247,14 @@ npm run mock
 
 ### Language Model (`SaturnChatLanguageModel`)
 
-- Implements AI SDK `LanguageModelV2` interface
+- Implements AI SDK `LanguageModelV3` interface
 - Converts AI SDK prompt format to OpenAI messages
 - Priority-based failover across services
 - Streaming and non-streaming support
 
 ### Provider (`SaturnProvider`)
 
-- Implements AI SDK `ProviderV2` interface
+- Implements AI SDK `ProviderV3` interface
 - Factory for creating language models
 - Manages discovery lifecycle
 

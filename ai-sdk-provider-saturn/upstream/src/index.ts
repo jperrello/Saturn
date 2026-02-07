@@ -6,18 +6,21 @@
  */
 
 import {
+  JSONObject,
   JSONValue,
-  LanguageModelV2,
-  LanguageModelV2CallOptions,
-  LanguageModelV2CallWarning,
-  LanguageModelV2Content,
-  LanguageModelV2FinishReason,
-  LanguageModelV2Prompt,
-  LanguageModelV2StreamPart,
-  LanguageModelV2Usage,
+  LanguageModelV3,
+  LanguageModelV3CallOptions,
+  LanguageModelV3Content,
+  LanguageModelV3FinishReason,
+  LanguageModelV3GenerateResult,
+  LanguageModelV3Message,
+  LanguageModelV3Prompt,
+  LanguageModelV3StreamPart,
+  LanguageModelV3StreamResult,
+  LanguageModelV3Usage,
   NoSuchModelError,
-  ProviderV2,
-  SharedV2ProviderMetadata,
+  ProviderV3,
+  SharedV3Warning,
 } from '@ai-sdk/provider';
 import { generateId } from '@ai-sdk/provider-utils';
 import multicastDns from 'multicast-dns';
@@ -82,6 +85,7 @@ export interface DiscoveredService {
   cost: 'free' | 'paid' | 'unknown';
   models: string[];
   modelsLastFetched: number | null;
+  modelsLastAttempted: number | null;
   deployment: DeploymentType;
   apiType: ApiType;
   apiBase: string;
@@ -186,7 +190,7 @@ interface CircuitState {
   state: 'closed' | 'open' | 'half-open';
 }
 
-class ServiceCircuitBreaker {
+export class ServiceCircuitBreaker {
   private circuits = new Map<string, CircuitState>();
   private readonly threshold: number;
   private readonly resetTimeout: number;
@@ -301,19 +305,26 @@ export class SaturnDiscovery {
   private partialServices: Map<string, PartialService> = new Map();
   private cleanupInterval: NodeJS.Timeout | null = null;
   private queryInterval: NodeJS.Timeout | null = null;
+  private healthCheckInterval: NodeJS.Timeout | null = null;
   private started = false;
   private logger: SaturnLogger;
   private onServiceDiscovered?: (service: DiscoveredService) => void;
   private onServiceRemoved?: (serviceName: string) => void;
+  private onServiceUnhealthy?: (service: DiscoveredService) => void;
+  private activeHealthCheckIntervalMs: number | null = null;
 
   constructor(
     logger?: SaturnLogger,
     onServiceDiscovered?: (service: DiscoveredService) => void,
-    onServiceRemoved?: (serviceName: string) => void
+    onServiceRemoved?: (serviceName: string) => void,
+    onServiceUnhealthy?: (service: DiscoveredService) => void,
+    activeHealthCheckIntervalMs?: number
   ) {
     this.logger = logger || createDefaultLogger();
     this.onServiceDiscovered = onServiceDiscovered;
     this.onServiceRemoved = onServiceRemoved;
+    this.onServiceUnhealthy = onServiceUnhealthy;
+    this.activeHealthCheckIntervalMs = activeHealthCheckIntervalMs ?? null;
   }
 
   private log(level: LogLevel, message: string, data?: Record<string, unknown>): void {
@@ -344,11 +355,17 @@ export class SaturnDiscovery {
 
     this.queryInterval = setInterval(() => {
       this.sendQuery();
-    }, 5000); // Reduced from 10s - services announce on startup so this is just backup
+    }, 5000);
 
     this.cleanupInterval = setInterval(() => {
       this.cleanupStaleServices();
     }, 15000);
+
+    if (this.activeHealthCheckIntervalMs) {
+      this.healthCheckInterval = setInterval(() => {
+        this.runActiveHealthChecks();
+      }, this.activeHealthCheckIntervalMs);
+    }
   }
 
   stop(): void {
@@ -365,6 +382,10 @@ export class SaturnDiscovery {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
     }
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
+    }
     if (this.mdns) {
       this.mdns.destroy();
       this.mdns = null;
@@ -379,6 +400,47 @@ export class SaturnDiscovery {
     this.mdns.query({
       questions: [{ name: SATURN_SERVICE_TYPE, type: 'PTR' }],
     });
+  }
+
+
+  requestKeyRefresh(serviceName: string): void {
+    if (!this.mdns) return;
+
+    const instanceName = `${serviceName}.${SATURN_SERVICE_TYPE}`;
+    this.log('info', 'Requesting key refresh via mDNS TXT query', { serviceName });
+
+    this.mdns.query({
+      questions: [{ name: instanceName, type: 'TXT' }],
+    });
+  }
+
+  async waitForKeyRefresh(serviceName: string, timeout = 2000): Promise<string | null> {
+    const service = this.services.get(serviceName);
+    const oldKey = service?.ephemeralKey;
+    
+    this.requestKeyRefresh(serviceName);
+    
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      await new Promise(r => setTimeout(r, 100));
+      const current = this.services.get(serviceName);
+      if (current?.ephemeralKey && current.ephemeralKey !== oldKey) {
+        this.log('info', 'Key refresh received', { serviceName });
+        return current.ephemeralKey;
+      }
+    }
+    
+    this.log('warn', 'Key refresh timed out', { serviceName, timeout });
+    return this.services.get(serviceName)?.ephemeralKey || null;
+  }
+
+  removeService(serviceName: string): void {
+    if (this.services.has(serviceName)) {
+      this.log('info', 'Service removed manually', { name: serviceName });
+      this.services.delete(serviceName);
+      this.partialServices.delete(serviceName);
+      this.onServiceRemoved?.(serviceName);
+    }
   }
 
   private handleResponse(response: multicastDns.ResponsePacket): void {
@@ -591,6 +653,7 @@ export class SaturnDiscovery {
       cost: partial.cost ?? 'unknown',
       models: [],
       modelsLastFetched: null,
+      modelsLastAttempted: null,
       deployment: partial.deployment ?? 'network',
       apiType: partial.apiType ?? 'openai',
       apiBase: apiBase,
@@ -638,6 +701,7 @@ export class SaturnDiscovery {
   }
 
   private async fetchModelsForService(service: DiscoveredService): Promise<void> {
+    service.modelsLastAttempted = Date.now();
     try {
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -660,45 +724,64 @@ export class SaturnDiscovery {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10000);
 
-      try {
-        const response = await fetch(url, {
-          method: 'GET',
-          headers,
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-
-        if (!response.ok) {
-          this.log('warn', `Models fetch failed for ${service.name}`, { 
-            status: response.status,
-            url,
+      const result = await (async (): Promise<Response | null> => {
+        try {
+          const r = await fetch(url, {
+            method: 'GET',
+            headers,
+            signal: controller.signal,
           });
-          return;
-        }
+          clearTimeout(timeout);
 
-        const data = await response.json() as { data?: Array<{ id: string } | string>; models?: Array<{ id: string } | string> };
-        const modelsList = data.data ?? data.models ?? [];
-        service.models = modelsList.map((m: { id: string } | string) =>
-          typeof m === 'string' ? m : m.id
-        );
-        service.modelsLastFetched = Date.now();
-
-        this.log('info', `Discovered ${service.models.length} models on ${service.name}`, { url });
-      } catch (fetchError) {
-        clearTimeout(timeout);
-        const errMsg = (fetchError as Error).message;
-        if (errMsg.includes('ENOTFOUND') || errMsg.includes('getaddrinfo')) {
-          this.log('warn', `Hostname resolution failed for ${service.name}`, { 
-            host: service.host,
-            url,
-            error: errMsg,
-          });
-        } else if ((fetchError as Error).name === 'AbortError') {
-          this.log('warn', `Models fetch timed out for ${service.name}`, { url });
-        } else {
-          throw fetchError;
+          if (!r.ok) {
+            this.log('warn', `Models fetch failed for ${service.name}, retrying in 2s`, {
+              status: r.status,
+              url,
+            });
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            const r2 = await fetch(url, {
+              method: 'GET',
+              headers,
+              signal: AbortSignal.timeout(10000),
+            });
+            if (!r2.ok) {
+              this.log('warn', `Models retry also failed for ${service.name}`, {
+                status: r2.status,
+                url,
+              });
+              return null;
+            }
+            return r2;
+          }
+          return r;
+        } catch (fetchError) {
+          clearTimeout(timeout);
+          const errMsg = (fetchError as Error).message;
+          if (errMsg.includes('ENOTFOUND') || errMsg.includes('getaddrinfo')) {
+            this.log('warn', `Hostname resolution failed for ${service.name}`, {
+              host: service.host,
+              url,
+              error: errMsg,
+            });
+          } else if ((fetchError as Error).name === 'AbortError') {
+            this.log('warn', `Models fetch timed out for ${service.name}`, { url });
+          } else {
+            throw fetchError;
+          }
+          return null;
         }
-      }
+      })();
+
+      if (!result) return;
+
+      const data = await result.json() as { data?: Array<{ id: string } | string>; models?: Array<{ id: string } | string> };
+      const modelsList = data.data ?? data.models ?? [];
+      service.models = modelsList.map((m: { id: string } | string) =>
+        typeof m === 'string' ? m : m.id
+      );
+      service.modelsLastFetched = Date.now();
+
+      this.log('info', `Discovered ${service.models.length} models on ${service.name}`, { url });
     } catch (error) {
       this.log('error', `Error fetching models from ${service.name}`, {
         error: (error as Error).message,
@@ -712,9 +795,12 @@ export class SaturnDiscovery {
   }
 
   async getEndpointsForModel(modelId: string): Promise<DiscoveredService[]> {
+    const COOLDOWN = 30000;
+    const now = Date.now();
     const fetchPromises: Promise<void>[] = [];
     for (const service of this.services.values()) {
-      if (service.modelsLastFetched === null) {
+      if (service.modelsLastFetched === null &&
+          (service.modelsLastAttempted === null || now - service.modelsLastAttempted > COOLDOWN)) {
         fetchPromises.push(this.fetchModelsForService(service));
       }
     }
@@ -730,13 +816,24 @@ export class SaturnDiscovery {
   }
 
   async fetchAllModels(): Promise<void> {
+    const COOLDOWN = 30000;
+    const now = Date.now();
     const fetchPromises: Promise<void>[] = [];
     for (const service of this.services.values()) {
-      if (service.modelsLastFetched === null) {
+      if (service.modelsLastFetched === null &&
+          (service.modelsLastAttempted === null || now - service.modelsLastAttempted > COOLDOWN)) {
         fetchPromises.push(this.fetchModelsForService(service));
       }
     }
     await Promise.all(fetchPromises);
+  }
+
+  async fetchModelsForServiceByName(name: string): Promise<boolean> {
+    const service = this.services.get(name);
+    if (!service) return false;
+    if (service.modelsLastFetched !== null) return service.models.length > 0;
+    await this.fetchModelsForService(service);
+    return service.models.length > 0;
   }
 
   hasServices(): boolean {
@@ -814,33 +911,35 @@ export class SaturnDiscovery {
 
     return { healthy, unhealthy };
   }
+
+
+  private async runActiveHealthChecks(): Promise<void> {
+    const services = Array.from(this.services.values());
+    if (services.length === 0) return;
+
+    this.log('debug', `Running active health checks on ${services.length} services`);
+
+    const results = await Promise.all(
+      services.map(async (service) => ({
+        service,
+        healthy: await this.checkServiceHealth(service, 3000),
+      }))
+    );
+
+    for (const { service, healthy } of results) {
+      if (!healthy) {
+        this.log('warn', `Active health check failed for ${service.name}`);
+        this.onServiceUnhealthy?.(service);
+      }
+    }
+  }
 }
 
 // ============================================================================
 // Language Model Implementation
 // ============================================================================
 
-interface DoGenerateResult {
-  content: Array<LanguageModelV2Content>;
-  finishReason: LanguageModelV2FinishReason;
-  usage: LanguageModelV2Usage;
-  providerMetadata?: SharedV2ProviderMetadata;
-  request?: { body?: unknown };
-  response?: {
-    id?: string;
-    timestamp?: Date;
-    modelId?: string;
-    headers?: Record<string, string>;
-    body?: unknown;
-  };
-  warnings: Array<LanguageModelV2CallWarning>;
-}
-
-interface DoStreamResult {
-  stream: ReadableStream<LanguageModelV2StreamPart>;
-  request?: { body?: unknown };
-  response?: { headers?: Record<string, string> };
-}
+// V3 uses LanguageModelV3GenerateResult and LanguageModelV3StreamResult from @ai-sdk/provider
 
 interface SaturnModelSettings {
   maxRetries?: number;
@@ -853,8 +952,8 @@ interface SaturnModelSettings {
   directEphemeralKey?: string;
 }
 
-export class SaturnChatLanguageModel implements LanguageModelV2 {
-  readonly specificationVersion = 'v2' as const;
+export class SaturnChatLanguageModel implements LanguageModelV3 {
+  readonly specificationVersion = 'v3' as const;
   readonly provider = 'saturn';
   readonly modelId: string;
 
@@ -903,6 +1002,7 @@ export class SaturnChatLanguageModel implements LanguageModelV2 {
       cost: 'unknown',
       models: [this.modelId],
       modelsLastFetched: Date.now(),
+      modelsLastAttempted: Date.now(),
       deployment: 'network',
       apiType: 'openai',
       apiBase: this.settings.directEndpoint,
@@ -911,12 +1011,12 @@ export class SaturnChatLanguageModel implements LanguageModelV2 {
     };
   }
 
-  private getArgs(options: LanguageModelV2CallOptions): {
+  private getArgs(options: LanguageModelV3CallOptions): {
     messages: OpenAIMessage[];
     body: Record<string, unknown>;
-    warnings: LanguageModelV2CallWarning[];
+    warnings: SharedV3Warning[];
   } {
-    const warnings: LanguageModelV2CallWarning[] = [];
+    const warnings: SharedV3Warning[] = [];
     const messages = this.convertPrompt(options.prompt);
 
     const body: Record<string, unknown> = {
@@ -950,8 +1050,8 @@ export class SaturnChatLanguageModel implements LanguageModelV2 {
 
     if (options.topK !== undefined) {
       warnings.push({
-        type: 'unsupported-setting',
-        setting: 'topK',
+        type: 'unsupported',
+        feature: 'topK',
         details: 'topK is not supported by OpenAI-compatible endpoints',
       });
     }
@@ -991,7 +1091,7 @@ export class SaturnChatLanguageModel implements LanguageModelV2 {
     return { messages, body, warnings };
   }
 
-  private convertPrompt(prompt: LanguageModelV2Prompt): OpenAIMessage[] {
+  private convertPrompt(prompt: LanguageModelV3Prompt): OpenAIMessage[] {
     const messages: OpenAIMessage[] = [];
 
     for (const message of prompt) {
@@ -1075,35 +1175,48 @@ export class SaturnChatLanguageModel implements LanguageModelV2 {
     return messages;
   }
 
-  private mapFinishReason(reason: string | null): LanguageModelV2FinishReason {
+  private mapFinishReason(reason: string | null): LanguageModelV3FinishReason {
+    let unified: 'stop' | 'length' | 'content-filter' | 'tool-calls' | 'error' | 'other';
     switch (reason) {
       case 'stop':
-        return 'stop';
+        unified = 'stop';
+        break;
       case 'length':
-        return 'length';
+        unified = 'length';
+        break;
       case 'tool_calls':
-        return 'tool-calls';
+        unified = 'tool-calls';
+        break;
       case 'content_filter':
-        return 'content-filter';
+        unified = 'content-filter';
+        break;
+      case 'error':
+        unified = 'error';
+        break;
       default:
-        return 'other';
+        unified = 'other';
     }
+    return { unified, raw: reason ?? undefined };
   }
 
   private async callEndpoint(
     service: DiscoveredService,
     body: Record<string, unknown>,
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
+    isRetryAfterKeyRefresh = false
   ): Promise<Response> {
+    const freshService = this.discovery.getAllServices().find(s => s.name === service.name);
+    const key = freshService?.ephemeralKey || service.ephemeralKey;
+    
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
 
-    if (service.ephemeralKey) {
-      headers['Authorization'] = `Bearer ${service.ephemeralKey}`;
+    if (key) {
+      headers['Authorization'] = `Bearer ${key}`;
     }
 
-    const baseUrl = getEffectiveEndpoint(service);
+    const baseUrl = getEffectiveEndpoint(freshService || service);
     const url = `${baseUrl}/chat/completions`;
 
     this.log('debug', `Calling ${service.name}`, {
@@ -1122,8 +1235,13 @@ export class SaturnChatLanguageModel implements LanguageModelV2 {
     if (!response.ok) {
       const errorBody = await response.text();
 
-      if (response.status === 401 && service.ephemeralKey) {
-        this.log('warn', `Ephemeral key expired for ${service.name}, waiting for rotation`);
+      if (response.status === 401 && key && !isRetryAfterKeyRefresh) {
+        this.log('warn', `Ephemeral key expired for ${service.name}, requesting refresh`);
+        const newKey = await this.discovery.waitForKeyRefresh(service.name, 2000);
+        if (newKey && newKey !== key) {
+          this.log('info', `Retrying with refreshed key for ${service.name}`);
+          return this.callEndpoint(service, body, abortSignal, true);
+        }
       }
 
       this.log('warn', `Request failed for ${service.name}`, {
@@ -1136,7 +1254,7 @@ export class SaturnChatLanguageModel implements LanguageModelV2 {
     return response;
   }
 
-  async doGenerate(options: LanguageModelV2CallOptions): Promise<DoGenerateResult> {
+  async doGenerate(options: LanguageModelV3CallOptions): Promise<LanguageModelV3GenerateResult> {
     const directService = this.getDirectService();
     let endpoints: DiscoveredService[];
 
@@ -1218,7 +1336,7 @@ export class SaturnChatLanguageModel implements LanguageModelV2 {
         this.circuitBreaker.recordSuccess(service.name);
 
         const choice = data.choices[0];
-        const content: LanguageModelV2Content[] = [];
+        const content: LanguageModelV3Content[] = [];
 
         if (choice.message.content) {
           content.push({ type: 'text', text: choice.message.content });
@@ -1239,9 +1357,18 @@ export class SaturnChatLanguageModel implements LanguageModelV2 {
           content,
           finishReason: this.mapFinishReason(choice.finish_reason),
           usage: {
-            inputTokens: data.usage.prompt_tokens,
-            outputTokens: data.usage.completion_tokens,
-            totalTokens: data.usage.total_tokens,
+            inputTokens: {
+              total: data.usage.prompt_tokens,
+              noCache: undefined,
+              cacheRead: undefined,
+              cacheWrite: undefined,
+            },
+            outputTokens: {
+              total: data.usage.completion_tokens,
+              text: data.usage.completion_tokens,
+              reasoning: undefined,
+            },
+            raw: data.usage as unknown as JSONObject,
           },
           request: { body },
           response: {
@@ -1268,7 +1395,7 @@ export class SaturnChatLanguageModel implements LanguageModelV2 {
     );
   }
 
-  async doStream(options: LanguageModelV2CallOptions): Promise<DoStreamResult> {
+  async doStream(options: LanguageModelV3CallOptions): Promise<LanguageModelV3StreamResult> {
     const directService = this.getDirectService();
     let endpoints: DiscoveredService[];
 
@@ -1338,15 +1465,18 @@ export class SaturnChatLanguageModel implements LanguageModelV2 {
     const attemptStream = async (
       service: DiscoveredService
     ): Promise<{ response: Response; headers: Record<string, string> }> => {
+      const freshService = this.discovery.getAllServices().find(s => s.name === service.name);
+      const key = freshService?.ephemeralKey || service.ephemeralKey;
+      
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
       };
 
-      if (service.ephemeralKey) {
-        headers['Authorization'] = `Bearer ${service.ephemeralKey}`;
+      if (key) {
+        headers['Authorization'] = `Bearer ${key}`;
       }
 
-      const baseUrl = getEffectiveEndpoint(service);
+      const baseUrl = getEffectiveEndpoint(freshService || service);
       const url = `${baseUrl}/chat/completions`;
 
       this.log('debug', `Streaming from ${service.name}`, {
@@ -1419,18 +1549,17 @@ export class SaturnChatLanguageModel implements LanguageModelV2 {
 
   private createStreamTransformer(
     response: Response,
-    initialWarnings: LanguageModelV2CallWarning[]
-  ): ReadableStream<LanguageModelV2StreamPart> {
+    initialWarnings: SharedV3Warning[]
+  ): ReadableStream<LanguageModelV3StreamPart> {
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
 
     let buffer = '';
     let isFirstChunk = true;
-    let finishReason: LanguageModelV2FinishReason = 'other';
-    let usage: LanguageModelV2Usage = {
-      inputTokens: undefined,
-      outputTokens: undefined,
-      totalTokens: undefined,
+    let finishReason: LanguageModelV3FinishReason = { unified: 'other', raw: undefined };
+    let usage: LanguageModelV3Usage = {
+      inputTokens: { total: undefined, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+      outputTokens: { total: undefined, text: undefined, reasoning: undefined },
     };
     let currentTextId: string | null = null;
     const toolInputIds = new Map<number, string>();
@@ -1539,9 +1668,18 @@ export class SaturnChatLanguageModel implements LanguageModelV2 {
 
               if (parsed.usage) {
                 usage = {
-                  inputTokens: parsed.usage.prompt_tokens,
-                  outputTokens: parsed.usage.completion_tokens,
-                  totalTokens: parsed.usage.total_tokens,
+                  inputTokens: {
+                    total: parsed.usage.prompt_tokens,
+                    noCache: undefined,
+                    cacheRead: undefined,
+                    cacheWrite: undefined,
+                  },
+                  outputTokens: {
+                    total: parsed.usage.completion_tokens,
+                    text: parsed.usage.completion_tokens,
+                    reasoning: undefined,
+                  },
+                  raw: parsed.usage,
                 };
               }
             } catch {
@@ -1561,11 +1699,11 @@ export class SaturnChatLanguageModel implements LanguageModelV2 {
 
   private createFailoverStream(
     initialResponse: Response,
-    initialWarnings: LanguageModelV2CallWarning[],
+    initialWarnings: SharedV3Warning[],
     requestBody: Record<string, unknown>,
     fallbackEndpoints: DiscoveredService[],
     abortSignal?: AbortSignal
-  ): ReadableStream<LanguageModelV2StreamPart> {
+  ): ReadableStream<LanguageModelV3StreamPart> {
     let currentResponse = initialResponse;
     let currentReader = currentResponse.body!.getReader();
     const decoder = new TextDecoder();
@@ -1573,11 +1711,10 @@ export class SaturnChatLanguageModel implements LanguageModelV2 {
     let buffer = '';
     let isFirstChunk = true;
     let hasEmittedContent = false;
-    let finishReason: LanguageModelV2FinishReason = 'other';
-    let usage: LanguageModelV2Usage = {
-      inputTokens: undefined,
-      outputTokens: undefined,
-      totalTokens: undefined,
+    let finishReason: LanguageModelV3FinishReason = { unified: 'other', raw: undefined };
+    let usage: LanguageModelV3Usage = {
+      inputTokens: { total: undefined, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+      outputTokens: { total: undefined, text: undefined, reasoning: undefined },
     };
     let currentTextId: string | null = null;
     const toolInputIds = new Map<number, string>();
@@ -1600,15 +1737,18 @@ export class SaturnChatLanguageModel implements LanguageModelV2 {
         }
 
         try {
+          const freshService = self.discovery.getAllServices().find(s => s.name === service.name);
+          const key = freshService?.ephemeralKey || service.ephemeralKey;
+          
           const headers: Record<string, string> = {
             'Content-Type': 'application/json',
           };
 
-          if (service.ephemeralKey) {
-            headers['Authorization'] = `Bearer ${service.ephemeralKey}`;
+          if (key) {
+            headers['Authorization'] = `Bearer ${key}`;
           }
 
-          const baseUrl = getEffectiveEndpoint(service);
+          const baseUrl = getEffectiveEndpoint(freshService || service);
           const url = `${baseUrl}/chat/completions`;
 
           self.log('info', `Mid-stream failover to ${service.name}`, {
@@ -1764,10 +1904,30 @@ export class SaturnChatLanguageModel implements LanguageModelV2 {
               if (parsed.usage) {
                 self.log('debug', 'Received usage', { usage: parsed.usage });
                 usage = {
-                  inputTokens: parsed.usage.prompt_tokens,
-                  outputTokens: parsed.usage.completion_tokens,
-                  totalTokens: parsed.usage.total_tokens,
+                  inputTokens: {
+                    total: parsed.usage.prompt_tokens,
+                    noCache: undefined,
+                    cacheRead: undefined,
+                    cacheWrite: undefined,
+                  },
+                  outputTokens: {
+                    total: parsed.usage.completion_tokens,
+                    text: parsed.usage.completion_tokens,
+                    reasoning: undefined,
+                  },
+                  raw: parsed.usage,
                 };
+              }
+
+              if (choice.finish_reason) {
+                if (currentTextId) {
+                  controller.enqueue({ type: 'text-end', id: currentTextId });
+                  currentTextId = null;
+                }
+                controller.enqueue({ type: 'finish', finishReason, usage });
+                controller.close();
+                currentReader.cancel().catch(() => {});
+                return;
               }
             } catch {
               // Ignore parse errors for malformed chunks
@@ -1810,22 +1970,30 @@ export interface SaturnProviderSettings {
   circuitBreakerResetTimeout?: number;
   enableHealthChecks?: boolean;
   healthCheckTimeout?: number;
+  activeHealthCheckInterval?: number;
   onServiceDiscovered?: (service: DiscoveredService) => void;
   onServiceRemoved?: (serviceName: string) => void;
+  onServiceUnhealthy?: (service: DiscoveredService) => void;
   serviceEndpoint?: string;
   serviceName?: string;
   serviceEphemeralKey?: string;
 }
 
-export interface SaturnProvider extends ProviderV2 {
-  (modelId: string): LanguageModelV2;
+export interface SaturnProvider extends ProviderV3 {
+  (modelId: string): LanguageModelV3;
   getDiscovery(): SaturnDiscovery;
   destroy(): void;
 }
 
 export function createSaturn(options: SaturnProviderSettings = {}): SaturnProvider {
   const logger = options.logger || (options.logLevel ? createDefaultLogger(options.logLevel) : createNoOpLogger());
-  const discovery = new SaturnDiscovery(logger, options.onServiceDiscovered, options.onServiceRemoved);
+  const discovery = new SaturnDiscovery(
+    logger,
+    options.onServiceDiscovered,
+    options.onServiceRemoved,
+    options.onServiceUnhealthy,
+    options.activeHealthCheckInterval
+  );
   const circuitBreaker = new ServiceCircuitBreaker(
     options.circuitBreakerThreshold ?? 3,
     options.circuitBreakerResetTimeout ?? 30000
@@ -1869,21 +2037,21 @@ export function createSaturn(options: SaturnProviderSettings = {}): SaturnProvid
     directEphemeralKey: options.serviceEphemeralKey,
   };
 
-  const createLanguageModel = (modelId: string): LanguageModelV2 => {
+  const createLanguageModel = (modelId: string): LanguageModelV3 => {
     return new SaturnChatLanguageModel(modelId, discovery, logger, circuitBreaker, modelSettings, waitForDiscovery);
   };
 
-  const provider = function (modelId: string): LanguageModelV2 {
+  const provider = function (modelId: string): LanguageModelV3 {
     if (new.target) {
-      throw new Error('The Saturn provider function cannot be called with the new keyword.');
+      throw new Error('The Saturn provider function function cannot be called with the new keyword.');
     }
     return createLanguageModel(modelId);
   } as SaturnProvider;
 
   provider.languageModel = createLanguageModel;
 
-  provider.textEmbeddingModel = (modelId: string) => {
-    throw new NoSuchModelError({ modelId, modelType: 'textEmbeddingModel' });
+  provider.embeddingModel = (modelId: string) => {
+    throw new NoSuchModelError({ modelId, modelType: 'embeddingModel' });
   };
 
   provider.imageModel = (modelId: string) => {
