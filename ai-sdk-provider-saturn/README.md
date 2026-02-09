@@ -35,6 +35,15 @@ console.log(result.text);
 // "How long have you been feeling anxious about your work?"
 ```
 
+> **Note:** Importing `saturn` starts mDNS discovery immediately in the background. This is intentional — discovery needs time to find services on your network, so starting at import time means services are already found by the time you make a request. If you need to control when discovery starts, use `createSaturn()` instead:
+>
+> ```typescript
+> import { createSaturn } from 'ai-sdk-provider-saturn';
+>
+> // Discovery starts here, not at import time
+> const saturn = createSaturn();
+> ```
+
 ### Running the Mock Server
 
 Start the included Eliza chatbot server for testing:

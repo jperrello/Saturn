@@ -1,6 +1,6 @@
 {
   "name": "ai-sdk-provider-saturn",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "AI SDK provider for Saturn zero-configuration AI service discovery",
   "type": "module",
   "main": "./dist/index.js",
@@ -34,7 +34,6 @@
     "example:stream": "tsx examples/streaming-chat.ts",
     "example:discovery": "tsx examples/discovery-info.ts",
     "test": "tsx --test test/index.test.ts",
-    "test:comprehensive": "tsx examples/comprehensive-test.ts",
     "test:failover": "tsx scripts/failover-test.ts",
     "test:restart": "tsx test/restart-scenario.ts"
   },
