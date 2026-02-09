@@ -1,0 +1,343 @@
+---
+title: Saturn
+description: Learn how to use Saturn with the AI SDK for zero-configuration AI service discovery.
+---
+
+# Saturn Provider
+
+The [Saturn](https://github.com/jperrello/Saturn) provider for the [AI SDK](https://ai-sdk.dev/) enables zero-configuration AI service discovery on local networks. Saturn uses mDNS/DNS-SD to automatically discover and connect to AI services without manual endpoint configuration.
+
+Instead of configuring API keys and endpoints per-application, Saturn lets a network administrator set up AI services once — and every device on the network gets access automatically, like connecting to a printer via Bonjour.
+
+<Note>
+  Saturn requires a Saturn-compatible service (router, beacon, or Ollama instance) running on your
+  local network and advertising via mDNS. The provider discovers services at runtime — if no services
+  are found, requests will fail with a descriptive error.
+</Note>
+
+## Setup
+
+<Tabs items={['pnpm', 'npm', 'yarn']}>
+  <Tab>
+    <Snippet text="pnpm add ai-sdk-provider-saturn" dark />
+  </Tab>
+  <Tab>
+    <Snippet text="npm install ai-sdk-provider-saturn" dark />
+  </Tab>
+  <Tab>
+    <Snippet text="yarn add ai-sdk-provider-saturn" dark />
+  </Tab>
+</Tabs>
+
+**Requirements:**
+
+- Node.js 18+
+- `ai` ^6.0.0 (peer dependency)
+- Network access for mDNS multicast (UDP port 5353)
+
+## Provider Instance
+
+You can import the default `saturn` provider instance or create a custom one with `createSaturn`:
+
+```ts
+import { saturn } from 'ai-sdk-provider-saturn';
+```
+
+Importing `saturn` starts mDNS network discovery immediately in the background. This is intentional — discovery needs time to find services on your network, so starting early means services are already found by the time you make a request.
+
+To control when discovery starts or to configure the provider:
+
+```ts
+import { createSaturn } from 'ai-sdk-provider-saturn';
+
+// Discovery starts here, not at import time
+const saturn = createSaturn({
+  discoveryTimeout: 5000, // Wait up to 5s for initial discovery
+  logLevel: 'info',       // 'debug' | 'info' | 'warn' | 'error'
+});
+```
+
+When you're done with the provider, call `saturn.destroy()` to stop mDNS listening and clean up background intervals.
+
+## Language Models
+
+Saturn discovers models by querying `/v1/models` on each discovered service. You create models by passing the model ID exactly as the backend advertises it:
+
+```ts
+import { saturn } from 'ai-sdk-provider-saturn';
+
+const model = saturn('openai/gpt-4o');
+```
+
+Model IDs depend on what the backend exposes. For example:
+
+- An OpenRouter service might advertise `openai/gpt-4o`, `anthropic/claude-3.5-sonnet`
+- An Ollama service might advertise `llama3.2`, `mistral`
+
+If multiple services offer the same model, Saturn routes to the highest-priority (lowest number) healthy service automatically.
+
+## Examples
+
+### Generate Text
+
+```ts
+import { saturn } from 'ai-sdk-provider-saturn';
+import { generateText } from 'ai';
+
+const { text } = await generateText({
+  model: saturn('openai/gpt-4o'),
+  prompt: 'Explain quantum computing in simple terms.',
+});
+
+console.log(text);
+```
+
+### Stream Text
+
+```ts
+import { saturn } from 'ai-sdk-provider-saturn';
+import { streamText } from 'ai';
+
+const { textStream } = streamText({
+  model: saturn('anthropic/claude-3.5-sonnet'),
+  prompt: 'Write a haiku about programming.',
+});
+
+for await (const chunk of textStream) {
+  process.stdout.write(chunk);
+}
+```
+
+### Generate Text with Tool Calls
+
+```ts
+import { saturn } from 'ai-sdk-provider-saturn';
+import { generateText, tool } from 'ai';
+import { z } from 'zod';
+
+const { text, toolCalls } = await generateText({
+  model: saturn('openai/gpt-4o'),
+  prompt: 'What is the weather in San Francisco?',
+  tools: {
+    getWeather: tool({
+      description: 'Get the current weather for a location',
+      parameters: z.object({
+        location: z.string().describe('The city name'),
+      }),
+      execute: async ({ location }) => {
+        return { temperature: 72, condition: 'sunny', location };
+      },
+    }),
+  },
+});
+```
+
+### Direct Endpoint Mode
+
+If you already know your Saturn service endpoint, you can bypass discovery entirely:
+
+```ts
+import { createSaturn } from 'ai-sdk-provider-saturn';
+import { generateText } from 'ai';
+
+const saturn = createSaturn({
+  serviceEndpoint: 'http://192.168.1.100:8080/v1',
+  serviceName: 'my-ollama',
+  serviceEphemeralKey: 'eph_abc123', // Optional, if the service requires auth
+});
+
+const { text } = await generateText({
+  model: saturn('llama3.2'),
+  prompt: 'Hello!',
+});
+```
+
+No mDNS discovery runs in direct mode. The provider sends requests directly to the given endpoint.
+
+## How Discovery Works
+
+Saturn services advertise themselves as `_saturn._tcp.local.` via mDNS with TXT records containing metadata:
+
+1. The provider sends mDNS queries on the local network
+2. Services respond with their host, port, and TXT records (priority, deployment type, API type, auth, capabilities)
+3. The provider fetches `/v1/models` from each discovered service to learn which models are available
+4. When you call `saturn('model-id')`, the provider matches the model to discovered services sorted by priority (lower number = higher priority)
+5. If a request fails, the provider retries with the next service in priority order
+
+Services are continuously monitored — new services are picked up automatically, and stale services are cleaned up.
+
+## Failover and Resilience
+
+### Priority-Based Routing
+
+Requests route to the lowest-priority-number service that offers the requested model. If that service fails, the provider automatically tries the next one.
+
+```ts
+const saturn = createSaturn({
+  maxRetries: 3,        // Retry up to 3 times per service
+  retryBaseDelay: 500,  // Start with 500ms delay
+  retryMaxDelay: 5000,  // Cap at 5s delay
+});
+```
+
+### Circuit Breaker
+
+After repeated failures, a service is temporarily removed from routing. This prevents wasting time on a known-bad endpoint.
+
+```ts
+const saturn = createSaturn({
+  circuitBreakerThreshold: 3,       // Open circuit after 3 consecutive failures
+  circuitBreakerResetTimeout: 30000, // Try the service again after 30s
+});
+```
+
+If all services for a model are circuit-broken, Saturn falls back to trying them anyway rather than failing immediately.
+
+### Health Checks
+
+Optionally probe `/v1/health` on services before routing requests:
+
+```ts
+const saturn = createSaturn({
+  enableHealthChecks: true,
+  healthCheckTimeout: 3000,         // Per-check timeout (ms)
+  activeHealthCheckInterval: 30000, // Poll interval (ms)
+});
+```
+
+When health checks are enabled, unhealthy services are deprioritized. If all services are unhealthy, Saturn tries them anyway as a last resort. Keep in mind, the health endpoint is for the cloud services saturn is connected to, not the local saturn service itself.
+
+### Ephemeral Key Rotation
+
+Saturn services can rotate authentication keys via mDNS TXT record updates. If a request fails with HTTP 401, the provider automatically requests a key refresh over mDNS and retries with the new key. This happens transparently with no configuration needed.
+
+## Service Discovery API
+
+Access discovered services directly for inspection or monitoring:
+
+```ts
+import { createSaturn } from 'ai-sdk-provider-saturn';
+
+const saturn = createSaturn();
+const discovery = saturn.getDiscovery();
+
+// Wait for initial discovery
+await new Promise(resolve => setTimeout(resolve, 3000));
+
+const services = discovery.getAllServices();
+for (const service of services) {
+  console.log(`${service.name}: ${service.models.join(', ')}`);
+  console.log(`  endpoint: ${service.endpoint}`);
+  console.log(`  priority: ${service.priority}, deployment: ${service.deployment}`);
+}
+
+saturn.destroy();
+```
+
+Each discovered service has the following shape:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `name` | `string` | Service instance name |
+| `host` | `string` | Resolved host address |
+| `port` | `number` | Service port |
+| `endpoint` | `string` | Full base URL (e.g. `http://192.168.1.5:8080/v1`) |
+| `priority` | `number` | Routing priority (lower = preferred) |
+| `models` | `string[]` | Models fetched from `/v1/models` |
+| `deployment` | `'cloud' \| 'network'` | Cloud proxy or local service |
+| `apiType` | `'openai' \| 'ollama'` | Backend API compatibility |
+| `authType` | `'none' \| 'psk' \| 'bearer'` | Authentication method |
+| `cost` | `'free' \| 'paid' \| 'unknown'` | Cost classification |
+| `capabilities` | `string[]` | Advertised capabilities |
+| `ephemeralKey` | `string` | Current auth key (may rotate) |
+| `apiBase` | `string` | Backend API base URL |
+| `provider` | `string` | Inferred provider name (e.g. `'OpenRouter'`, `'Ollama'`) |
+| `features` | `string` | Advertised feature flags |
+
+### Service Events
+
+Monitor discovery in real-time with callbacks:
+
+```ts
+const saturn = createSaturn({
+  onServiceDiscovered: (service) => {
+    console.log(`Found: ${service.name} (${service.deployment})`);
+  },
+  onServiceRemoved: (serviceName) => {
+    console.log(`Gone: ${serviceName}`);
+  },
+  onServiceUnhealthy: (service) => {
+    console.log(`Unhealthy: ${service.name}`);
+  },
+});
+```
+
+### Deployment Types
+
+Saturn supports two deployment types:
+
+- **Cloud**: Services that proxy to cloud providers (OpenRouter, OpenAI, etc.). Requests are routed to the service's `apiBase` URL.
+- **Network**: Services running locally (Ollama, vLLM, etc.). Requests are routed to the service's direct `endpoint`.
+
+```ts
+import { isCloudDeployment } from 'ai-sdk-provider-saturn';
+
+const services = discovery.getAllServices();
+const cloud = services.filter(isCloudDeployment);
+const local = services.filter(s => !isCloudDeployment(s));
+```
+
+## Provider Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `discoveryTimeout` | `number` | `3000` | Max time (ms) to wait for initial discovery |
+| `logLevel` | `'debug' \| 'info' \| 'warn' \| 'error'` | silent | Minimum log level to output |
+| `logger` | `SaturnLogger` | no-op | Custom logger implementation |
+| `maxRetries` | `number` | `2` | Max retry attempts per service |
+| `retryBaseDelay` | `number` | `500` | Initial retry delay (ms) |
+| `retryMaxDelay` | `number` | `5000` | Maximum retry delay (ms) |
+| `circuitBreakerThreshold` | `number` | `3` | Failures before opening circuit |
+| `circuitBreakerResetTimeout` | `number` | `30000` | Time (ms) before trying failed service again |
+| `enableHealthChecks` | `boolean` | `false` | Check service health before routing |
+| `healthCheckTimeout` | `number` | `3000` | Health check timeout (ms) |
+| `activeHealthCheckInterval` | `number` | `30000` | Interval (ms) for background health check polling |
+| `serviceEndpoint` | `string` | - | Direct endpoint URL (bypasses discovery) |
+| `serviceName` | `string` | - | Service name for direct mode |
+| `serviceEphemeralKey` | `string` | - | Auth key for direct mode |
+| `onServiceDiscovered` | `function` | - | Callback when a service is discovered |
+| `onServiceRemoved` | `function` | - | Callback when a service is removed |
+| `onServiceUnhealthy` | `function` | - | Callback when a service fails health check |
+
+## Model Capabilities
+
+Saturn passes requests through to OpenAI-compatible backends. Supported features depend on the backend service:
+
+| Feature | Support |
+|---------|---------|
+| Text Generation | All services |
+| Streaming | All services |
+| Tool Calls | OpenAI-compatible services |
+| JSON Mode | OpenAI-compatible services (via `response_format`) |
+| Object Generation | Via JSON mode |
+| Image Input | Not currently passed through by the provider |
+
+<Note>
+  The `topK` parameter is not supported by OpenAI-compatible endpoints. If provided, it will
+  be ignored and a warning will be included in the response.
+</Note>
+
+## Troubleshooting
+
+**"No Saturn services discovered on network"** — No services responded to mDNS queries within the discovery timeout. Check that a Saturn router or beacon is running and advertising via mDNS (`_saturn._tcp.local`). Increase `discoveryTimeout` if services are slow to respond.
+
+**"Model 'x' not found on any discovered Saturn service"** — Services were found, but none offer the requested model. The error message lists all discovered services and their models. Check that the model ID matches exactly what the backend advertises.
+
+**Requests are slow on first call** — The provider waits up to `discoveryTimeout` (default 3s) for at least one service to appear before making the first request. Import `saturn` early in your application to let discovery run in the background while your app initializes.
+
+**Firewall issues** — mDNS uses UDP multicast on port 5353. Ensure your firewall allows this traffic. In Docker or WSL environments, multicast traffic may not reach the host network by default.
+
+## Additional Resources
+
+- [Saturn GitHub Repository](https://github.com/jperrello/Saturn)
+- [AI SDK Documentation](https://ai-sdk.dev/)
