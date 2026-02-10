@@ -54,12 +54,14 @@ async def chat_completions(request: ChatRequest):
 
     payload = {
         "model": request.model,
-        "messages": [{"role": m.role, "content": m.content} for m in request.messages],
+        "messages": [m.model_dump(exclude_none=True) for m in request.messages],
         "stream": request.stream,
     }
 
     if request.max_tokens:
         payload["options"] = {"num_predict": request.max_tokens}
+    if request.tools is not None:
+        payload["tools"] = request.tools
 
     try:
         response = requests.post(
@@ -77,6 +79,7 @@ async def chat_completions(request: ChatRequest):
             def generate():
                 chunk_id = f"chatcmpl-{int(time.time())}"
                 first_chunk = True
+                has_tool_calls = False
 
                 try:
                     for line in response.iter_lines():
@@ -87,15 +90,17 @@ async def chat_completions(request: ChatRequest):
                         except json.JSONDecodeError:
                             continue
 
-                        # Translate Ollama streaming format to OpenAI SSE format:
-                        # - done=true  → emit stop chunk + [DONE] sentinel
-                        # - done=false → extract content, repackage as OpenAI delta
                         if ollama_chunk.get("done"):
-                            yield f"data: {json.dumps(chunk(chunk_id, request.model, {}, finish=True))}\n\n".encode('utf-8')
+                            reason = "tool_calls" if has_tool_calls else "stop"
+                            done_chunk = chunk(chunk_id, request.model, {}, finish=True)
+                            done_chunk["choices"][0]["finish_reason"] = reason
+                            yield f"data: {json.dumps(done_chunk)}\n\n".encode('utf-8')
                             yield b"data: [DONE]\n\n"
                         else:
-                            content = ollama_chunk.get("message", {}).get("content", "")
-                            role = ollama_chunk.get("message", {}).get("role")
+                            msg = ollama_chunk.get("message", {})
+                            content = msg.get("content", "")
+                            role = msg.get("role")
+                            calls = msg.get("tool_calls")
 
                             delta = {}
                             if first_chunk and role:
@@ -103,6 +108,9 @@ async def chat_completions(request: ChatRequest):
                                 first_chunk = False
                             if content:
                                 delta["content"] = content
+                            if calls:
+                                delta["tool_calls"] = calls
+                                has_tool_calls = True
 
                             if delta:
                                 yield f"data: {json.dumps(chunk(chunk_id, request.model, delta))}\n\n".encode('utf-8')
@@ -120,14 +128,21 @@ async def chat_completions(request: ChatRequest):
             raise HTTPException(status_code=502, detail=f"Ollama returned non-JSON response: {response.text[:500]}")
 
         msg = data.get("message", {})
+        message = {"role": msg.get("role", "assistant"), "content": msg.get("content", "")}
+        calls = msg.get("tool_calls")
+        reason = "stop"
+        if calls:
+            message["tool_calls"] = calls
+            reason = "tool_calls"
         return completion(
             request.model,
-            {"role": msg.get("role", "assistant"), "content": msg.get("content", "")},
+            message,
             {
                 "prompt_tokens": data.get("prompt_eval_count", 0),
                 "completion_tokens": data.get("eval_count", 0),
                 "total_tokens": data.get("prompt_eval_count", 0) + data.get("eval_count", 0),
             },
+            finish_reason=reason,
         )
 
     except requests.Timeout:

@@ -6,7 +6,7 @@ import sys
 import httpx
 
 from mcp.server.fastmcp import FastMCP
-from saturn.discovery import discover_services, SaturnService, select_best_service
+from saturn.discovery import discover, SaturnService, select_best_service
 
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 logger = logging.getLogger("saturn-mcp")
@@ -15,7 +15,7 @@ mcp = FastMCP("saturn")
 
 
 async def _async_discover(timeout: float = 5.0, settle_time: float = 1.0) -> list[SaturnService]:
-    return await asyncio.to_thread(discover_services, timeout, settle_time)
+    return await asyncio.to_thread(discover, timeout, settle_time)
 
 
 def service_to_dict(service: SaturnService) -> dict:
@@ -249,7 +249,7 @@ def get_all_services() -> str:
     import json
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(discover_services, 5.0, 1.0)
+        future = executor.submit(discover, 5.0, 1.0)
         services = future.result()
     return json.dumps([service_to_dict(s) for s in services], indent=2)
 

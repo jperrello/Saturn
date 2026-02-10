@@ -356,10 +356,18 @@ class ServiceRunner:
 
             payload = {
                 "model": request.model,
-                "messages": [{"role": m.role, "content": m.content} for m in request.messages],
+                "messages": [m.model_dump(exclude_none=True) for m in request.messages],
             }
             if request.stream:
                 payload["stream"] = True
+            if request.temperature is not None:
+                payload["temperature"] = request.temperature
+            if request.max_tokens is not None:
+                payload["max_tokens"] = request.max_tokens
+            if request.tools is not None:
+                payload["tools"] = request.tools
+            if request.tool_choice is not None:
+                payload["tool_choice"] = request.tool_choice
 
             try:
                 response = requests.post(
