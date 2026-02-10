@@ -39,3 +39,6 @@ tmpclaude-*
 *.exe
 saturn-mips
 saturnd/saturn-router/target/
+
+# Thesis
+thesis/
