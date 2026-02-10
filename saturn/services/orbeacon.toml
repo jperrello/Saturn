@@ -12,7 +12,6 @@ port = 8090
 
 [beacon]
 enabled = true
-key_endpoint = "https://openrouter.ai/api/v1/keys"
+provider = "openrouter"
 rotation_interval = 300
-spending_limit = 0
 expiration_interval = 600

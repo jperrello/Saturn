@@ -4,41 +4,32 @@ import subprocess
 import argparse
 import logging
 import requests
-from .discovery import discover_services, select_best_service, SaturnService
+from .discovery import discover, select_best_service, SaturnService
 from typing import List
 
 
-def fetch_beacon_models(service: SaturnService) -> List[str]:
-    if not service.ephemeral_key or not service.api_base:
-        return []
-
-    try:
-        response = requests.get(
-            f"{service.api_base}/models",
-            headers={"Authorization": f"Bearer {service.ephemeral_key}"},
-            timeout=10
-        )
-        if response.ok:
-            data = response.json()
-            models = data.get("data", [])
-            return [m["id"] if isinstance(m, dict) else m for m in models]
-    except Exception:
-        pass
-    return []
-
-
-def fetch_service_models(service: SaturnService) -> List[str]:
+def fetch_models(service: SaturnService) -> List[str]:
     if service.is_beacon:
-        return fetch_beacon_models(service)
+        if not service.ephemeral_key or not service.api_base:
+            return []
+        url = f"{service.api_base}/models"
+        headers = {"Authorization": f"Bearer {service.ephemeral_key}"}
+        timeout = 10
+    else:
+        url = f"{service.endpoint}/v1/models"
+        headers = None
+        timeout = 5
 
     try:
-        response = requests.get(f"{service.endpoint}/v1/models", timeout=5)
+        response = requests.get(url, headers=headers, timeout=timeout)
         if response.ok:
             data = response.json()
             models = data.get("models", data.get("data", []))
             return [m["id"] if isinstance(m, dict) else m for m in models]
     except Exception:
         pass
+    if service.is_beacon:
+        return []
     return service.models
 
 
@@ -76,43 +67,16 @@ def main():
         epilog='All unrecognized arguments are passed directly to Aider.'
     )
 
-    saturn_group = parser.add_argument_group('Saturn options')
-    saturn_group.add_argument(
-        '--timeout', type=float, default=8.0,
-        help='Service discovery timeout in seconds (default: 8.0)'
-    )
-    saturn_group.add_argument(
-        '--saturn-needs', type=str, default=None,
-        help='Required capabilities, comma-separated (e.g., "chat,code,vision")'
-    )
-    saturn_group.add_argument(
-        '--saturn-min-context', type=int, default=0,
-        help='Minimum context window size required'
-    )
-    saturn_group.add_argument(
-        '--saturn-prefer-free', action='store_true', default=True,
-        help='Prefer free services over paid (default: true)'
-    )
-    saturn_group.add_argument(
-        '--saturn-no-prefer-free', action='store_true',
-        help='Do not prefer free services'
-    )
-    saturn_group.add_argument(
-        '--saturn-verbose', action='store_true',
-        help='Show Saturn discovery details'
-    )
-    saturn_group.add_argument(
-        '--select', action='store_true',
-        help='Manually select which server and model to use'
-    )
-    saturn_group.add_argument(
-        '--saturn-model', type=str, default=None,
-        help='Specific model to use (skips model selection)'
-    )
+    g = parser.add_argument_group('Saturn options')
+    g.add_argument('--timeout', type=float, default=8.0, help='Discovery timeout in seconds (default: 8.0)')
+    g.add_argument('--saturn-needs', help='Required capabilities, comma-separated')
+    g.add_argument('--saturn-min-context', type=int, default=0, help='Minimum context window size')
+    g.add_argument('--saturn-prefer-free', action=argparse.BooleanOptionalAction, default=True, help='Prefer free services')
+    g.add_argument('--saturn-verbose', action='store_true', help='Show discovery details')
+    g.add_argument('--select', action='store_true', help='Manually select server and model')
+    g.add_argument('--saturn-model', help='Specific model (skips selection)')
 
     args, aider_args = parser.parse_known_args()
-
-    prefer_free = args.saturn_prefer_free and not args.saturn_no_prefer_free
     needs = args.saturn_needs.split(',') if args.saturn_needs else None
 
     if not args.saturn_verbose:
@@ -123,7 +87,7 @@ def main():
                 logging.getLogger(name).setLevel(logging.WARNING)
 
     print(f"Saturn: Discovering services...")
-    services = discover_services(timeout=args.timeout)
+    services = discover(timeout=args.timeout)
 
     if not services:
         print("Saturn: No services found on the network.", file=sys.stderr)
@@ -161,7 +125,7 @@ def main():
             services,
             needs=needs,
             min_context=args.saturn_min_context,
-            prefer_free=prefer_free
+            prefer_free=args.saturn_prefer_free
         )
 
         if not service:
@@ -177,7 +141,7 @@ def main():
     if args.saturn_model:
         selected_model = args.saturn_model
     else:
-        models = fetch_service_models(service)
+        models = fetch_models(service)
         if not models:
             print(f"Saturn: No models available from {service.name}.", file=sys.stderr)
             sys.exit(1)

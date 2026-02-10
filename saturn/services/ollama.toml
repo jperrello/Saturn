@@ -1,6 +1,6 @@
 name = "ollama"
 deployment = "local"
-api_type = "openai"
+api_type = "ollama"
 priority = 50
 
 [upstream]

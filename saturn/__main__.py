@@ -1,33 +1,54 @@
 import sys
 
 
+HELP = """\
+Saturn: Zero-configuration AI service discovery
+
+Usage: saturn <command> [options]
+
+Commands:
+  discover              Discover Saturn services on the network
+    --timeout <secs>      Discovery timeout (default: 5.0)
+    --json                Machine-readable JSON output
+  endpoint              Output best service endpoint URL
+    --timeout <secs>      Discovery timeout (default: 5.0)
+    --json                Machine-readable JSON output
+  run <name>            Run a configured service
+    --host <addr>         Host to bind to (default: 0.0.0.0)
+    --port <port>         Port to bind to (default: auto)
+  stop <name>           Stop a running service
+  config list           List all configured services
+  config new            Create a new service (interactive)
+  config delete <name>  Delete a user service configuration
+    --force               Stop the service first if running
+  aider                 Launch Aider with auto-discovered Saturn service
+
+Examples:
+  saturn discover             Find services on the network
+  saturn endpoint             Print best endpoint URL
+  saturn run openrouter       Start the OpenRouter proxy
+  saturn stop openrouter      Stop it
+  saturn config list          Show all services
+  saturn config new           Create a new service
+  saturn config delete myservice   Delete a user config
+  saturn ollama               Shortcut for 'saturn run ollama'
+"""
+
+
+def help():
+    print(HELP.rstrip())
+    print()
+    print("Shortcuts (alias for 'saturn run <name>'):")
+    from .config import list_service_configs
+    for name, cfg, _ in list_service_configs():
+        beacon = " [beacon]" if cfg.beacon.enabled else ""
+        print(f"  {name:<22}{cfg.api_type} @ {cfg.upstream.base_url or '(self-contained)'}{beacon}")
+    return 0
+
+
 def main():
-    if len(sys.argv) < 2:
-        print("Saturn: Zero-configuration AI service discovery")
-        print()
-        print("Usage: saturn <command> [options]")
-        print()
-        print("Commands:")
-        print("  discover      Discover Saturn services on the network")
-        print("  endpoint      Output best service endpoint URL (for scripts)")
-        print("  config        Manage service configurations")
-        print("  run           Run a configured service")
-        print("  stop          Stop a running service")
-        print()
-        print("Shortcuts (alias for 'saturn run <name>'):")
-        from .config import list_service_configs
-        for name, cfg, _ in list_service_configs():
-            beacon = " [beacon]" if cfg.beacon.enabled else ""
-            print(f"  {name:<16}{cfg.api_type} @ {cfg.upstream.base_url or '(self-contained)'}{beacon}")
-        print()
-        print("Tools:")
-        print("  aider         Launch Aider with auto-discovered Saturn service")
-        print()
-        print("Examples:")
-        print("  saturn discover")
-        print("  saturn config list")
-        print("  saturn run myservice")
-        return 0
+    if len(sys.argv) < 2 or sys.argv[1] in ('-h', '--help', 'help'):
+        return help()
 
     command = sys.argv[1]
     remaining = sys.argv[2:]
@@ -59,7 +80,6 @@ def main():
         from .aider_saturn import main as aider_main
         return aider_main()
 
-    # treat any other command as a service name shortcut
     from .config import load_service_config
     if load_service_config(command):
         sys.argv = ['saturn-run', command] + remaining
@@ -67,7 +87,7 @@ def main():
         return runner_main()
 
     print(f"Unknown command: {command}", file=sys.stderr)
-    print("Run 'saturn' for usage", file=sys.stderr)
+    print("Run 'saturn --help' for usage", file=sys.stderr)
     return 1
 
 

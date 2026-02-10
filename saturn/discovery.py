@@ -183,7 +183,7 @@ class SaturnDiscovery(ServiceListener):
         self.zeroconf.close()
 
 
-def discover_services(timeout: float = 8.0, settle_time: float = 1.0) -> List[SaturnService]:
+def discover(timeout: float = 8.0, settle_time: float = 1.0) -> List[SaturnService]:
     # settle_time prevents returning too early - wait for network to calm down
     # mdns responses trickle in, so we wait until no new services for settle_time seconds
     service_event = threading.Event()
@@ -276,7 +276,7 @@ def format_service_tree(service: SaturnService, prefix: str = "   ") -> str:
 
 
 def cli_discover(args):
-    services = discover_services(timeout=args.timeout)
+    services = discover(timeout=args.timeout)
 
     if args.json:
         output = [asdict(s) for s in services]
@@ -294,7 +294,7 @@ def cli_discover(args):
 
 
 def cli_endpoint(args):
-    services = discover_services(timeout=args.timeout)
+    services = discover(timeout=args.timeout)
     if not services:
         print("# No Saturn services found", file=sys.stderr)
         return 1
@@ -381,45 +381,10 @@ class SaturnAdvertiser:
         self._info: Optional[ServiceInfo] = None
 
     def _find_available_priority(self) -> int:
-        # auto-resolve priority collisions by scanning existing services
-        # if desired priority is taken, bump up until we find a free slot
-        priorities = set()
-
+        # scan network for existing services to avoid priority collisions
         try:
-            zc = Zeroconf()
-            
-            class PriorityListener(ServiceListener):
-                def __init__(self):
-                    self.priorities = set()
-                    self.lock = threading.Lock()
-
-                def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-                    info = zc.get_service_info(type_, name)
-                    if info and info.properties:
-                        try:
-                            p = info.properties.get(b'priority') or info.properties.get('priority')
-                            if p:
-                                val = p.decode('utf-8') if isinstance(p, bytes) else str(p)
-                                with self.lock:
-                                    self.priorities.add(int(val))
-                        except (ValueError, AttributeError):
-                            pass
-
-                def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-                    self.add_service(zc, type_, name)
-
-                def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-                    pass
-
-            listener = PriorityListener()
-            browser = ServiceBrowser(zc, self.SERVICE_TYPE, listener)
-            time.sleep(2.0)
-            browser.cancel()
-            zc.close()
-
-            with listener.lock:
-                priorities = listener.priorities
-
+            services = discover(timeout=2.0, settle_time=0.5)
+            priorities = {s.priority for s in services}
         except Exception as e:
             logger.warning(f"Error checking priorities: {e}")
             return self.priority
@@ -434,14 +399,11 @@ class SaturnAdvertiser:
 
         return current
 
-    def register(self) -> bool:
-        actual_priority = self._find_available_priority()
 
-        # dns txt records: each key=value pair must be <= 255 bytes total
-        # account for the key name + '=' when calculating max value length
+    def _properties(self) -> dict:
         MODELS_KEY = 'models'
         MAX_TXT_RECORD_BYTES = 255
-        MAX_VALUE_BYTES = MAX_TXT_RECORD_BYTES - len(MODELS_KEY) - 1  # -1 for '='
+        MAX_VALUE_BYTES = MAX_TXT_RECORD_BYTES - len(MODELS_KEY) - 1
 
         models_str = ''
         models_truncated = False
@@ -460,19 +422,32 @@ class SaturnAdvertiser:
             logger.info(f"TXT record limited to {len(parts)}/{len(self.models)} models (full list via /v1/models)")
 
         capabilities_str = ','.join(self.capabilities) if self.capabilities else ''
+        features = "network_proxy" if self.deployment == "network" else ""
+
+        return {
+            'version': '1.0',
+            'deployment': self.deployment,
+            'api_type': self.api_type,
+            'api_base': self.api_base,
+            'priority': str(self.priority),
+            'features': features,
+            'models': models_str,
+            'capabilities': capabilities_str,
+            'context': str(self.context),
+            'cost': self.cost,
+        }
+
+    def register(self) -> bool:
+        actual_priority = self._find_available_priority()
 
         try:
             host = socket.gethostname()
             host_ip = get_lan_ip()
 
-            # Compute api_base if not provided
-            api_base = self.api_base
-            if not api_base:
-                api_base = f"http://{host_ip}:{self.port}/v1"
+            if not self.api_base:
+                self.api_base = f"http://{host_ip}:{self.port}/v1"
 
-            # Determine features based on deployment type
-            features = "network_proxy" if self.deployment == "network" else ""
-
+            self.priority = actual_priority
             self._zeroconf = Zeroconf()
             self._info = ServiceInfo(
                 type_=self.SERVICE_TYPE,
@@ -480,20 +455,7 @@ class SaturnAdvertiser:
                 port=self.port,
                 addresses=[socket.inet_aton(host_ip)],
                 server=f"{host}.local.",
-                properties={
-                    # Production schema fields (matches saturn-router)
-                    'version': '1.0',
-                    'deployment': self.deployment,
-                    'api_type': self.api_type,
-                    'api_base': api_base,
-                    'priority': str(actual_priority),
-                    'features': features,
-                    # Extended fields for Saturn proxies
-                    'models': models_str,
-                    'capabilities': capabilities_str,
-                    'context': str(self.context),
-                    'cost': self.cost,
-                },
+                properties=self._properties(),
             )
 
             self._zeroconf.register_service(self._info)

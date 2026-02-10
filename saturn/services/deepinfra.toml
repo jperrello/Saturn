@@ -12,7 +12,6 @@ port = 8090
 
 [beacon]
 enabled = true
-key_endpoint = "https://api.deepinfra.com/v1/scoped-jwt"
+provider = "deepinfra"
 rotation_interval = 300
-spending_limit = 0 # 0 = no limit
 expiration_interval = 600

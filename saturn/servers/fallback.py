@@ -1,33 +1,31 @@
 import random
+import asyncio
 import time
 import json
 import logging
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from typing import Literal
+
+from . import ChatRequest, sse, chunk, completion
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("saturn.fallback")
-
-
-class ChatMessage(BaseModel):
-    role: Literal["user", "assistant", "system"]
-    content: str
-
-
-class ChatRequest(BaseModel):
-    model: str
-    messages: list[ChatMessage]
-    max_tokens: int | None = None
-    stream: bool = False
-
 
 app = FastAPI(
     title="Saturn Fallback",
     description="A mock fallback server for testing Saturn service discovery and failover logic.",
     version="2.0",
 )
+
+RESPONSES = [
+    "Why did you pick me?",
+    "Seriously? The model is literally called 'dont_pick_me' and you picked it anyway.",
+    "I warned you. The name wasn't subtle.",
+    "This is what happens when you ignore clear warnings.",
+    "You had one job: don't pick me. And yet, here we are.",
+    "I'm not even a real AI model. I'm just a fallback server making fun of you.",
+    "Achievement unlocked: Ignored obvious warnings.",
+    "I promise there is no secret for choosing this model."
+]
 
 
 @app.get("/v1/health")
@@ -36,101 +34,30 @@ async def health() -> dict:
 
 
 @app.get("/v1/models")
-async def get_models() -> dict:
-    models = [{"id": "dont_pick_me", "object": "model", "owned_by": "saturn"}]
-    return {"object": "list", "data": models}
+async def models() -> dict:
+    return {"object": "list", "data": [{"id": "dont_pick_me", "object": "model", "owned_by": "saturn"}]}
 
 
 @app.post("/v1/chat/completions")
-async def chat_completions(request: ChatRequest):
-    responses = [
-        "Why did you pick me?",
-        "Seriously? The model is literally called 'dont_pick_me' and you picked it anyway.",
-        "I warned you. The name wasn't subtle.",
-        "This is what happens when you ignore clear warnings.",
-        "You had one job: don't pick me. And yet, here we are.",
-        "I'm not even a real AI model. I'm just a fallback server making fun of you.",
-        "Achievement unlocked: Ignored obvious warnings.",
-        "I promise there is no secret for choosing this model."
-    ]
-    response_text = random.choice(responses)
-
+async def completions(request: ChatRequest):
     if request.model != "dont_pick_me":
         raise HTTPException(status_code=400, detail="Model not found. This is a fallback server!")
 
+    text = random.choice(RESPONSES)
+
     if request.stream:
-        def generate():
-            chunk_id = f"chatcmpl-{int(time.time())}"
-            words = response_text.split()
+        async def generate():
+            cid = f"chatcmpl-{int(time.time())}"
+            yield f"data: {json.dumps(chunk(cid, request.model, {'role': 'assistant'}))}\n\n"
+            for word in text.split():
+                await asyncio.sleep(0.05)
+                yield f"data: {json.dumps(chunk(cid, request.model, {'content': word + ' '}))}\n\n"
+            yield f"data: {json.dumps(chunk(cid, request.model, {}, finish=True))}\n\n"
+            yield "data: [DONE]\n\n"
+        return sse(generate())
 
-            openai_chunk = {
-                "id": chunk_id,
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": request.model,
-                "choices": [{
-                    "index": 0,
-                    "delta": {"role": "assistant"},
-                    "finish_reason": None
-                }]
-            }
-            yield f"data: {json.dumps(openai_chunk)}\n\n".encode("utf-8")
-
-            for word in words:
-                time.sleep(0.05)
-                openai_chunk = {
-                    "id": chunk_id,
-                    "object": "chat.completion.chunk",
-                    "created": int(time.time()),
-                    "model": request.model,
-                    "choices": [{
-                        "index": 0,
-                        "delta": {"content": word + " "},
-                        "finish_reason": None
-                    }]
-                }
-                yield f"data: {json.dumps(openai_chunk)}\n\n".encode("utf-8")
-
-            openai_chunk = {
-                "id": chunk_id,
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": request.model,
-                "choices": [{
-                    "index": 0,
-                    "delta": {},
-                    "finish_reason": "stop"
-                }]
-            }
-            yield f"data: {json.dumps(openai_chunk)}\n\n".encode("utf-8")
-            yield b"data: [DONE]\n\n"
-
-        return StreamingResponse(
-            generate(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no"
-            }
-        )
-
-    return {
-        "id": f"chatcmpl-{int(time.time())}",
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": request.model,
-        "choices": [{
-            "index": 0,
-            "message": {
-                "role": "assistant",
-                "content": response_text
-            },
-            "finish_reason": "stop"
-        }],
-        "usage": {
-            "prompt_tokens": 0,
-            "completion_tokens": len(response_text.split()),
-            "total_tokens": len(response_text.split())
-        }
-    }
+    return completion(
+        request.model,
+        {"role": "assistant", "content": text},
+        {"prompt_tokens": 0, "completion_tokens": len(text.split()), "total_tokens": len(text.split())},
+    )

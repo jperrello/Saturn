@@ -6,17 +6,15 @@ import logging
 import argparse
 import threading
 import time
-from abc import ABC, abstractmethod
+
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone, timedelta
-from typing import Optional, List, Tuple
+
+from typing import Optional, List
 
 import requests
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from zeroconf import Zeroconf, ServiceInfo
+
 
 import signal
 from pathlib import Path
@@ -25,6 +23,7 @@ from dotenv import load_dotenv
 
 from .config import load_service_config, ServiceConfig, list_service_configs, SERVICES_DIR
 from .discovery import SaturnAdvertiser, get_lan_ip
+from .servers import ChatMessage, ChatRequest, proxy_sse
 
 SATURN_ENV_FILE = Path.home() / ".saturn" / ".env"
 load_dotenv(SATURN_ENV_FILE)
@@ -34,17 +33,10 @@ logger = logging.getLogger("saturn.runner")
 RUN_DIR = Path.home() / ".saturn" / "run"
 
 
-def get_service_file(name: str) -> Path:
-    return RUN_DIR / f"{name}.json"
-
-
-def get_pid_file(name: str) -> Path:
-    return RUN_DIR / f"{name}.pid"
-
 
 def write_service_info(name: str, port: int, mdns_name: str) -> Path:
     RUN_DIR.mkdir(parents=True, exist_ok=True)
-    service_file = get_service_file(name)
+    service_file = RUN_DIR / f"{name}.json"
     info = {
         "pid": os.getpid(),
         "port": port,
@@ -55,7 +47,7 @@ def write_service_info(name: str, port: int, mdns_name: str) -> Path:
 
 
 def read_service_info(name: str) -> Optional[dict]:
-    service_file = get_service_file(name)
+    service_file = RUN_DIR / f"{name}.json"
     if not service_file.exists():
         return None
     try:
@@ -64,258 +56,104 @@ def read_service_info(name: str) -> Optional[dict]:
         return None
 
 
-def write_pid_file(name: str) -> Path:
-    RUN_DIR.mkdir(parents=True, exist_ok=True)
-    pid_file = get_pid_file(name)
-    pid_file.write_text(str(os.getpid()))
-    return pid_file
-
-
-def read_pid_file(name: str) -> Optional[int]:
-    info = read_service_info(name)
-    if info and "pid" in info:
-        return info["pid"]
-    pid_file = get_pid_file(name)
-    if not pid_file.exists():
-        return None
-    try:
-        return int(pid_file.read_text().strip())
-    except (ValueError, OSError):
-        return None
-
-
-def remove_pid_file(name: str) -> None:
-    service_file = get_service_file(name)
+def remove_service_info(name: str) -> None:
+    service_file = RUN_DIR / f"{name}.json"
     if service_file.exists():
         service_file.unlink()
-    pid_file = get_pid_file(name)
+    pid_file = RUN_DIR / f"{name}.pid"
     if pid_file.exists():
         pid_file.unlink()
 
 
 def is_service_running(name: str) -> bool:
-    pid = read_pid_file(name)
-    if pid is None:
-        return False
-    try:
-        if sys.platform == "win32":
-            import ctypes
-            kernel32 = ctypes.windll.kernel32
-            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-            if handle:
-                kernel32.CloseHandle(handle)
-                return True
-            remove_pid_file(name)
-            return False
-        else:
-            os.kill(pid, 0)
-            return True
-    except OSError:
-        remove_pid_file(name)
-        return False
+    from .discovery import discover
+    services = discover(timeout=3.0, settle_time=0.5)
+    return any(s.name.startswith(name) for s in services)
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 
 
-class CredentialManager(ABC):
-    @abstractmethod
-    def create_credential(self) -> str:
-        pass
-
-    @abstractmethod
-    def get_current_credential(self) -> Optional[str]:
-        pass
-
-    @abstractmethod
-    def needs_rotation(self) -> bool:
-        pass
-
-    @abstractmethod
-    def cleanup(self) -> None:
-        pass
-
-
-class DeepInfraJWTManager(CredentialManager):
-    def __init__(self, api_key: str, rotation_interval: int = 300, expiration_interval: int = 600,
-                 spending_limit: float = 0, key_endpoint: str = "", api_base: str = ""):
+class CredentialManager:
+    def __init__(self, provider, api_key, rotation_interval=300,
+                 expiration_interval=600):
+        self.provider = provider
         self.api_key = api_key
+        self.endpoint = provider.endpoint
+        self.api_base = provider.api_base
         self.rotation_interval = rotation_interval
         self.expiration_interval = expiration_interval
-        self.spending_limit = spending_limit if spending_limit > 0 else None
-        self.api_endpoint = key_endpoint or "https://api.deepinfra.com/v1/scoped-jwt"
-        self.api_base = api_base or "https://api.deepinfra.com/v1/openai"
         self._lock = threading.Lock()
-        self._current_token: Optional[str] = None
+        self._credential: Optional[str] = None
+        self._handles: list = []
         self._last_rotation: Optional[float] = None
 
-    def create_credential(self) -> str:
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "api_key_name": "auto",
-            "expires_delta": self.expiration_interval
-        }
-        if self.spending_limit is not None:
-            payload["spending_limit"] = self.spending_limit
-        response = requests.post(self.api_endpoint, headers=headers, json=payload)
+    def create(self) -> str:
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        payload = self.provider.payload(self.expiration_interval)
+        response = requests.post(self.endpoint, headers=headers, json=payload)
         response.raise_for_status()
-        token = response.json()["token"]
+        credential, handle = self.provider.parse(response.json())
         with self._lock:
-            self._current_token = token
+            self._credential = credential
+            if handle is not None:
+                self._handles.append(handle)
             self._last_rotation = time.time()
-        return token
+        return credential
 
-    def get_current_credential(self) -> Optional[str]:
+    def current(self) -> Optional[str]:
         with self._lock:
-            return self._current_token
+            return self._credential
 
-    def needs_rotation(self) -> bool:
+    def stale(self) -> bool:
         with self._lock:
             if self._last_rotation is None:
                 return True
             return time.time() - self._last_rotation >= self.rotation_interval
 
-    def cleanup(self) -> None:
-        pass
-
-
-class OpenRouterKeyManager(CredentialManager):
-    def __init__(self, provisioning_key: str, rotation_interval: int = 300,
-                 expiration_interval: int = 600, spending_limit: float = 0):
-        self.provisioning_key = provisioning_key
-        self.rotation_interval = rotation_interval
-        self.expiration_interval = expiration_interval
-        self.spending_limit = spending_limit if spending_limit > 0 else None
-        self.keys_url = "https://openrouter.ai/api/v1/keys"
-        self.api_base = "https://openrouter.ai/api/v1"
-        self._lock = threading.Lock()
-        self._current_key: Optional[str] = None
-        self._current_hash: Optional[str] = None
-        self._previous_hash: Optional[str] = None
-        self._last_rotation: Optional[float] = None
-
-    def _get_headers(self) -> dict:
-        return {
-            "Authorization": f"Bearer {self.provisioning_key}",
-            "Content-Type": "application/json"
-        }
-
-    def create_credential(self) -> str:
-        expires_at = datetime.now(timezone.utc) + timedelta(seconds=self.expiration_interval)
-        expires_at_str = expires_at.strftime("%Y-%m-%dT%H:%M:%SZ")
-        payload = {
-            "name": f"saturn-beacon-{int(time.time())}",
-            "expires_at": expires_at_str
-        }
-        if self.spending_limit is not None:
-            payload["limit"] = self.spending_limit
-        response = requests.post(self.keys_url, headers=self._get_headers(), json=payload)
-        response.raise_for_status()
-        data = response.json()
-        key = data["key"]
-        key_hash = data["data"]["hash"]
+    def cleanup(self, final=False) -> None:
         with self._lock:
-            if self._current_hash:
-                self._previous_hash = self._current_hash
-            self._current_key = key
-            self._current_hash = key_hash
-            self._last_rotation = time.time()
-        return key
-
-    def get_current_credential(self) -> Optional[str]:
-        with self._lock:
-            return self._current_key
-
-    def needs_rotation(self) -> bool:
-        with self._lock:
-            if self._last_rotation is None:
-                return True
-            return time.time() - self._last_rotation >= self.rotation_interval
-
-    def _delete_key(self, key_hash: str) -> bool:
-        try:
-            response = requests.delete(f"{self.keys_url}/{key_hash}", headers=self._get_headers())
-            if response.status_code in (200, 404):
-                logger.info(f"Deleted key: {key_hash[:8]}...")
-                return True
-            logger.warning(f"Failed to delete key {key_hash[:8]}...: {response.status_code}")
-            return False
-        except Exception as e:
-            logger.error(f"Error deleting key: {e}")
-            return False
-
-    def cleanup(self) -> None:
-        with self._lock:
-            previous = self._previous_hash
-            current = self._current_hash
-            self._previous_hash = None
-        if previous:
-            self._delete_key(previous)
-        if current:
-            self._delete_key(current)
+            if final:
+                handles = list(self._handles)
+                self._handles.clear()
+            else:
+                if len(self._handles) > 1:
+                    handles = self._handles[:-1]
+                    self._handles = self._handles[-1:]
+                else:
+                    handles = []
+        for h in handles:
+            self.provider.revoke(self.api_key, self.endpoint, h)
 
 
-class BeaconAnnouncer:
-    SERVICE_TYPE = "_saturn._tcp.local."
-
+class BeaconAdvertiser(SaturnAdvertiser):
     def __init__(self, name: str, port: int, priority: int, api_base: str,
                  credential_manager: CredentialManager):
-        self.name = name
-        self.port = port
-        self.priority = priority
-        self.api_base = api_base
+        super().__init__(
+            name=name,
+            port=port,
+            priority=priority,
+            deployment='cloud',
+            api_type='openai',
+            api_base=api_base,
+        )
         self.credential_manager = credential_manager
-        self._zeroconf: Optional[Zeroconf] = None
-        self._service_info: Optional[ServiceInfo] = None
-        self._is_registered = False
 
-    def register(self) -> None:
-        if self._is_registered:
-            logger.warning("Service already registered")
-            return
-        credential = self.credential_manager.get_current_credential()
+    def _properties(self) -> dict:
+        credential = self.credential_manager.current()
         if not credential:
-            credential = self.credential_manager.create_credential()
+            credential = self.credential_manager.create()
         if len(credential) > 240:
             logger.warning(f"Credential length ({len(credential)}) exceeds safe mDNS limit (240)")
-        host = socket.gethostname()
-        host_ip = get_lan_ip()
-        service_name = f"{self.name}-Beacon.{self.SERVICE_TYPE}"
-        self._zeroconf = Zeroconf()
-        self._service_info = ServiceInfo(
-            type_=self.SERVICE_TYPE,
-            name=service_name,
-            port=self.port,
-            addresses=[socket.inet_aton(host_ip)],
-            server=f"{host}.local.",
-            properties={
-                'version': '1.0',
-                'deployment': 'cloud',
-                'api_type': 'openai',
-                'api_base': self.api_base,
-                'priority': str(self.priority),
-                'ephemeral_key': credential,
-                'features': 'ephemeral_auth'
-            }
-        )
-        self._zeroconf.register_service(self._service_info)
-        self._is_registered = True
-        logger.info(f"Beacon registered: {service_name} on port {self.port}")
-
-    def unregister(self) -> None:
-        if not self._is_registered:
-            return
-        if self._zeroconf and self._service_info:
-            logger.info("Unregistering beacon...")
-            self._zeroconf.unregister_service(self._service_info)
-            self._zeroconf.close()
-        self._zeroconf = None
-        self._service_info = None
-        self._is_registered = False
+        return {
+            'version': '1.0',
+            'deployment': self.deployment,
+            'api_type': self.api_type,
+            'api_base': self.api_base,
+            'priority': str(self.priority),
+            'ephemeral_key': credential,
+            'features': 'ephemeral_auth',
+        }
 
     def re_register(self) -> None:
         logger.info("Re-registering beacon with updated credential...")
@@ -331,30 +169,23 @@ def run_beacon(config: ServiceConfig, port: int = 8090) -> int:
         logger.error(f"Environment variable {config.upstream.api_key_env} not set")
         return 1
 
-    key_endpoint = config.beacon.key_endpoint or ""
-    if "deepinfra" in key_endpoint.lower() or "deepinfra" in config.upstream.base_url.lower():
-        credential_manager = DeepInfraJWTManager(
-            api_key=api_key,
-            rotation_interval=config.beacon.rotation_interval,
-            expiration_interval=config.beacon.expiration_interval,
-            spending_limit=config.beacon.spending_limit,
-            key_endpoint=config.beacon.key_endpoint or "",
-            api_base=config.upstream.base_url
-        )
-        api_base = config.upstream.base_url or "https://api.deepinfra.com/v1/openai"
-        provider_name = "DeepInfra"
-    elif "openrouter" in key_endpoint.lower() or "openrouter" in config.upstream.base_url.lower():
-        credential_manager = OpenRouterKeyManager(
-            provisioning_key=api_key,
-            rotation_interval=config.beacon.rotation_interval,
-            expiration_interval=config.beacon.expiration_interval,
-            spending_limit=config.beacon.spending_limit
-        )
-        api_base = "https://openrouter.ai/api/v1"
-        provider_name = "OpenRouter"
-    else:
-        logger.error("Unknown beacon provider. key_endpoint must contain 'deepinfra' or 'openrouter'")
+    if not config.beacon.provider:
+        logger.error("No beacon provider configured")
         return 1
+
+    from saturn.providers import load
+    try:
+        provider = load(config.beacon.provider)
+    except ValueError as e:
+        logger.error(str(e))
+        return 1
+
+    credential_manager = CredentialManager(
+        provider=provider,
+        api_key=api_key,
+        rotation_interval=config.beacon.rotation_interval,
+        expiration_interval=config.beacon.expiration_interval
+    )
 
     if is_service_running(config.name):
         logger.error(f"Service '{config.name}' is already running")
@@ -362,11 +193,11 @@ def run_beacon(config: ServiceConfig, port: int = 8090) -> int:
 
     mdns_name = f"{config.name}-Beacon"
     service_file = write_service_info(config.name, port, mdns_name)
-    beacon = BeaconAnnouncer(
+    beacon = BeaconAdvertiser(
         name=config.name,
         port=port,
         priority=config.priority,
-        api_base=api_base,
+        api_base=credential_manager.api_base,
         credential_manager=credential_manager
     )
 
@@ -380,27 +211,25 @@ def run_beacon(config: ServiceConfig, port: int = 8090) -> int:
     signal.signal(signal.SIGTERM, shutdown_handler)
 
     print("=" * 55)
-    print(f"  Saturn {provider_name} Beacon")
+    print(f"  Saturn {config.beacon.provider.title()} Beacon")
     print("=" * 55)
     print()
     print("  This beacon broadcasts ephemeral credentials via mDNS.")
     print("  Clients discover the key and call the API directly.")
     print()
-    print(f"  Provider: {provider_name}")
+    print(f"  Provider: {config.beacon.provider.title()}")
     print(f"  Priority: {config.priority}")
     print(f"  Port (mDNS): {port}")
     print(f"  Rotation: every {config.beacon.rotation_interval}s")
-    if config.beacon.spending_limit > 0:
-        print(f"  Spending limit: ${config.beacon.spending_limit}")
     print()
     print("=" * 55)
 
     logger.info("Creating initial credential...")
     try:
-        credential_manager.create_credential()
+        credential_manager.create()
     except Exception as e:
         logger.error(f"Failed to create credential: {e}")
-        remove_pid_file(config.name)
+        remove_service_info(config.name)
         return 1
 
     logger.info("Registering beacon on mDNS...")
@@ -411,13 +240,12 @@ def run_beacon(config: ServiceConfig, port: int = 8090) -> int:
             shutdown_event.wait(timeout=10)
             if shutdown_event.is_set():
                 break
-            if credential_manager.needs_rotation():
+            if credential_manager.stale():
                 try:
                     logger.info("Rotating credential...")
-                    credential_manager.create_credential()
+                    credential_manager.create()
                     beacon.re_register()
-                    if hasattr(credential_manager, '_previous_hash') and credential_manager._previous_hash:
-                        credential_manager.cleanup()
+                    credential_manager.cleanup()
                 except Exception as e:
                     logger.error(f"Rotation failed: {e}")
 
@@ -434,23 +262,12 @@ def run_beacon(config: ServiceConfig, port: int = 8090) -> int:
 
     logger.info("Shutting down beacon...")
     beacon.unregister()
-    credential_manager.cleanup()
-    remove_pid_file(config.name)
+    credential_manager.cleanup(final=True)
+    remove_service_info(config.name)
     logger.info("Shutdown complete")
     return 0
 
 
-class ChatMessage(BaseModel):
-    role: str
-    content: str
-
-
-class ChatRequest(BaseModel):
-    model: str
-    messages: List[ChatMessage]
-    stream: bool = False
-    max_tokens: Optional[int] = None
-    temperature: Optional[float] = None
 
 
 class ServiceRunner:
@@ -541,10 +358,6 @@ class ServiceRunner:
                 "model": request.model,
                 "messages": [{"role": m.role, "content": m.content} for m in request.messages],
             }
-            if request.max_tokens is not None:
-                payload["max_tokens"] = request.max_tokens
-            if request.temperature is not None:
-                payload["temperature"] = request.temperature
             if request.stream:
                 payload["stream"] = True
 
@@ -562,29 +375,7 @@ class ServiceRunner:
                     raise HTTPException(status_code=response.status_code, detail=f"Upstream error: {response.text}")
 
                 if request.stream:
-                    def generate():
-                        try:
-                            for line in response.iter_lines():
-                                if line:
-                                    decoded = line.decode("utf-8")
-                                    if decoded.startswith("data: "):
-                                        data = decoded[6:]
-                                        if data == "[DONE]":
-                                            yield b"data: [DONE]\n\n"
-                                            break
-                                        try:
-                                            chunk = json.loads(data)
-                                            yield f"data: {json.dumps(chunk)}\n\n".encode("utf-8")
-                                        except json.JSONDecodeError:
-                                            continue
-                        finally:
-                            response.close()
-
-                    return StreamingResponse(
-                        generate(),
-                        media_type="text/event-stream",
-                        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
-                    )
+                    return proxy_sse(response)
                 else:
                     return response.json()
 
@@ -662,7 +453,7 @@ def run_service(config: ServiceConfig, host: str = "0.0.0.0", port: Optional[int
     def cleanup():
         logger.info("Shutting down...")
         advertiser.unregister()
-        remove_pid_file(config.name)
+        remove_service_info(config.name)
 
     atexit.register(cleanup)
 
@@ -676,56 +467,45 @@ def run_service(config: ServiceConfig, host: str = "0.0.0.0", port: Optional[int
 
 
 
-def unregister_mdns_service(mdns_name: str, port: int) -> bool:
-    SERVICE_TYPE = "_saturn._tcp.local."
-    try:
-        host = socket.gethostname()
-        host_ip = get_lan_ip()
 
-        zc = Zeroconf()
-        info = ServiceInfo(
-            type_=SERVICE_TYPE,
-            name=f"{mdns_name}.{SERVICE_TYPE}",
-            port=port,
-            addresses=[socket.inet_aton(host_ip)],
-            server=f"{host}.local.",
-            properties={},
-        )
-        zc.unregister_service(info)
-        zc.close()
-        logger.info(f"Unregistered {mdns_name} from mDNS")
-        return True
-    except Exception as e:
-        logger.warning(f"Failed to unregister mDNS service: {e}")
-        return False
-
-def stop_service(name: str) -> int:
-    service_info = read_service_info(name)
-    pid = read_pid_file(name)
-    if pid is None:
-        print(f"Service '{name}' is not running (no PID file)")
-        return 1
-
-    if not is_service_running(name):
-        print(f"Service '{name}' is not running (stale PID file removed)")
-        return 1
-
+def _pid_alive(pid: int) -> bool:
     try:
         if sys.platform == "win32":
-            os.kill(pid, signal.SIGTERM)
-        else:
-            os.kill(pid, signal.SIGTERM)
+            import ctypes
+            handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+            if handle:
+                ctypes.windll.kernel32.CloseHandle(handle)
+                return True
+            return False
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+
+def stop_service(name: str) -> int:
+    info = read_service_info(name)
+    if not info or "pid" not in info:
+        print(f"Service '{name}' is not running (no service info)")
+        return 1
+
+    pid = info["pid"]
+    if not _pid_alive(pid):
+        remove_service_info(name)
+        print(f"Service '{name}' is not running (stale service info removed)")
+        return 1
+
+    try:
+        os.kill(pid, signal.SIGTERM)
         print(f"Sent SIGTERM to {name} (PID {pid})")
 
         for _ in range(30):
             time.sleep(0.1)
-            if not is_service_running(name):
+            if not _pid_alive(pid):
                 break
 
-        if service_info and "mdns_name" in service_info and "port" in service_info:
-            unregister_mdns_service(service_info["mdns_name"], service_info["port"])
-
-        remove_pid_file(name)
+        remove_service_info(name)
         return 0
     except OSError as e:
         print(f"Failed to stop {name}: {e}")
@@ -744,7 +524,7 @@ def main() -> int:
         configs = list_service_configs()
         if not configs:
             print("No services configured.")
-            print(f"Create one with: saturn config edit <name>")
+            print(f"Create one with: saturn config new")
             return 0
 
         print("Available services:")
@@ -761,7 +541,7 @@ def main() -> int:
     config = load_service_config(args.name)
     if not config:
         print(f"Service '{args.name}' not found in {SERVICES_DIR}", file=sys.stderr)
-        print(f"Create it with: saturn config edit {args.name}")
+        print(f"Create it with: saturn config new")
         return 1
 
     return run_service(config, host=args.host, port=args.port)

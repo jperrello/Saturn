@@ -2,30 +2,15 @@ import time
 import json
 import logging
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
 import requests
-from pydantic import BaseModel
-from typing import Literal, List, Dict
+from typing import List, Dict
+
+from . import ChatRequest, sse, chunk, completion
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 OLLAMA_BASE_URL = "http://localhost:11434"
-
-
-def get_ollama_models() -> List[Dict]:
-    try:
-        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            return [
-                {"id": model.get("name"), "object": "model", "owned_by": "ollama"}
-                for model in data.get("models", [])
-            ]
-    except Exception as e:
-        logger.error(f"Error fetching models from Ollama: {e}")
-    return []
-
 
 app = FastAPI(
     title="Saturn Ollama",
@@ -34,22 +19,11 @@ app = FastAPI(
 )
 
 
-class ChatMessage(BaseModel):
-    role: Literal["user", "assistant", "system"]
-    content: str
-
-
-class ChatRequest(BaseModel):
-    model: str
-    messages: list[ChatMessage]
-    max_tokens: int | None = None
-    stream: bool = False
-
 
 @app.get("/v1/health")
 async def health() -> dict:
     try:
-        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=2)
+        response = requests.get(f"{OLLAMA_BASE_URL}/api/version", timeout=2)
         if response.status_code == 200:
             return {"status": "ok", "provider": "Ollama", "saturn": True}
     except Exception:
@@ -59,10 +33,19 @@ async def health() -> dict:
 
 @app.get("/v1/models")
 async def get_models() -> dict:
-    models = get_ollama_models()
-    if not models:
-        raise HTTPException(status_code=503, detail="Could not fetch models from Ollama server.")
-    return {"object": "list", "data": models}
+    try:
+        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            models = [
+                {"id": model.get("name"), "object": "model", "owned_by": "ollama"}
+                for model in data.get("models", [])
+            ]
+            if models:
+                return {"object": "list", "data": models}
+    except Exception as e:
+        logger.error(f"Error fetching models from Ollama: {e}")
+    raise HTTPException(status_code=503, detail="Could not fetch models from Ollama server.")
 
 
 @app.post("/v1/chat/completions")
@@ -104,15 +87,11 @@ async def chat_completions(request: ChatRequest):
                         except json.JSONDecodeError:
                             continue
 
+                        # Translate Ollama streaming format to OpenAI SSE format:
+                        # - done=true  → emit stop chunk + [DONE] sentinel
+                        # - done=false → extract content, repackage as OpenAI delta
                         if ollama_chunk.get("done"):
-                            openai_chunk = {
-                                "id": chunk_id,
-                                "object": "chat.completion.chunk",
-                                "created": int(time.time()),
-                                "model": request.model,
-                                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]
-                            }
-                            yield f"data: {json.dumps(openai_chunk)}\n\n".encode('utf-8')
+                            yield f"data: {json.dumps(chunk(chunk_id, request.model, {}, finish=True))}\n\n".encode('utf-8')
                             yield b"data: [DONE]\n\n"
                         else:
                             content = ollama_chunk.get("message", {}).get("content", "")
@@ -126,48 +105,30 @@ async def chat_completions(request: ChatRequest):
                                 delta["content"] = content
 
                             if delta:
-                                openai_chunk = {
-                                    "id": chunk_id,
-                                    "object": "chat.completion.chunk",
-                                    "created": int(time.time()),
-                                    "model": request.model,
-                                    "choices": [{"index": 0, "delta": delta, "finish_reason": None}]
-                                }
-                                yield f"data: {json.dumps(openai_chunk)}\n\n".encode('utf-8')
+                                yield f"data: {json.dumps(chunk(chunk_id, request.model, delta))}\n\n".encode('utf-8')
                 except Exception as e:
                     logger.error(f"Error in stream generation: {type(e).__name__}: {str(e)}")
                     raise
                 finally:
                     response.close()
 
-            return StreamingResponse(
-                generate(),
-                media_type="text/event-stream",
-                headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
-            )
+            return sse(generate())
 
         try:
             data = response.json()
         except requests.exceptions.JSONDecodeError:
             raise HTTPException(status_code=502, detail=f"Ollama returned non-JSON response: {response.text[:500]}")
 
-        message = data.get("message", {})
-        return {
-            "id": f"chatcmpl-{int(time.time())}",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": request.model,
-            "choices": [{
-                "index": 0,
-                "message": {"role": message.get("role", "assistant"), "content": message.get("content", "")},
-                "finish_reason": "stop"
-            }],
-            "usage": {
+        msg = data.get("message", {})
+        return completion(
+            request.model,
+            {"role": msg.get("role", "assistant"), "content": msg.get("content", "")},
+            {
                 "prompt_tokens": data.get("prompt_eval_count", 0),
                 "completion_tokens": data.get("eval_count", 0),
-                "total_tokens": data.get("prompt_eval_count", 0) + data.get("eval_count", 0)
-            }
-        }
+                "total_tokens": data.get("prompt_eval_count", 0) + data.get("eval_count", 0),
+            },
+        )
 
     except requests.Timeout:
         raise HTTPException(status_code=504, detail="Ollama request timed out")
