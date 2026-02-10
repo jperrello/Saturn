@@ -1,9 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  extractProvider,
-  isCloudDeployment,
-  getEffectiveEndpoint,
+  endpoint,
   SaturnDiscovery,
   SaturnChatLanguageModel,
   ServiceCircuitBreaker,
@@ -33,74 +31,25 @@ function fixture(overrides: Partial<DiscoveredService> = {}): DiscoveredService 
   };
 }
 
-// ============================================================================
-// extractProvider
-// ============================================================================
 
-describe('extractProvider', () => {
-  it('identifies OpenRouter', () => {
-    assert.equal(extractProvider('https://openrouter.ai/api/v1'), 'OpenRouter');
-  });
-
-  it('identifies OpenAI', () => {
-    assert.equal(extractProvider('https://api.openai.com/v1'), 'OpenAI');
-  });
-
-  it('identifies Anthropic', () => {
-    assert.equal(extractProvider('https://api.anthropic.com/v1'), 'Anthropic');
-  });
-
-  it('identifies DeepInfra', () => {
-    assert.equal(extractProvider('https://api.deepinfra.com/v1'), 'DeepInfra');
-  });
-
-  it('identifies Together', () => {
-    assert.equal(extractProvider('https://api.together.xyz/v1'), 'Together');
-  });
-
-  it('identifies Groq', () => {
-    assert.equal(extractProvider('https://api.groq.com/v1'), 'Groq');
-  });
-
-  it('falls back to hostname for unknown providers', () => {
-    assert.equal(
-      extractProvider('https://my-llm.example.com/v1'),
-      'my-llm.example.com'
-    );
-  });
-
-  it('returns Unknown for invalid URLs', () => {
-    assert.equal(extractProvider('not-a-url'), 'Unknown');
-  });
-});
 
 // ============================================================================
-// isCloudDeployment / getEffectiveEndpoint
+// endpoint
 // ============================================================================
 
-describe('isCloudDeployment', () => {
-  it('returns true for cloud', () => {
-    assert.equal(isCloudDeployment(fixture({ deployment: 'cloud' })), true);
-  });
-
-  it('returns false for network', () => {
-    assert.equal(isCloudDeployment(fixture({ deployment: 'network' })), false);
-  });
-});
-
-describe('getEffectiveEndpoint', () => {
+describe('endpoint', () => {
   it('returns apiBase for cloud deployments', () => {
     const s = fixture({
       deployment: 'cloud',
       apiBase: 'https://openrouter.ai/api/v1',
       endpoint: 'http://192.168.1.100:8080/v1',
     });
-    assert.equal(getEffectiveEndpoint(s), 'https://openrouter.ai/api/v1');
+    assert.equal(endpoint(s), 'https://openrouter.ai/api/v1');
   });
 
   it('returns endpoint for network deployments', () => {
     const s = fixture({ deployment: 'network' });
-    assert.equal(getEffectiveEndpoint(s), 'http://192.168.1.100:8080/v1');
+    assert.equal(endpoint(s), 'http://192.168.1.100:8080/v1');
   });
 });
 
@@ -610,7 +559,7 @@ describe('stream chunk transformation', () => {
   }
 
   async function collect(response: Response): Promise<any[]> {
-    const stream: ReadableStream = (model as any).createStreamTransformer(response, []);
+    const stream: ReadableStream = (model as any).createFailoverStream(response, [], {}, []);
     const reader = stream.getReader();
     const parts: any[] = [];
     while (true) {

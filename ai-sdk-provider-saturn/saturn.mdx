@@ -280,11 +280,9 @@ Saturn supports two deployment types:
 - **Network**: Services running locally (Ollama, vLLM, etc.). Requests are routed to the service's direct `endpoint`.
 
 ```ts
-import { isCloudDeployment } from 'ai-sdk-provider-saturn';
-
 const services = discovery.getAllServices();
-const cloud = services.filter(isCloudDeployment);
-const local = services.filter(s => !isCloudDeployment(s));
+const cloud = services.filter(s => s.deployment === 'cloud');
+const local = services.filter(s => s.deployment === 'network');
 ```
 
 ## Provider Options
