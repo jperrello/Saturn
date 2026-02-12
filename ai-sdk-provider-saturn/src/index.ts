@@ -21,7 +21,7 @@ import { SaturnChatLanguageModel } from './model.js';
 export type { LogLevel, SaturnLogger } from './logger.js';
 export { createDefaultLogger, createNoOpLogger } from './logger.js';
 export type { DeploymentType, ApiType, DiscoveredService, SaturnModelSettings } from './types.js';
-export { endpoint, extractProvider } from './helpers.js';
+export { endpoint, endpoint as getEffectiveEndpoint, extractProvider } from './helpers.js';
 export { ServiceCircuitBreaker } from './retry.js';
 export { SaturnDiscovery } from './discovery.js';
 export { SaturnChatLanguageModel } from './model.js';
