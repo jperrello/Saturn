@@ -67,7 +67,7 @@ async def chat_completions(request: ChatRequest):
         response = requests.post(
             f"{OLLAMA_BASE_URL}/api/chat",
             json=payload,
-            timeout=120,
+            timeout=(10, None),
             stream=request.stream
         )
 
