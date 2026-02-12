@@ -1,43 +1,39 @@
 # Saturn: Zero-Configuration AI Service Discovery
 
-Saturn is a service discovery protocol that uses mDNS and DNS-SD to automatically advertise and locate OpenAI-compatible AI backend services on a local network. Think Bonjour for printers, but for AI APIs.
+Saturn is a service discovery protocol that uses mDNS and DNS-SD to automatically advertise and locate OpenAI-compatible AI backend services on a local network. Like Bonjour for printers, but for AI APIs.
 
-**The core premise:** Services announce themselves as `_saturn._tcp.local.` with TXT records containing priority metadata. Clients browse, sort by priority, and connect—no hardcoded endpoints, no API key distribution, no configuration files.
+Services announce themselves as `_saturn._tcp.local.` with TXT records containing priority metadata. Clients browse, sort by priority, and connect—no hardcoded endpoints, no API key distribution, no configuration files.
 
-**Tech stack:** Python 3.7+, FastAPI/uvicorn for servers, zeroconf library or dns-sd subprocess for discovery (plus Rust for router beacons and Go for the system daemon). All endpoints follow the OpenAI API specification (`/v1/health`, `/v1/models`, `/v1/chat/completions`).
+Saturn is a **protocol**, not a library. Any language that supports mDNS/DNS-SD can discover and use Saturn services — Python, TypeScript, Rust, Go, Swift, C#, or even a shell script with `dns-sd`. The Python package and TypeScript SDK are reference implementations.
+
+**Tech stack:** Python 3.10+, FastAPI/uvicorn for servers, zeroconf library or dns-sd subprocess for discovery. All endpoints follow the OpenAI API specification (`/v1/health`, `/v1/models`, `/v1/chat/completions`).
 
 ## Installation
 
 ```bash
-# Clone and install
+pip install saturn-ai
+```
+
+Or build from source:
+
+```bash
 git clone https://github.com/jperrello/Saturn.git && cd Saturn
 pip install -e .
-
-# Verify installation
-saturn discover        # Find services on network
-saturn-openrouter --help     # OpenRouter server options
-saturn-ollama --help         # Ollama server options
-aider-saturn --help          # Aider launcher options
 ```
 
-**Windows users:** If commands aren't found, use `python -m saturn` instead:
+Verify it works:
+
 ```bash
-python -m saturn discover       # Same as saturn discover
-python -m saturn openrouter     # Same as saturn-openrouter
-python -m saturn ollama         # Same as saturn-ollama
-python -m saturn aider          # Same as aider-saturn
+saturn discover
 ```
 
-Or add Python Scripts to your PATH once:
-1. Press Win+R, type `sysdm.cpl`, click Advanced → Environment Variables
-2. Under User variables, edit PATH and add: `%APPDATA%\Python\Python313\Scripts` (adjust Python version as needed)
-3. Restart your terminal
+**Windows users:** If the `saturn` command isn't found, use `python -m saturn` instead (e.g. `python -m saturn discover`).
 
 ## Quick Start
 
 ```bash
-saturn-openrouter --priority 50   # Terminal 1: Start server
-saturn discover             # Terminal 2: Find it
+saturn openrouter   # Terminal 1: Start a server
+saturn discover     # Terminal 2: Find it
 ```
 
 **What you'll see:**
@@ -46,7 +42,7 @@ saturn discover             # Terminal 2: Find it
 
 2. **Terminal 2** (Discovery): Finds the server automatically and displays its capabilities, models, and priority.
 
-**What this demonstrates:** Zero-configuration discovery. No IP addresses, ports, or configuration files needed.
+No IP addresses, ports, or configuration files needed.
 
 ---
 
@@ -103,14 +99,12 @@ This proves "network presence = AI access" with automatic credential expiration.
 
 | Directory | Contents |
 |-----------|----------|
-| [saturn/](saturn/README.md) | Core package: discovery, servers, beacon, CLI |
-| [saturnd/](saturnd/README.md) | System daemon: MCP server, A2A protocol, credential caching |
+| [saturn/](saturn/README.md) | Core Python package: discovery, servers, beacon, CLI |
+| [ai-sdk-provider-saturn/](ai-sdk-provider-saturn/README.md) | TypeScript AI SDK provider (`npm install ai-sdk-provider-saturn`) |
 | [saturn-router/](saturn-router/openwrt/README.md) | Rust-based beacon for OpenWRT routers |
 | [vlc_extension/](vlc_extension/README.md) | VLC extensions: Saturn Chat and Saturn Roast |
 | [clients/](clients/README.md) | Reference client implementations, discovery patterns |
-| [beacons/](beacons/README.md) | Ephemeral JWT distribution via mDNS |
 | [fiction/](fiction/README.md) | Design fictions about Saturn |
-| [flow.md](flow.md) | Code architecture guide ("show me where X does Y") |
 
 **Integrations:** See [jperrello.github.io/Saturn](https://jperrello.github.io/Saturn) for Open WebUI, VLC, and other integration guides.
 
@@ -157,43 +151,53 @@ Check: UDP 5353 not blocked, server logs show "Service registered"
 
 ## Dependencies
 
-```bash
-pip install -r requirements.txt
-```
+All dependencies are installed automatically via `pip install saturn-ai`:
 
-Core: `requests`, `fastapi`, `uvicorn`, `python-dotenv`
-Optional: `zeroconf` (event-driven discovery), `tiktoken` + `Pillow` (file_upload_client)
+`zeroconf`, `fastapi`, `uvicorn`, `requests`, `pydantic`, `python-dotenv`
 
 ---
 
 ## For AI Agents / LLMs
 
-This section is for coding agents integrating Saturn into applications.
+Saturn lets any application discover AI services on a local network without configuration. If your app can make HTTP requests and the network has a Saturn server running, your app gets AI capabilities automatically.
 
-**Discovery pattern:**
+**How it works:** Saturn servers register themselves via mDNS as `_saturn._tcp.local.`. Your app browses for these services, picks the best one by priority, and sends standard OpenAI-compatible HTTP requests. That's it.
+
+**Integration paths:**
+
+| Approach | When to use |
+|----------|-------------|
+| `pip install saturn-ai` | Python apps — use `discover()` and `select_best_service()` |
+| `npm install ai-sdk-provider-saturn` | TypeScript/Node — drop-in [AI SDK](https://ai-sdk.dev/) provider |
+| Raw mDNS/DNS-SD | Any language — browse `_saturn._tcp.local.`, parse TXT records, call `/v1/chat/completions` |
+
+**Minimal Python example:**
 ```python
-# DNS-SD subprocess (simple, cross-platform with Bonjour/avahi)
-dns-sd -B _saturn._tcp local     # Browse for services
-dns-sd -L <service> _saturn._tcp local   # Lookup service details
+from saturn import discover, select_best_service
+import requests
 
-# Python zeroconf (event-driven, better for beacons)
-from zeroconf import ServiceBrowser, Zeroconf
+services = discover(timeout=5.0)
+best = select_best_service(services)
+resp = requests.post(f"{best.endpoint}/v1/chat/completions", json={
+    "model": "openai/gpt-4o",
+    "messages": [{"role": "user", "content": "Hello"}],
+})
 ```
 
-**Integration checklist:**
-- [ ] Parse TXT records for `priority` (lower = better)
-- [ ] Health check via `GET /v1/health`
-- [ ] List models via `GET /v1/models`
-- [ ] Chat via `POST /v1/chat/completions` (OpenAI-compatible format)
-- [ ] Handle streaming SSE responses (`data: {...}\n\n` format)
+**Minimal shell example (no Saturn package needed):**
+```bash
+# Browse for services, resolve the first one, hit the API
+dns-sd -B _saturn._tcp local
+dns-sd -L <service_name> _saturn._tcp local
+curl -X POST http://<resolved_host>:<port>/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "openai/gpt-4o", "messages": [{"role": "user", "content": "Hello"}]}'
+```
 
-**Reference implementations:**
-- `clients/simple_chat_client.py` - DNS-SD subprocess pattern (~150 lines)
-- `clients/file_upload_client.py` - zeroconf event-driven pattern
-
-**Research tools:** You have access to web search, file reading, and code analysis. The codebase is small—read `saturn/openrouter_server.py` for a complete server example, `clients/local_proxy_client.py` for a sophisticated proxy with failover. For deeper context, browse the [integration guides](https://jperrello.github.io/Saturn).
-
-**Start with an issue:** Before implementing, create a tracking issue (e.g., `bd create --title "Integrate Saturn discovery"`) to plan the approach and track progress.
+**All Saturn endpoints follow the OpenAI spec:**
+- `GET /v1/health` — health check
+- `GET /v1/models` — list available models
+- `POST /v1/chat/completions` — chat (supports streaming SSE)
 
 ---
 

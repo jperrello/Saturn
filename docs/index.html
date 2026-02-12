@@ -2107,7 +2107,7 @@ python clients/local_proxy_client.py --host 127.0.0.1 --port 8080</pre>
                             <tr>
                                 <td><strong>Saturn Python Package</strong></td>
                                 <td>Python applications, fastest integration</td>
-                                <td>Low - install from source</td>
+                                <td>Low - <code>pip install saturn-ai</code></td>
                             </tr>
                             <tr>
                                 <td><strong>CLI Commands</strong></td>
@@ -2139,7 +2139,10 @@ python clients/local_proxy_client.py --host 127.0.0.1 --port 8080</pre>
                             <button class="code-copy" onclick="copyCode(this)">Copy</button>
                         </div>
                         <div class="code-content">
-<pre><span class="comment"># Install from source</span>
+<pre><span class="comment"># Install from PyPI</span>
+pip install saturn-ai
+
+<span class="comment"># Or install from source</span>
 git clone https://github.com/jperrello/Saturn.git
 cd Saturn
 pip install -e .</pre>
@@ -6928,10 +6931,8 @@ python clients/local_proxy_client.py
 <pre><span class="comment"># Install Aider</span>
 pip install aider-chat
 
-<span class="comment"># Install Saturn from source (includes aider-saturn command)</span>
-git clone https://github.com/jperrello/Saturn.git
-cd Saturn
-pip install -e .</pre>
+<span class="comment"># Install Saturn (includes aider-saturn command)</span>
+pip install saturn-ai</pre>
                         </div>
                     </div>
 
