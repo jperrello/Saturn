@@ -597,6 +597,61 @@
             flex-shrink: 0;
         }
 
+        /* Vertical arrow flow for discovery process */
+        .flow-steps {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 1.5rem 0;
+            gap: 0;
+        }
+
+        .flow-step {
+            width: 100%;
+            padding: 1.25rem;
+            background: rgb(var(--gray-900));
+            border: 1px solid rgb(var(--gray-800));
+            border-radius: 0.75rem;
+            transition: all 150ms ease;
+        }
+
+        .flow-step:hover {
+            border-color: rgb(var(--gray-700));
+        }
+
+        .flow-step .step-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: rgb(var(--gray-200));
+            margin-bottom: 0.5rem;
+        }
+
+        .flow-step .step-desc {
+            font-size: 0.875rem;
+            color: rgb(var(--gray-400));
+            line-height: 1.6;
+        }
+
+        .flow-arrow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.5rem 0;
+            color: rgb(var(--primary-light));
+            font-size: 1.25rem;
+            opacity: 0.6;
+        }
+
+        .flow-arrow svg {
+            width: 24px;
+            height: 24px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
         .step-content {
             flex: 1;
         }
@@ -1505,7 +1560,7 @@
                         <input type="text" class="search-input" placeholder="Search docs..." autocomplete="off">
                         <div class="search-suggestions" id="search-suggestions"></div>
                     </div>
-                    <a href="https://github.com/jperrello/Zeroconf-AI" target="_blank" class="github-link">GitHub</a>
+                    <a href="https://github.com/jperrello/Saturn" target="_blank" class="github-link">GitHub</a>
                 </div>
             </div>
             <nav class="nav-tabs">
@@ -1525,13 +1580,14 @@
                 <div class="sidebar-group">
                     <div class="sidebar-title">Getting Started</div>
                     <a href="#user-intro" class="sidebar-link active">Introduction</a>
-                    <a href="#architecture-overview" class="sidebar-link">Architecture Overview</a>
+                    <a href="#user-intro" class="sidebar-link">Architecture Overview</a>
+                    <a href="#user-router" class="sidebar-link">Router Setup</a>
                     <a href="#user-quick-start" class="sidebar-link">Quick Start</a>
                 </div>
                 <div class="sidebar-group">
                     <div class="sidebar-title">Tools</div>
                     <a href="#user-simple-chat" class="sidebar-link">Simple Chat</a>
-                    <a href="#user-file-upload" class="sidebar-link">File Upload</a>
+
                     <a href="#user-local-proxy" class="sidebar-link">Local Proxy</a>
                 </div>
                 <div class="sidebar-group">
@@ -1574,6 +1630,26 @@
                     <div class="sidebar-title">Examples</div>
                     <a href="#int-shell-examples" class="sidebar-link">Shell Scripts</a>
                 </div>
+                <div class="sidebar-group">
+                    <div class="sidebar-title">AI SDK Provider (JS/TS)</div>
+                    <a href="#int-sdk-provider" class="sidebar-link">Overview</a>
+                    <a href="#int-sdk-install" class="sidebar-link">Installation</a>
+                    <a href="#int-sdk-api" class="sidebar-link">API Reference</a>
+                    <a href="#int-sdk-examples" class="sidebar-link">Code Examples</a>
+                    <a href="#int-sdk-advanced" class="sidebar-link">Advanced Usage</a>
+                    <a href="#int-sdk-mock" class="sidebar-link">Mock Server</a>
+                </div>
+                <div class="sidebar-group">
+                    <div class="sidebar-title">Router Deployment</div>
+                    <a href="#int-router" class="sidebar-link">Overview</a>
+                    <a href="#int-router-install" class="sidebar-link">Installation</a>
+                    <a href="#int-router-uci" class="sidebar-link">UCI Configuration</a>
+                    <a href="#int-router-json" class="sidebar-link">JSON Config Format</a>
+                    <a href="#int-router-service" class="sidebar-link">Service Management</a>
+                    <a href="#int-router-luci" class="sidebar-link">LuCI Web Interface</a>
+                    <a href="#int-router-build" class="sidebar-link">Building from Source</a>
+                    <a href="#int-router-troubleshooting" class="sidebar-link">Troubleshooting</a>
+                </div>
             </nav>
 
             <!-- Integrations Navigation -->
@@ -1583,8 +1659,12 @@
                     <a href="#integrations-overview" class="sidebar-link active">Overview</a>
                 </div>
                 <div class="sidebar-group">
-                    <div class="sidebar-title">Aider</div>
-                    <a href="#aider-overview" class="sidebar-link">AI Pair Programming</a>
+                    <div class="sidebar-title">OpenCode</div>
+                    <a href="#opencode-overview" class="sidebar-link">AI Coding Agent</a>
+                </div>
+                <div class="sidebar-group">
+                    <div class="sidebar-title">AI SDK Provider</div>
+                    <a href="#sdk-overview" class="sidebar-link">Vercel AI SDK</a>
                 </div>
                 <div class="sidebar-group">
                     <div class="sidebar-title">VLC Media Player</div>
@@ -1614,6 +1694,10 @@
                     <a href="#owui-usage" class="sidebar-link">Usage</a>
                 </div>
                 <div class="sidebar-group">
+                    <div class="sidebar-title">Aider</div>
+                    <a href="#aider-overview" class="sidebar-link">AI Pair Programming</a>
+                </div>
+                <div class="sidebar-group">
                     <div class="sidebar-title">Help</div>
                     <a href="#integrations-troubleshooting" class="sidebar-link">Troubleshooting</a>
                 </div>
@@ -1640,9 +1724,7 @@
 
                 <section id="user-intro">
                     <h2>What is Saturn?</h2>
-                    <p>Saturn makes AI services available to all your devices without any setup. Run a Saturn server once on your network, and every compatible app automatically finds and connects to it.</p>
-
-                    <p>Have you ever noticed how easy it is to find printers or smart TVs on your local network? Saturn brings that same convenience and technology to AI services. Your apps discover available AI backends on their own and seamlessly switch between them if one goes offline.</p>
+                    <p>Saturn uses the same protocols that let your devices find printers and smart TVs. Run a server once and every compatible app discovers its address and port without any configuration. Once discovered, the app can send chat messages, completions, and other AI requests to that server as if you had configured it by hand.</p>
 
                     <div class="callout callout-tip">
                         <div class="callout-title">Multiple Devices</div>
@@ -1650,42 +1732,36 @@
                             Set up AI once for your whole network, and every device that would like to access AI can with no interference on other people's session. You can also have multiple servers hosting different services, and if one server goes down; your apps switch to a backup without missing a beat.
                         </div>
                     </div>
-                </section>
-
-                <section id="architecture-overview">
-                    <h2>Architecture Overview</h2>
-                    <p>Saturn uses network discovery, that same technology that lets your devices find printers and speakers, to automatically locate AI services. Your apps find and connect to available servers without you entering any addresses or ports.</p>
 
                     <h3>The Discovery Process</h3>
-                    <p>When a Saturn server is started, it announces itself on your local network. Clients automatically discover these services and connect to the best available option.</p>
 
-                    <ol class="steps-list">
-                        <li>
-                            <div class="step-content">
-                                <div class="step-title">Server Announces Itself</div>
-                                <div class="step-desc">When you start a Saturn server, it broadcasts its presence on your network. This announcement includes everything apps need to connect: address, port, and priority level.</div>
-                            </div>
-                        </li>
-                        <li>
-                            <div class="step-content">
-                                <div class="step-title">App Discovers Services</div>
-                                <div class="step-desc">Your app looks for Saturn services on the network. Within moments, it finds all available servers. No configuration files or addresses needed.</div>
-                            </div>
-                        </li>
-                        <li>
-                            <div class="step-content">
-                                <div class="step-title">Automatic Connection</div>
-                                <div class="step-desc">The app connects to the best available server based on priority. You control which server is preferred by setting priority values when you start each server.</div>
-                            </div>
-                        </li>
-                        <li>
-                            <div class="step-content">
-                                <div class="step-title">Seamless Failover</div>
-                                <div class="step-desc">If a server goes offline, the app automatically switches to the next available one. Your work continues without interruption.</div>
-                            </div>
-                        </li>
-                    </ol>
-                    <p>Traditional setups require you to configure connection addresses in each application. With Saturn, you deploy servers once and every client on the network automatically finds them. Add a new server or remove an old one, and clients adapt instantly. This makes it easy to:</p>
+                    <div class="flow-steps">
+                        <div class="flow-step">
+                            <div class="step-title">Server Announces Itself</div>
+                            <div class="step-desc">When you start a Saturn server, it registers itself on your local network using mDNS. The announcement includes the server's address, port, priority level, and which AI models it can serve.</div>
+                        </div>
+                        <div class="flow-arrow"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></svg></div>
+                        <div class="flow-step">
+                            <div class="step-title">App Discovers Services</div>
+                            <div class="step-desc">A Saturn-compatible app listens for these mDNS announcements in the background. Within seconds it builds a list of every Saturn server on your network, their capabilities, and their priority rankings.</div>
+                        </div>
+                        <div class="flow-arrow"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></svg></div>
+                        <div class="flow-step">
+                            <div class="step-title">Automatic Connection</div>
+                            <div class="step-desc">The app selects the highest-priority healthy server and connects. If you run a fast local Ollama server at priority 10 and a cloud fallback at priority 50, apps always try the local server first.</div>
+                        </div>
+                        <div class="flow-arrow"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></svg></div>
+                        <div class="flow-step">
+                            <div class="step-title">Use AI Services</div>
+                            <div class="step-desc">Once connected, the app can send chat completions, list available models, and stream responses through a standard OpenAI-compatible API. From the user's perspective this works exactly like any other AI backend.</div>
+                        </div>
+                        <div class="flow-arrow"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></svg></div>
+                        <div class="flow-step">
+                            <div class="step-title">Seamless Failover</div>
+                            <div class="step-desc">Health checks run every 20 seconds. If the active server stops responding, the app automatically re-routes to the next available server on the network. Your conversation continues without interruption and without any manual intervention.</div>
+                        </div>
+                    </div>
+                    <p>Traditional setups require you to configure connection addresses in each application. Add a new server or remove an old one, and clients adapt instantly. This makes it easy to:</p>
                     <ul>
                         <li>Switch between local and cloud AI providers without changing client code</li>
                         <li>Run multiple servers for redundancy and load distribution</li>
@@ -1693,17 +1769,6 @@
                     </ul>
 
                     <h3>Discovery Methods</h3>
-                    <p>Saturn's service discovery is based on mDNS (multicast DNS) and DNS-SD (DNS Service Discovery). This approach has several advantages:</p>
-
-                    <ul>
-                        <li><strong>Universal compatibility:</strong> Available on all major operating systems without additional software</li>
-                        <li><strong>Language agnostic:</strong> Can be implemented in any programming language through simple subprocess calls</li>
-                        <li><strong>Zero configuration:</strong> Works automatically on local networks without DNS servers or service registries</li>
-                        <li><strong>Real-time updates:</strong> Clients are notified immediately when services appear or disappear</li>
-                    </ul>
-
-                    <h4>How It Works for Users</h4>
-                    <p>When you start a Saturn server, it broadcasts its presence on your local network using mDNS. Any device on the same network can discover this service without knowing the server's IP address or port. This is similar to how your phone finds wireless printers or how smart home devices appear in your apps.</p>
 
                     <p>You can manually query for Saturn services on your network using built-in system tools:</p>
 
@@ -1743,6 +1808,15 @@ avahi-browse -r _saturn._tcp --terminate</pre>
                     </div>
                 </section>
 
+                <section id="user-router">
+                    <h2>Router Setup</h2>
+                    <p>If your network administrator has deployed Saturn on your router, AI services are available to all devices on the network automatically. There is nothing you need to configure on your end.</p>
+
+                    <p>When Saturn runs on a router, it announces available AI services using the same network discovery protocol that lets your devices find printers. Any Saturn-aware application on your network, such as Aider, Jan, Open WebUI, or the Simple Chat tool, will automatically discover these services and connect. You do not need to enter any API keys, endpoint URLs, or connection details.</p>
+
+                    <p>If you are not sure whether Saturn is running on your network, open a terminal and run <code>saturn discover</code> (if you have the Saturn Python package installed) or ask your network administrator. Services advertised by a router will appear alongside any other Saturn services on the network.</p>
+                </section>
+
                 <section id="user-quick-start">
                     <h2>Quick Start</h2>
 
@@ -1750,13 +1824,13 @@ avahi-browse -r _saturn._tcp --terminate</pre>
                     <p>Deploy at least one Saturn server on your network. Select the appropriate server type based on your AI backend:</p>
 
                     <div class="feature-grid">
-                        <a href="https://github.com/jperrello/Saturn/blob/main/saturn/openrouter_server.py" target="_blank" class="feature-card-link">
+                        <a href="https://github.com/jperrello/Saturn/blob/main/saturn/services/openrouter.toml" target="_blank" class="feature-card-link">
                             <div class="feature-card">
                                 <div class="feature-card-title">OpenRouter Server</div>
                                 <div class="feature-card-desc">Connects to OpenRouter cloud service, providing access to 200+ models including Claude, GPT-4, Gemini, and Llama. Requires an OpenRouter account key.</div>
                             </div>
                         </a>
-                        <a href="https://github.com/jperrello/Saturn/blob/main/saturn/ollama_server.py" target="_blank" class="feature-card-link">
+                        <a href="https://github.com/jperrello/Saturn/blob/main/saturn/servers/ollama.py" target="_blank" class="feature-card-link">
                             <div class="feature-card">
                                 <div class="feature-card-title">Ollama Server</div>
                                 <div class="feature-card-desc">Connects to a local Ollama installation. Enables offline operation and eliminates external service costs. Requires Ollama running locally, and could require powerful hardware depending on model chosen.</div>
@@ -1771,12 +1845,12 @@ avahi-browse -r _saturn._tcp --terminate</pre>
                             <button class="code-copy" onclick="copyCode(this)">Copy</button>
                         </div>
                         <div class="code-content">
-<pre><span class="comment"># Set up your credentials in a .env file</span>
-<span class="keyword">echo</span> <span class="string">"OPENROUTER_API_KEY=your-key-here"</span> > .env
-<span class="keyword">echo</span> <span class="string">"OPENROUTER_BASE_URL=https://openrouter.ai/api/v1/chat/completions"</span> >> .env
+<pre><span class="comment"># Set up your credentials</span>
+<span class="keyword">mkdir</span> -p ~/.saturn
+<span class="keyword">echo</span> <span class="string">"OPENROUTER_API_KEY=your-key-here"</span> > ~/.saturn/.env
 
 <span class="comment"># Start the server</span>
-saturn-openrouter</pre>
+saturn run openrouter</pre>
                         </div>
                     </div>
 
@@ -1788,12 +1862,34 @@ saturn-openrouter</pre>
                         </div>
                         <div class="code-content">
 <pre><span class="comment"># Make sure Ollama is running, then start the Saturn server</span>
-saturn-ollama</pre>
+saturn run ollama</pre>
                         </div>
                     </div>
 
                     <h3>Setting Priority</h3>
-                    <p>Lower numbers mean higher priority. If you run multiple servers, set priorities to control which one apps prefer:</p>
+                    <p>Lower numbers mean higher priority. Priority is configured in each service's TOML config file (not via CLI flags). Edit the TOML file or use <code>saturn config new</code> to create a custom config:</p>
+
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">saturn/services/ollama.toml</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="comment"># Prefer local Ollama (priority 10)</span>
+priority = 10</pre>
+                        </div>
+                    </div>
+
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">saturn/services/openrouter.toml</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="comment"># Fall back to cloud (priority 50)</span>
+priority = 50</pre>
+                        </div>
+                    </div>
 
                     <div class="code-block">
                         <div class="code-header">
@@ -1801,11 +1897,9 @@ saturn-ollama</pre>
                             <button class="code-copy" onclick="copyCode(this)">Copy</button>
                         </div>
                         <div class="code-content">
-<pre><span class="comment"># Prefer local Ollama (priority 10)</span>
-saturn-ollama --priority 10
-
-<span class="comment"># Fall back to cloud (priority 50)</span>
-saturn-openrouter --priority 50</pre>
+<pre><span class="comment"># Then start each server</span>
+saturn run ollama
+saturn run openrouter</pre>
                         </div>
                     </div>
                 </section>
@@ -1830,74 +1924,10 @@ saturn-openrouter --priority 50</pre>
                     <h3>Commands</h3>
                     <ul>
                         <li>Type your message and press Enter to chat</li>
+                        <li>Type <code>servers</code> to list all available Saturn servers</li>
                         <li>Type <code>clear</code> to reset the conversation</li>
                         <li>Type <code>quit</code> to exit</li>
                     </ul>
-                </section>
-
-                <section id="user-file-upload">
-                    <h2>File Upload Client</h2>
-                    <p>An extended client supporting multimodal interactions with file context. Processes text files, images, and documents for inclusion in AI requests.</p>
-
-                    <h3>How to Use</h3>
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span class="code-filename">Terminal</span>
-                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
-                        </div>
-                        <div class="code-content">
-<pre>python clients/file_upload_client.py</pre>
-                        </div>
-                    </div>
-
-                    <h3>Commands</h3>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Command</th>
-                                <th>Description</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td><code>/upload &lt;filepath&gt;</code></td>
-                                <td>Share a file with the AI</td>
-                            </tr>
-                            <tr>
-                                <td><code>/list</code></td>
-                                <td>See all uploaded files</td>
-                            </tr>
-                            <tr>
-                                <td><code>/remove &lt;filename&gt;</code></td>
-                                <td>Remove a specific file</td>
-                            </tr>
-                            <tr>
-                                <td><code>/clear-files</code></td>
-                                <td>Remove all files</td>
-                            </tr>
-                            <tr>
-                                <td><code>/clear</code></td>
-                                <td>Reset the conversation</td>
-                            </tr>
-                            <tr>
-                                <td><code>/info</code></td>
-                                <td>Check token usage and costs</td>
-                            </tr>
-                        </tbody>
-                    </table>
-
-                    <h3>Supported Files</h3>
-                    <ul>
-                        <li><strong>Text files:</strong> .py, .js, .ts, .java, .cpp, .c, .h, .rs, .go, .rb, .php, .swift, .kt, .scala, .sh, .bash, .md, .txt, .json, .xml, .yaml, .yml, .toml, .ini, .conf, .log, .sql, .html, .css, .scss, .lua</li>
-                        <li><strong>Images:</strong> .png, .jpg, .jpeg, .gif, .webp</li>
-                    </ul>
-
-                    <div class="callout callout-info">
-                        <div class="callout-title">Token Usage Monitoring</div>
-                        <div class="callout-content">
-                            The client tracks token consumption and provides cost estimates based on average pricing. Use <code>/info</code> to view current usage statistics including input tokens, output tokens, and total cost. A warning appears when costs exceed 25 cents.
-                        </div>
-                    </div>
                 </section>
 
                 <section id="user-local-proxy">
@@ -2045,13 +2075,19 @@ python clients/local_proxy_client.py --host 127.0.0.1 --port 8080</pre>
                         <li>
                             <div class="step-content">
                                 <div class="step-title">API Layer</div>
-                                <div class="step-desc">Services expose HTTP endpoints following OpenAI API conventions. All Saturn services speak the same API format, making them interchangeable.</div>
+                                <div class="step-desc">Services expose REST endpoints that follow the OpenAI chat-completions contract: <code>GET /v1/models</code> to list available models, <code>POST /v1/chat/completions</code> to send messages and receive responses (streaming or non-streaming), and <code>GET /v1/health</code> for liveness checks. Any client that already works with the OpenAI API can talk to a Saturn server with no code changes.</div>
                             </div>
                         </li>
                         <li>
                             <div class="step-content">
                                 <div class="step-title">Saturn Python Package</div>
-                                <div class="step-desc">The <code>saturn</code> Python package provides a high-level API for discovery, selection, and advertisement. Install with <code>pip install saturn</code> and use classes like <code>SaturnDiscovery</code>, <code>SaturnAdvertiser</code>, and functions like <code>discover_services()</code> and <code>select_best_service()</code>.</div>
+                                <div class="step-desc">The <code>saturn</code> Python package provides a high-level API for discovery, selection, and advertisement. Install from source and use classes like <code>SaturnDiscovery</code>, <code>SaturnAdvertiser</code>, and functions like <code>discover()</code> and <code>select_best_service()</code>.</div>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="step-content">
+                                <div class="step-title">Any Language, Any Platform</div>
+                                <div class="step-desc">The Python package is optional. Saturn's discovery is built on standard mDNS/DNS-SD and its API layer is plain HTTP, so you can implement a Saturn-compatible service or client in any language that has an mDNS library — Go, Rust, C#, JavaScript, Swift, or even a shell script calling <code>dns-sd</code>/<code>avahi-browse</code>.</div>
                             </div>
                         </li>
                     </ol>
@@ -2071,7 +2107,7 @@ python clients/local_proxy_client.py --host 127.0.0.1 --port 8080</pre>
                             <tr>
                                 <td><strong>Saturn Python Package</strong></td>
                                 <td>Python applications, fastest integration</td>
-                                <td>Low - <code>pip install saturn</code></td>
+                                <td>Low - install from source</td>
                             </tr>
                             <tr>
                                 <td><strong>CLI Commands</strong></td>
@@ -2103,10 +2139,7 @@ python clients/local_proxy_client.py --host 127.0.0.1 --port 8080</pre>
                             <button class="code-copy" onclick="copyCode(this)">Copy</button>
                         </div>
                         <div class="code-content">
-<pre><span class="comment"># Install Saturn</span>
-pip install saturn
-
-<span class="comment"># Or install from source</span>
+<pre><span class="comment"># Install from source</span>
 git clone https://github.com/jperrello/Saturn.git
 cd Saturn
 pip install -e .</pre>
@@ -2114,7 +2147,7 @@ pip install -e .</pre>
                     </div>
 
                     <h3>CLI Commands</h3>
-                    <p>After installation, these CLI commands are available:</p>
+                    <p>After installation, two entry points are available: <code>saturn</code> and <code>aider-saturn</code>. The <code>saturn</code> command is the primary interface for all operations:</p>
 
                     <div class="code-block">
                         <div class="code-header">
@@ -2125,20 +2158,98 @@ pip install -e .</pre>
 <pre><span class="comment"># Discover all Saturn services on the network</span>
 saturn discover
 
-<span class="comment"># Select the best service (with optional filtering)</span>
-saturn select
-saturn select --needs=chat,code --min-context=8000
+<span class="comment"># Get the best endpoint URL (for scripting)</span>
+saturn endpoint
+saturn endpoint --json           <span class="comment"># outputs {"endpoint": "...", "name": "..."}</span>
+saturn endpoint --timeout 10     <span class="comment"># custom discovery timeout</span>
 
-<span class="comment"># Get just the endpoint URL (for scripting)</span>
-saturn select --endpoint-only
+<span class="comment"># Run a configured service</span>
+saturn run openrouter             <span class="comment"># start the OpenRouter proxy</span>
+saturn run ollama                 <span class="comment"># start the Ollama proxy</span>
+saturn run deepinfra              <span class="comment"># start the DeepInfra beacon</span>
+saturn ollama                     <span class="comment"># shortcut for saturn run ollama</span>
 
-<span class="comment"># Start servers</span>
-saturn-openrouter          <span class="comment"># OpenRouter proxy (requires OPENROUTER_API_KEY)</span>
-saturn-ollama              <span class="comment"># Ollama server (requires local Ollama)</span>
-saturn-beacon              <span class="comment"># DeepInfra beacon with ephemeral credentials</span>
+<span class="comment"># Stop a running service</span>
+saturn stop openrouter
+
+<span class="comment"># Manage service configurations</span>
+saturn config list                <span class="comment"># list all service configs</span>
+saturn config new                 <span class="comment"># interactive config wizard</span>
+saturn config delete myservice    <span class="comment"># remove a config (--force to skip confirmation)</span>
 
 <span class="comment"># Zero-config Aider integration</span>
-aider-saturn               <span class="comment"># Discovers Saturn, sets OPENAI_BASE_URL, launches Aider</span></pre>
+saturn aider                      <span class="comment"># discovers Saturn, sets OPENAI_BASE_URL, launches Aider</span>
+aider-saturn                      <span class="comment"># standalone entry point (same behavior)</span></pre>
+                        </div>
+                    </div>
+
+                    <div class="callout callout-info">
+                        <div class="callout-title">Service Name Shortcuts</div>
+                        <div class="callout-content">
+                            Any configured service name works as a shortcut. For example, <code>saturn ollama</code> is equivalent to <code>saturn run ollama</code>. This works for any name defined in your TOML service configurations.
+                        </div>
+                    </div>
+
+                    <h3>TOML Configuration System</h3>
+                    <p>Saturn 2.0 uses TOML files to define service configurations. Built-in configs ship in <code>saturn/services/</code>, and you can add your own at <code>~/.saturn/services/</code>.</p>
+
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">~/.saturn/services/my-openrouter.toml</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre>[service]
+name = <span class="string">"my-openrouter"</span>
+type = <span class="string">"proxy"</span>
+
+[upstream]
+url = <span class="string">"https://openrouter.ai/api/v1"</span>
+api_key_env = <span class="string">"OPENROUTER_API_KEY"</span>
+
+[server]
+host = <span class="string">"0.0.0.0"</span>
+port = <span class="number">8080</span>
+priority = <span class="number">50</span></pre>
+                        </div>
+                    </div>
+
+                    <p>Built-in configurations include:</p>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Config File</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>saturn/services/openrouter.toml</code></td>
+                                <td>OpenRouter cloud proxy (requires <code>OPENROUTER_API_KEY</code>)</td>
+                            </tr>
+                            <tr>
+                                <td><code>saturn/services/ollama.toml</code></td>
+                                <td>Local Ollama proxy server</td>
+                            </tr>
+                            <tr>
+                                <td><code>saturn/services/deepinfra.toml</code></td>
+                                <td>DeepInfra cloud proxy</td>
+                            </tr>
+                            <tr>
+                                <td><code>saturn/services/orbeacon.toml</code></td>
+                                <td>OpenRouter beacon with credential rotation</td>
+                            </tr>
+                            <tr>
+                                <td><code>saturn/services/fallback.toml</code></td>
+                                <td>Mock fallback server for testing</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <div class="callout callout-tip">
+                        <div class="callout-title">Environment File Support</div>
+                        <div class="callout-content">
+                            Saturn automatically loads environment variables from <code>~/.saturn/.env</code> using python-dotenv. Place your API keys there instead of exporting them in your shell profile.
                         </div>
                     </div>
 
@@ -2151,10 +2262,11 @@ aider-saturn               <span class="comment"># Discovers Saturn, sets OPENAI
                             <button class="code-copy" onclick="copyCode(this)">Copy</button>
                         </div>
                         <div class="code-content">
-<pre><span class="keyword">from</span> saturn <span class="keyword">import</span> discover_services, select_best_service
+<pre><span class="keyword">from</span> saturn <span class="keyword">import</span> discover, select_best_service
 
 <span class="comment"># One-shot discovery (blocks for timeout duration)</span>
-services = discover_services(timeout=<span class="number">5.0</span>)
+<span class="comment"># settle_time prevents returning before the network calms down</span>
+services = discover(timeout=<span class="number">8.0</span>, settle_time=<span class="number">1.0</span>)
 
 <span class="keyword">for</span> svc <span class="keyword">in</span> services:
     print(<span class="string">f"{svc.name}: {svc.endpoint}"</span>)
@@ -2173,15 +2285,22 @@ best = select_best_service(
 )
 
 <span class="keyword">if</span> best:
-    print(<span class="string">f"Selected: {best.endpoint}"</span>)
+    print(<span class="string">f"Selected: {best.effective_endpoint}"</span>)
 
     <span class="comment"># Use with OpenAI client</span>
     <span class="keyword">from</span> openai <span class="keyword">import</span> OpenAI
-    client = OpenAI(base_url=best.endpoint, api_key=<span class="string">"unused"</span>)
+    client = OpenAI(base_url=best.effective_endpoint, api_key=<span class="string">"unused"</span>)
     response = client.chat.completions.create(
         model=best.models[<span class="number">0</span>],
         messages=[{<span class="string">"role"</span>: <span class="string">"user"</span>, <span class="string">"content"</span>: <span class="string">"Hello!"</span>}]
     )</pre>
+                        </div>
+                    </div>
+
+                    <div class="callout callout-info">
+                        <div class="callout-title">endpoint vs effective_endpoint</div>
+                        <div class="callout-content">
+                            <p><code>endpoint</code> returns the base URL without a path suffix (e.g., <code>http://192.168.1.100:8080</code>). For OpenAI-compatible clients, use <code>effective_endpoint</code> which returns <code>http://host:port/v1</code> for network services or the <code>api_base</code> URL for cloud/beacon services.</p>
                         </div>
                     </div>
 
@@ -2201,8 +2320,6 @@ best = select_best_service(
         print(<span class="string">f"New service: {service.name} at {service.endpoint}"</span>)
     <span class="keyword">elif</span> event == <span class="string">"removed"</span>:
         print(<span class="string">f"Service gone: {service.name}"</span>)
-    <span class="keyword">elif</span> event == <span class="string">"updated"</span>:
-        print(<span class="string">f"Service updated: {service.name}"</span>)
 
 <span class="comment"># Start background discovery with callback</span>
 discovery = SaturnDiscovery(on_service_change=on_change)
@@ -2232,11 +2349,14 @@ discovery.stop()</pre>
 advertiser = SaturnAdvertiser(
     name=<span class="string">"MyAIService"</span>,
     port=<span class="number">8080</span>,
+    deployment=<span class="string">"my-service"</span>,
+    api_type=<span class="string">"Generic"</span>,
+    api_base=<span class="string">"http://localhost:8080"</span>,
+    priority=<span class="number">100</span>,
     models=[<span class="string">"gpt-4"</span>, <span class="string">"claude-3"</span>],
     capabilities=[<span class="string">"chat"</span>, <span class="string">"code"</span>, <span class="string">"vision"</span>],
     context=<span class="number">128000</span>,
     cost=<span class="string">"paid"</span>,
-    priority=<span class="number">50</span>,
 )
 
 <span class="comment"># Register on the network</span>
@@ -2255,13 +2375,89 @@ advertiser.unregister()
                         </div>
                     </div>
 
-                    <h3>SaturnService Dataclass</h3>
-                    <p>The <code>SaturnService</code> dataclass contains all information about a discovered service:</p>
+                    <h3>Beacon System</h3>
+                    <p>Beacons are Saturn services that provide credential-rotated access to cloud AI providers. They use ephemeral API keys with automatic rotation so that network clients never hold long-lived credentials.</p>
 
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">Terminal</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="comment"># Start an OpenRouter beacon</span>
+saturn run orbeacon
+
+<span class="comment"># Start a DeepInfra beacon</span>
+saturn run deepinfra</pre>
+                        </div>
+                    </div>
+
+                    <p>Under the hood, beacons use a <code>CredentialManager</code> for ephemeral key lifecycle and a <code>BeaconAdvertiser</code> that extends <code>SaturnAdvertiser</code> with credential rotation. Supported providers:</p>
                     <table>
                         <thead>
                             <tr>
-                                <th>Property</th>
+                                <th>Provider</th>
+                                <th>Module</th>
+                                <th>Mechanism</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>OpenRouter</td>
+                                <td><code>saturn/providers/openrouter.py</code></td>
+                                <td>Ephemeral API key rotation</td>
+                            </tr>
+                            <tr>
+                                <td>DeepInfra</td>
+                                <td><code>saturn/providers/deepinfra.py</code></td>
+                                <td>Scoped JWT tokens</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <p>Providers are loaded dynamically via the plugin system in <code>saturn/providers/__init__.py</code> using <code>load(name)</code>.</p>
+
+                    <h3>Tool Calling Support</h3>
+                    <p>Saturn services pass through OpenAI-compatible tool calling. The Ollama proxy (<code>saturn/servers/ollama.py</code>) translates between Ollama's native tool format and the OpenAI format, including streaming with <code>finish_reason: "tool_calls"</code>.</p>
+
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">tool_calling.py</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="keyword">from</span> openai <span class="keyword">import</span> OpenAI
+<span class="keyword">from</span> saturn <span class="keyword">import</span> discover
+
+services = discover()
+client = OpenAI(base_url=services[<span class="number">0</span>].effective_endpoint, api_key=<span class="string">"unused"</span>)
+
+response = client.chat.completions.create(
+    model=services[<span class="number">0</span>].models[<span class="number">0</span>],
+    messages=[{<span class="string">"role"</span>: <span class="string">"user"</span>, <span class="string">"content"</span>: <span class="string">"What's the weather in SF?"</span>}],
+    tools=[{
+        <span class="string">"type"</span>: <span class="string">"function"</span>,
+        <span class="string">"function"</span>: {
+            <span class="string">"name"</span>: <span class="string">"get_weather"</span>,
+            <span class="string">"parameters"</span>: {
+                <span class="string">"type"</span>: <span class="string">"object"</span>,
+                <span class="string">"properties"</span>: {<span class="string">"location"</span>: {<span class="string">"type"</span>: <span class="string">"string"</span>}}
+            }
+        }
+    }],
+    tool_choice=<span class="string">"auto"</span>
+)</pre>
+                        </div>
+                    </div>
+
+                    <h3>SaturnService Dataclass</h3>
+                    <p>The <code>SaturnService</code> dataclass contains all information about a discovered service:</p>
+
+                    <h4>Fields</h4>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Field</th>
                                 <th>Type</th>
                                 <th>Description</th>
                             </tr>
@@ -2281,11 +2477,6 @@ advertiser.unregister()
                                 <td><code>port</code></td>
                                 <td>int</td>
                                 <td>Port number</td>
-                            </tr>
-                            <tr>
-                                <td><code>endpoint</code></td>
-                                <td>str</td>
-                                <td>Full URL (e.g., "http://192.168.1.100:8080/v1")</td>
                             </tr>
                             <tr>
                                 <td><code>priority</code></td>
@@ -2313,9 +2504,82 @@ advertiser.unregister()
                                 <td>"free", "paid", or "unknown"</td>
                             </tr>
                             <tr>
-                                <td><code>auth</code></td>
+                                <td><code>version</code></td>
                                 <td>str</td>
-                                <td>Authentication requirement ("none", "psk", "bearer")</td>
+                                <td>Schema version (default "1.0")</td>
+                            </tr>
+                            <tr>
+                                <td><code>deployment</code></td>
+                                <td>str</td>
+                                <td>"cloud" or "network" (default "network")</td>
+                            </tr>
+                            <tr>
+                                <td><code>api_type</code></td>
+                                <td>str</td>
+                                <td>"openai" or "ollama" (default "openai")</td>
+                            </tr>
+                            <tr>
+                                <td><code>api_base</code></td>
+                                <td>str</td>
+                                <td>Base URL for API calls (used by cloud/beacon services)</td>
+                            </tr>
+                            <tr>
+                                <td><code>ephemeral_key</code></td>
+                                <td>str</td>
+                                <td>API key for cloud/beacon deployments</td>
+                            </tr>
+                            <tr>
+                                <td><code>rotation_interval</code></td>
+                                <td>int</td>
+                                <td>Key rotation interval in seconds</td>
+                            </tr>
+                            <tr>
+                                <td><code>features</code></td>
+                                <td>str</td>
+                                <td>"ephemeral_auth" or "network_proxy"</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <h4>Computed Properties</h4>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Property</th>
+                                <th>Type</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>endpoint</code></td>
+                                <td>str</td>
+                                <td>Base URL without path suffix (e.g., <code>http://192.168.1.100:8080</code>)</td>
+                            </tr>
+                            <tr>
+                                <td><code>effective_endpoint</code></td>
+                                <td>str</td>
+                                <td>Full API URL: <code>api_base</code> for cloud, <code>http://host:port/v1</code> for network</td>
+                            </tr>
+                            <tr>
+                                <td><code>mcp_endpoint</code></td>
+                                <td>str</td>
+                                <td>MCP endpoint URL (<code>{endpoint}/mcp</code>)</td>
+                            </tr>
+                            <tr>
+                                <td><code>is_beacon</code></td>
+                                <td>bool</td>
+                                <td>True if deployment is "cloud" and has an ephemeral key</td>
+                            </tr>
+                            <tr>
+                                <td><code>is_cloud</code></td>
+                                <td>bool</td>
+                                <td>True if deployment is "cloud"</td>
+                            </tr>
+                            <tr>
+                                <td><code>is_network</code></td>
+                                <td>bool</td>
+                                <td>True if deployment is "network"</td>
                             </tr>
                         </tbody>
                     </table>
@@ -2337,9 +2601,54 @@ advertiser.unregister()
 
 <span class="comment"># Check for multiple capabilities</span>
 <span class="keyword">if</span> svc.has_all_capabilities([<span class="string">"chat"</span>, <span class="string">"code"</span>]):
-    print(<span class="string">"Ready for coding assistance!"</span>)</pre>
+    print(<span class="string">"Ready for coding assistance!"</span>)
+
+<span class="comment"># Check deployment type</span>
+<span class="keyword">if</span> svc.is_beacon:
+    print(<span class="string">f"Beacon service with key rotation every {svc.rotation_interval}s"</span>)
+<span class="keyword">elif</span> svc.is_network:
+    print(<span class="string">f"Local network service at {svc.effective_endpoint}"</span>)</pre>
                         </div>
                     </div>
+
+                    <h3>Fallback Server</h3>
+                    <p>Saturn includes a mock fallback server (<code>saturn/servers/fallback.py</code>) for testing. It advertises a model called <code>dont_pick_me</code> and returns humorous placeholder responses. Run it with:</p>
+
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">Terminal</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre>saturn run fallback</pre>
+                        </div>
+                    </div>
+
+                    <h3>Server Implementations</h3>
+                    <p>Saturn 2.0 organizes server code under <code>saturn/servers/</code>. The generic proxy in <code>saturn/runner.py</code> handles most services, with specialized implementations for backends that need format translation:</p>
+
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>File</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>saturn/runner.py</code></td>
+                                <td>Generic <code>ServiceRunner</code> proxy. Handles OpenRouter, DeepInfra, and custom upstreams. Passes through tool calling fields.</td>
+                            </tr>
+                            <tr>
+                                <td><code>saturn/servers/ollama.py</code></td>
+                                <td>Ollama proxy with format translation (Ollama native to OpenAI format), including tool call conversion.</td>
+                            </tr>
+                            <tr>
+                                <td><code>saturn/servers/fallback.py</code></td>
+                                <td>Mock server for testing.</td>
+                            </tr>
+                        </tbody>
+                    </table>
 
                     <div class="callout callout-tip">
                         <div class="callout-title">When to Use the Saturn Package vs DNS-SD Commands</div>
@@ -2350,6 +2659,7 @@ advertiser.unregister()
                                 <li>You want the simplest integration path</li>
                                 <li>You need filtering by capabilities, context, or cost</li>
                                 <li>You want automatic background discovery with callbacks</li>
+                                <li>You need beacon/credential rotation support</li>
                             </ul>
                             <p><strong>Use DNS-SD commands if:</strong></p>
                             <ul>
@@ -2379,44 +2689,12 @@ advertiser.unregister()
                     <p>There are three primary methods for implementing Saturn service discovery in your application:</p>
 
                     <ol>
-                        <li><strong>Saturn Python Package (Recommended for Python):</strong> Use <code>pip install saturn</code> and import the high-level API. Provides <code>discover_services()</code>, <code>select_best_service()</code>, <code>SaturnDiscovery</code>, and <code>SaturnAdvertiser</code> classes. This is the cleanest integration path for Python applications. See the <a href="#int-saturn-package">Saturn Package section</a>.</li>
+                        <li><strong>Saturn Python Package (Recommended for Python):</strong> Install from source and import the high-level API. Provides <code>discover()</code>, <code>select_best_service()</code>, <code>SaturnDiscovery</code>, and <code>SaturnAdvertiser</code> classes. This is the cleanest integration path for Python applications. See the <a href="#int-saturn-package">Saturn Package section</a>.</li>
                         <li><strong>DNS-SD Command-Based Discovery:</strong> Use native system commands (<code>dns-sd</code> or <code>avahi-browse</code>) via subprocess calls. This approach works in any programming language and requires no additional libraries. Used by legacy clients in <code>clients/</code> directory.</li>
-                        <li><strong>Zeroconf Python Library:</strong> Use the Python <code>zeroconf</code> library for a pure-Python implementation with event-driven callbacks. Provides more control than the Saturn package. Used by <code>saturn/fallback_server.py</code> and <code>clients/file_upload_client.py</code>.</li>
+                        <li><strong>Zeroconf Python Library:</strong> Use the Python <code>zeroconf</code> library for a pure-Python implementation with event-driven callbacks. Provides more control than the Saturn package. Used by <code>saturn/servers/fallback.py</code> and <code>clients/file_upload_client.py</code>.</li>
                     </ol>
 
                     <p>This section covers the DNS-SD command-based approach. For the Saturn package (recommended), see the <a href="#int-saturn-package">Saturn Package section</a>. For the zeroconf library approach, visit the <a href="#int-discovery-zeroconf">Zeroconf Library section</a>.</p>
-
-                    <h3>DNS-SD Command Reference</h3>
-
-                    <h4>Cross-Platform Commands</h4>
-                    <p>Different operating systems provide different tools for DNS-SD operations:</p>
-
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Platform</th>
-                                <th>Command</th>
-                                <th>Installation</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td>macOS</td>
-                                <td><code>dns-sd</code></td>
-                                <td>Built-in (no installation needed)</td>
-                            </tr>
-                            <tr>
-                                <td>Windows</td>
-                                <td><code>dns-sd</code></td>
-                                <td>Install Bonjour Print Services (included with iTunes)</td>
-                            </tr>
-                            <tr>
-                                <td>Linux</td>
-                                <td><code>avahi-browse</code></td>
-                                <td><code>apt install avahi-utils</code> or <code>yum install avahi-tools</code></td>
-                            </tr>
-                        </tbody>
-                    </table>
 
                     <h3>Discovery Process</h3>
 
@@ -2900,7 +3178,7 @@ avahi-publish -s "OpenRouter" _saturn._tcp 8081 "version=1.0" "api=OpenRouter" "
                     <p>For production servers, you'll want to register the service programmatically. Here's how Saturn's servers do it:</p>
 
                     <h4>Python Implementation (subprocess)</h4>
-                    <p>This example shows the pattern used in <code>saturn/openrouter_server.py</code> and <code>saturn/ollama_server.py</code>:</p>
+                    <p>This example shows the registration pattern used by Saturn's server runner (<code>saturn/runner.py</code>):</p>
 
                     <div class="code-block">
                         <div class="code-header">
@@ -3030,16 +3308,28 @@ python -m http.server <span class="number">8080</span></pre>
                         </thead>
                         <tbody>
                             <tr>
-                                <td><code>txtvers</code></td>
+                                <td><code>version</code></td>
                                 <td>Yes</td>
-                                <td>TXT record format version</td>
-                                <td><code>"1"</code></td>
+                                <td>Saturn protocol/server version</td>
+                                <td><code>"1.0"</code>, <code>"2.0"</code></td>
                             </tr>
                             <tr>
-                                <td><code>saturn</code></td>
+                                <td><code>deployment</code></td>
                                 <td>Yes</td>
-                                <td>Saturn protocol version</td>
-                                <td><code>"2.0"</code></td>
+                                <td>Deployment identifier for the service</td>
+                                <td><code>"openrouter"</code>, <code>"ollama"</code></td>
+                            </tr>
+                            <tr>
+                                <td><code>api_type</code></td>
+                                <td>Yes</td>
+                                <td>API type identifier</td>
+                                <td><code>"OpenRouter"</code>, <code>"Ollama"</code>, <code>"DeepInfra"</code></td>
+                            </tr>
+                            <tr>
+                                <td><code>api_base</code></td>
+                                <td>Yes</td>
+                                <td>Upstream API base URL (for proxy services)</td>
+                                <td><code>"https://openrouter.ai/api/v1"</code></td>
                             </tr>
                             <tr>
                                 <td><code>priority</code></td>
@@ -3048,10 +3338,10 @@ python -m http.server <span class="number">8080</span></pre>
                                 <td><code>"10"</code>, <code>"50"</code>, <code>"100"</code></td>
                             </tr>
                             <tr>
-                                <td><code>transport</code></td>
-                                <td>Yes</td>
-                                <td>Protocol for API calls</td>
-                                <td><code>"http"</code>, <code>"https"</code></td>
+                                <td><code>features</code></td>
+                                <td>No</td>
+                                <td>Comma-separated feature flags</td>
+                                <td><code>"ephemeral_auth"</code></td>
                             </tr>
                             <tr>
                                 <td><code>models</code></td>
@@ -3076,12 +3366,6 @@ python -m http.server <span class="number">8080</span></pre>
                                 <td>No</td>
                                 <td>Pricing tier for service selection</td>
                                 <td><code>"free"</code>, <code>"paid"</code>, <code>"unknown"</code></td>
-                            </tr>
-                            <tr>
-                                <td><code>auth</code></td>
-                                <td>No</td>
-                                <td>Authentication requirement</td>
-                                <td><code>"none"</code>, <code>"psk"</code>, <code>"bearer"</code></td>
                             </tr>
                             <tr>
                                 <td><code>mcp</code></td>
@@ -3305,8 +3589,8 @@ dns-sd -L "MyService" _saturn._tcp local
                             </tr>
                             <tr>
                                 <td><strong>Used In</strong></td>
-                                <td>saturn/ollama_server.py, saturn/openrouter_server.py, clients/local_proxy_client.py</td>
-                                <td>saturn/fallback_server.py, clients/file_upload_client.py</td>
+                                <td>saturn/runner.py, clients/local_proxy_client.py</td>
+                                <td>saturn/servers/fallback.py, clients/file_upload_client.py</td>
                             </tr>
                         </tbody>
                     </table>
@@ -3510,8 +3794,8 @@ app = FastAPI(lifespan=lifespan)
                             </tr>
                             <tr>
                                 <td><strong>Used In</strong></td>
-                                <td>ollama_server.py, openrouter_server.py</td>
-                                <td>fallback_server.py</td>
+                                <td>saturn/runner.py (TOML-driven services)</td>
+                                <td>saturn/servers/fallback.py</td>
                             </tr>
                         </tbody>
                     </table>
@@ -3553,12 +3837,22 @@ app = FastAPI(lifespan=lifespan)
                             <tr>
                                 <td><code>version</code></td>
                                 <td>string</td>
-                                <td>Server version (e.g., "1.0", "2.0")</td>
+                                <td>Saturn protocol/server version (e.g., "1.0", "2.0")</td>
                             </tr>
                             <tr>
-                                <td><code>api</code></td>
+                                <td><code>deployment</code></td>
+                                <td>string</td>
+                                <td>Deployment identifier (e.g., "openrouter", "ollama")</td>
+                            </tr>
+                            <tr>
+                                <td><code>api_type</code></td>
                                 <td>string</td>
                                 <td>API type identifier (e.g., "OpenRouter", "Ollama")</td>
+                            </tr>
+                            <tr>
+                                <td><code>api_base</code></td>
+                                <td>string</td>
+                                <td>Upstream API base URL (e.g., "https://openrouter.ai/api/v1")</td>
                             </tr>
                             <tr>
                                 <td><code>priority</code></td>
@@ -3568,7 +3862,27 @@ app = FastAPI(lifespan=lifespan)
                             <tr>
                                 <td><code>features</code></td>
                                 <td>string</td>
-                                <td>Comma-separated feature list (optional)</td>
+                                <td>Comma-separated feature flags (optional)</td>
+                            </tr>
+                            <tr>
+                                <td><code>models</code></td>
+                                <td>string</td>
+                                <td>Comma-separated available models</td>
+                            </tr>
+                            <tr>
+                                <td><code>capabilities</code></td>
+                                <td>string</td>
+                                <td>Comma-separated capabilities (chat, code, vision)</td>
+                            </tr>
+                            <tr>
+                                <td><code>context</code></td>
+                                <td>string</td>
+                                <td>Maximum context window size</td>
+                            </tr>
+                            <tr>
+                                <td><code>cost</code></td>
+                                <td>string</td>
+                                <td>Pricing tier (free, paid, unknown)</td>
                             </tr>
                         </tbody>
                     </table>
@@ -3614,7 +3928,7 @@ app = FastAPI(lifespan=lifespan)
 
                 <section id="int-beacon">
                     <h2>Saturn Beacon (Ephemeral Credentials)</h2>
-                    <p>The Saturn Beacon is a credential distribution service that announces ephemeral API keys via mDNS. Unlike other Saturn servers that proxy requests, the beacon only announces credentials - clients then use those credentials to call cloud APIs directly.</p>
+                    <p>The Saturn Beacon is a credential distribution service that announces ephemeral API keys via mDNS. Unlike other Saturn servers that proxy requests, the beacon only announces credentials -- clients then use those credentials to call cloud APIs directly. The beacon supports multiple providers (e.g., DeepInfra, OpenRouter) configured via TOML service configs in <code>saturn/services/</code>.</p>
 
                     <h3>How It Works</h3>
                     <p>The beacon solves the problem of sharing API access without sharing master keys:</p>
@@ -3623,7 +3937,7 @@ app = FastAPI(lifespan=lifespan)
                         <li>
                             <div class="step-content">
                                 <div class="step-title">Key Generation</div>
-                                <div class="step-desc">Beacon calls DeepInfra's scoped-jwt endpoint with your master API key to generate a short-lived JWT (default: 10 minutes expiry).</div>
+                                <div class="step-desc">Beacon calls the configured provider's scoped-key endpoint (e.g., DeepInfra's scoped-jwt) with your master API key to generate a short-lived token (default: 10 minutes expiry). The provider is determined by the TOML config's <code>[beacon] provider</code> field.</div>
                             </div>
                         </li>
                         <li>
@@ -3641,7 +3955,7 @@ app = FastAPI(lifespan=lifespan)
                         <li>
                             <div class="step-content">
                                 <div class="step-title">Client Usage</div>
-                                <div class="step-desc">Clients discover the beacon, extract the ephemeral key, and use it directly with DeepInfra's API. No traffic flows through the beacon.</div>
+                                <div class="step-desc">Clients discover the beacon, extract the ephemeral key, and use it directly with the provider's API. No traffic flows through the beacon.</div>
                             </div>
                         </li>
                     </ol>
@@ -3653,14 +3967,15 @@ app = FastAPI(lifespan=lifespan)
                             <button class="code-copy" onclick="copyCode(this)">Copy</button>
                         </div>
                         <div class="code-content">
-<pre><span class="comment"># Set your DeepInfra master key</span>
-export DEEPINFRA_API_KEY=your_key_here
+<pre><span class="comment"># Set your provider API key (e.g., DeepInfra or OpenRouter)</span>
+<span class="keyword">mkdir</span> -p ~/.saturn
+<span class="keyword">echo</span> <span class="string">"DEEPINFRA_API_KEY=your_key_here"</span> > ~/.saturn/.env
 
-<span class="comment"># Start the beacon</span>
-saturn-beacon
+<span class="comment"># Start the beacon using a TOML service config</span>
+saturn run orbeacon
 
-<span class="comment"># Or with options</span>
-saturn-beacon --port 8090 --priority 5</pre>
+<span class="comment"># Or run an alternative beacon config</span>
+saturn run deepinfra</pre>
                         </div>
                     </div>
 
@@ -3677,9 +3992,9 @@ saturn-beacon --port 8090 --priority 5</pre>
                         </thead>
                         <tbody>
                             <tr>
-                                <td><code>api</code></td>
-                                <td>Identifies the service type</td>
-                                <td><code>"DeepInfra"</code></td>
+                                <td><code>api_type</code></td>
+                                <td>Identifies the provider type</td>
+                                <td><code>"DeepInfra"</code>, <code>"OpenRouter"</code></td>
                             </tr>
                             <tr>
                                 <td><code>ephemeral_key</code></td>
@@ -3708,16 +4023,16 @@ saturn-beacon --port 8090 --priority 5</pre>
                             <button class="code-copy" onclick="copyCode(this)">Copy</button>
                         </div>
                         <div class="code-content">
-<pre><span class="keyword">from</span> saturn <span class="keyword">import</span> discover_services
+<pre><span class="keyword">from</span> saturn <span class="keyword">import</span> discover
 <span class="keyword">import</span> requests
 
 <span class="comment"># Discover beacon service</span>
-services = discover_services(timeout=<span class="number">5.0</span>)
-beacon = <span class="keyword">next</span>((s <span class="keyword">for</span> s <span class="keyword">in</span> services <span class="keyword">if</span> <span class="string">"ephemeral_auth"</span> <span class="keyword">in</span> s.raw_properties.get(<span class="string">"features"</span>, <span class="string">""</span>)), <span class="keyword">None</span>)
+services = discover(timeout=<span class="number">8.0</span>)
+beacon = <span class="keyword">next</span>((s <span class="keyword">for</span> s <span class="keyword">in</span> services <span class="keyword">if</span> s.is_beacon), <span class="keyword">None</span>)
 
 <span class="keyword">if</span> beacon:
-    <span class="comment"># Extract the ephemeral key from TXT records</span>
-    ephemeral_key = beacon.raw_properties.get(<span class="string">"ephemeral_key"</span>)
+    <span class="comment"># Extract the ephemeral key</span>
+    ephemeral_key = beacon.ephemeral_key
 
     <span class="comment"># Use directly with DeepInfra API</span>
     response = requests.post(
@@ -3828,11 +4143,21 @@ beacon = <span class="keyword">next</span>((s <span class="keyword">for</span> s
                             <span class="code-filename">Response</span>
                         </div>
                         <div class="code-content">
-<pre>{
+<pre><span class="comment">// Generic proxy (saturn run openrouter)</span>
+{
   <span class="string">"status"</span>: <span class="string">"ok"</span>,
-  <span class="string">"provider"</span>: <span class="string">"OpenRouter"</span>,
+  <span class="string">"service"</span>: <span class="string">"openrouter"</span>,
+  <span class="string">"deployment"</span>: <span class="string">"openrouter"</span>,
+  <span class="string">"api_type"</span>: <span class="string">"OpenRouter"</span>,
   <span class="string">"models_cached"</span>: 344,
-  <span class="string">"features"</span>: [<span class="string">"multimodal"</span>, <span class="string">"auto-routing"</span>, <span class="string">"full-catalog"</span>]
+  <span class="string">"saturn"</span>: <span class="keyword">true</span>
+}
+
+<span class="comment">// Ollama or fallback server</span>
+{
+  <span class="string">"status"</span>: <span class="string">"ok"</span>,
+  <span class="string">"provider"</span>: <span class="string">"Ollama"</span>,
+  <span class="string">"saturn"</span>: <span class="keyword">true</span>
 }</pre>
                         </div>
                     </div>
@@ -3854,7 +4179,8 @@ beacon = <span class="keyword">next</span>((s <span class="keyword">for</span> s
                         </div>
                         <div class="code-content">
 <pre>{
-  <span class="string">"models"</span>: [
+  <span class="string">"object"</span>: <span class="string">"list"</span>,
+  <span class="string">"data"</span>: [
     {
       <span class="string">"id"</span>: <span class="string">"openrouter/auto"</span>,
       <span class="string">"object"</span>: <span class="string">"model"</span>,
@@ -3863,8 +4189,7 @@ beacon = <span class="keyword">next</span>((s <span class="keyword">for</span> s
     {
       <span class="string">"id"</span>: <span class="string">"anthropic/claude-3-opus"</span>,
       <span class="string">"object"</span>: <span class="string">"model"</span>,
-      <span class="string">"owned_by"</span>: <span class="string">"anthropic"</span>,
-      <span class="string">"context_length"</span>: 200000
+      <span class="string">"owned_by"</span>: <span class="string">"anthropic"</span>
     }
   ]
 }</pre>
@@ -3937,6 +4262,24 @@ beacon = <span class="keyword">next</span>((s <span class="keyword">for</span> s
                                 <td>boolean</td>
                                 <td>No</td>
                                 <td>Enable streaming (default: false)</td>
+                            </tr>
+                            <tr>
+                                <td><code>temperature</code></td>
+                                <td>float</td>
+                                <td>No</td>
+                                <td>Sampling temperature (0.0 - 2.0)</td>
+                            </tr>
+                            <tr>
+                                <td><code>tools</code></td>
+                                <td>array</td>
+                                <td>No</td>
+                                <td>List of tool/function definitions for tool calling</td>
+                            </tr>
+                            <tr>
+                                <td><code>tool_choice</code></td>
+                                <td>string|object</td>
+                                <td>No</td>
+                                <td>Controls tool use: "auto", "none", or a specific tool</td>
                             </tr>
                         </tbody>
                     </table>
@@ -4281,6 +4624,1073 @@ except: pass
                         </div>
                     </div>
                 </section>
+
+                <section id="int-sdk-provider">
+                    <h2>AI SDK Provider (TypeScript)</h2>
+                    <p>The <code>ai-sdk-provider-saturn</code> package is a <a href="https://sdk.vercel.ai" target="_blank">Vercel AI SDK</a> provider that connects TypeScript/JavaScript applications to Saturn's service discovery network. Import <code>saturn</code>, call <code>saturn('model-name')</code>, and the provider discovers services via mDNS, resolves models, and routes requests with automatic failover.</p>
+
+                    <div class="callout callout-info">
+                        <div class="callout-title">Requirements</div>
+                        <div class="callout-content">Node.js 18+ and network access for mDNS multicast (UDP port 5353). The <code>multicast-dns</code> dependency is pure JavaScript with no native bindings.</div>
+                    </div>
+                </section>
+
+                <section id="int-sdk-install">
+                    <h2>Installation &amp; Quick Start</h2>
+
+                    <h3>Installation</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">Terminal</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre>npm install ai-sdk-provider-saturn ai</pre>
+                        </div>
+                    </div>
+
+                    <h3>Zero-Config Usage</h3>
+                    <p>The default <code>saturn</code> export starts mDNS discovery at import time. Call it with a model ID to get a <code>LanguageModelV3</code> instance.</p>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">app.ts</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="keyword">import</span> { saturn } <span class="keyword">from</span> <span class="string">'ai-sdk-provider-saturn'</span>;
+<span class="keyword">import</span> { generateText } <span class="keyword">from</span> <span class="string">'ai'</span>;
+
+<span class="keyword">const</span> { text } = <span class="keyword">await</span> generateText({
+  model: saturn(<span class="string">'openai/gpt-4o'</span>),
+  prompt: <span class="string">'Hello!'</span>,
+});
+console.log(text);</pre>
+                        </div>
+                    </div>
+
+                    <h3>Custom Configuration</h3>
+                    <p>Use <code>createSaturn()</code> for full control over discovery timing and behavior.</p>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">app.ts</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="keyword">import</span> { createSaturn } <span class="keyword">from</span> <span class="string">'ai-sdk-provider-saturn'</span>;
+
+<span class="keyword">const</span> saturn = createSaturn({
+  discoveryTimeout: <span class="number">5000</span>,
+  logLevel: <span class="string">'info'</span>,
+  maxRetries: <span class="number">3</span>,
+  retryDelay: <span class="number">500</span>,
+  circuitBreakerThreshold: <span class="number">3</span>,
+  circuitBreakerResetTimeout: <span class="number">30000</span>,
+  enableHealthChecks: <span class="keyword">true</span>,
+  healthCheckTimeout: <span class="number">3000</span>,
+  onServiceDiscovered: (service) =&gt; console.log(<span class="string">`Found: ${service.name}`</span>),
+  onServiceRemoved: (name) =&gt; console.log(<span class="string">`Gone: ${name}`</span>),
+});</pre>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="int-sdk-api">
+                    <h2>API Reference</h2>
+
+                    <h3>Provider Interface</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">SaturnProvider</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="keyword">interface</span> SaturnProvider <span class="keyword">extends</span> ProviderV3 {
+  (modelId: <span class="keyword">string</span>): LanguageModelV3;  <span class="comment">// Get a model by ID</span>
+  getDiscovery(): SaturnDiscovery;       <span class="comment">// Access the discovery engine</span>
+  destroy(): <span class="keyword">void</span>;                      <span class="comment">// Stop mDNS, clear intervals</span>
+}</pre>
+                        </div>
+                    </div>
+
+                    <h3>createSaturn Settings</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Setting</th>
+                                <th>Type</th>
+                                <th>Default</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>discoveryTimeout</code></td>
+                                <td><code>number</code></td>
+                                <td>3000</td>
+                                <td>Max milliseconds to wait for service discovery</td>
+                            </tr>
+                            <tr>
+                                <td><code>logger</code></td>
+                                <td><code>SaturnLogger</code></td>
+                                <td>no-op</td>
+                                <td>Custom logger implementation</td>
+                            </tr>
+                            <tr>
+                                <td><code>logLevel</code></td>
+                                <td><code>LogLevel</code></td>
+                                <td>-</td>
+                                <td><code>'debug'</code> | <code>'info'</code> | <code>'warn'</code> | <code>'error'</code></td>
+                            </tr>
+                            <tr>
+                                <td><code>maxRetries</code></td>
+                                <td><code>number</code></td>
+                                <td>2</td>
+                                <td>Retry attempts per service before failover</td>
+                            </tr>
+                            <tr>
+                                <td><code>retryDelay</code></td>
+                                <td><code>number</code></td>
+                                <td>500</td>
+                                <td>Delay between retries in milliseconds</td>
+                            </tr>
+                            <tr>
+                                <td><code>circuitBreakerThreshold</code></td>
+                                <td><code>number</code></td>
+                                <td>3</td>
+                                <td>Failures before a service is marked unhealthy</td>
+                            </tr>
+                            <tr>
+                                <td><code>circuitBreakerResetTimeout</code></td>
+                                <td><code>number</code></td>
+                                <td>30000</td>
+                                <td>Milliseconds before probing an unhealthy service</td>
+                            </tr>
+                            <tr>
+                                <td><code>enableHealthChecks</code></td>
+                                <td><code>boolean</code></td>
+                                <td>false</td>
+                                <td>Enable active health check polling</td>
+                            </tr>
+                            <tr>
+                                <td><code>healthCheckTimeout</code></td>
+                                <td><code>number</code></td>
+                                <td>3000</td>
+                                <td>Health check request timeout in milliseconds</td>
+                            </tr>
+                            <tr>
+                                <td><code>activeHealthCheckInterval</code></td>
+                                <td><code>number</code></td>
+                                <td>-</td>
+                                <td>Interval for active health polling in milliseconds</td>
+                            </tr>
+                            <tr>
+                                <td><code>serviceEndpoint</code></td>
+                                <td><code>string</code></td>
+                                <td>-</td>
+                                <td>Direct mode: bypass mDNS, use this endpoint</td>
+                            </tr>
+                            <tr>
+                                <td><code>serviceName</code></td>
+                                <td><code>string</code></td>
+                                <td>-</td>
+                                <td>Service name for direct mode</td>
+                            </tr>
+                            <tr>
+                                <td><code>serviceEphemeralKey</code></td>
+                                <td><code>string</code></td>
+                                <td>-</td>
+                                <td>Auth key for direct mode</td>
+                            </tr>
+                            <tr>
+                                <td><code>onServiceDiscovered</code></td>
+                                <td><code>function</code></td>
+                                <td>-</td>
+                                <td>Callback when a new service is found</td>
+                            </tr>
+                            <tr>
+                                <td><code>onServiceRemoved</code></td>
+                                <td><code>function</code></td>
+                                <td>-</td>
+                                <td>Callback when a service disappears</td>
+                            </tr>
+                            <tr>
+                                <td><code>onServiceUnhealthy</code></td>
+                                <td><code>function</code></td>
+                                <td>-</td>
+                                <td>Callback when a service fails health checks</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <h3>DiscoveredService</h3>
+                    <p>Each discovered Saturn service is represented as:</p>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Property</th>
+                                <th>Type</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>name</code></td>
+                                <td><code>string</code></td>
+                                <td>Service instance name</td>
+                            </tr>
+                            <tr>
+                                <td><code>host</code></td>
+                                <td><code>string</code></td>
+                                <td>Resolved IP or hostname</td>
+                            </tr>
+                            <tr>
+                                <td><code>port</code></td>
+                                <td><code>number</code></td>
+                                <td>Service port</td>
+                            </tr>
+                            <tr>
+                                <td><code>endpoint</code></td>
+                                <td><code>string</code></td>
+                                <td>Full base URL (e.g. <code>http://192.168.1.5:8080/v1</code>)</td>
+                            </tr>
+                            <tr>
+                                <td><code>priority</code></td>
+                                <td><code>number</code></td>
+                                <td>Routing priority (lower = preferred), default 50</td>
+                            </tr>
+                            <tr>
+                                <td><code>ephemeralKey</code></td>
+                                <td><code>string</code></td>
+                                <td>Current rotating auth key</td>
+                            </tr>
+                            <tr>
+                                <td><code>authType</code></td>
+                                <td><code>string</code></td>
+                                <td><code>'none'</code> | <code>'psk'</code> | <code>'bearer'</code></td>
+                            </tr>
+                            <tr>
+                                <td><code>models</code></td>
+                                <td><code>string[]</code></td>
+                                <td>Model IDs fetched from <code>/v1/models</code></td>
+                            </tr>
+                            <tr>
+                                <td><code>deployment</code></td>
+                                <td><code>string</code></td>
+                                <td><code>'cloud'</code> | <code>'network'</code></td>
+                            </tr>
+                            <tr>
+                                <td><code>apiType</code></td>
+                                <td><code>string</code></td>
+                                <td><code>'openai'</code> | <code>'ollama'</code></td>
+                            </tr>
+                            <tr>
+                                <td><code>capabilities</code></td>
+                                <td><code>string[]</code></td>
+                                <td>e.g. <code>['chat', 'code', 'vision']</code></td>
+                            </tr>
+                            <tr>
+                                <td><code>cost</code></td>
+                                <td><code>string</code></td>
+                                <td><code>'free'</code> | <code>'paid'</code> | <code>'unknown'</code></td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <h3>AI SDK Compatibility</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Feature</th>
+                                <th>Support</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>generateText()</code></td>
+                                <td>Full support</td>
+                            </tr>
+                            <tr>
+                                <td><code>streamText()</code></td>
+                                <td>Full support with SSE parsing</td>
+                            </tr>
+                            <tr>
+                                <td>Tool calls</td>
+                                <td>Full support (function type)</td>
+                            </tr>
+                            <tr>
+                                <td><code>toolChoice</code></td>
+                                <td>auto, none, required, specific tool</td>
+                            </tr>
+                            <tr>
+                                <td>JSON mode (<code>response_format</code>)</td>
+                                <td>Supported</td>
+                            </tr>
+                            <tr>
+                                <td><code>maxOutputTokens</code>, <code>temperature</code>, <code>topP</code></td>
+                                <td>Supported</td>
+                            </tr>
+                            <tr>
+                                <td><code>stopSequences</code>, <code>frequencyPenalty</code>, <code>presencePenalty</code></td>
+                                <td>Supported</td>
+                            </tr>
+                            <tr>
+                                <td>Embedding / image models</td>
+                                <td>Not supported</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+
+                <section id="int-sdk-examples">
+                    <h2>Code Examples</h2>
+
+                    <h3>Text Generation</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">generate.ts</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="keyword">import</span> { saturn } <span class="keyword">from</span> <span class="string">'ai-sdk-provider-saturn'</span>;
+<span class="keyword">import</span> { generateText } <span class="keyword">from</span> <span class="string">'ai'</span>;
+
+<span class="keyword">const</span> { text } = <span class="keyword">await</span> generateText({
+  model: saturn(<span class="string">'openai/gpt-4o'</span>),
+  prompt: <span class="string">'Explain quantum computing in simple terms.'</span>,
+});
+console.log(text);</pre>
+                        </div>
+                    </div>
+
+                    <h3>Streaming</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">stream.ts</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="keyword">import</span> { saturn } <span class="keyword">from</span> <span class="string">'ai-sdk-provider-saturn'</span>;
+<span class="keyword">import</span> { streamText } <span class="keyword">from</span> <span class="string">'ai'</span>;
+
+<span class="keyword">const</span> { textStream } = streamText({
+  model: saturn(<span class="string">'anthropic/claude-3.5-sonnet'</span>),
+  prompt: <span class="string">'Write a haiku about programming.'</span>,
+});
+
+<span class="keyword">for await</span> (<span class="keyword">const</span> chunk <span class="keyword">of</span> textStream) {
+  process.stdout.write(chunk);
+}</pre>
+                        </div>
+                    </div>
+
+                    <h3>Tool Calls</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">tools.ts</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="keyword">import</span> { saturn } <span class="keyword">from</span> <span class="string">'ai-sdk-provider-saturn'</span>;
+<span class="keyword">import</span> { generateText, tool } <span class="keyword">from</span> <span class="string">'ai'</span>;
+<span class="keyword">import</span> { z } <span class="keyword">from</span> <span class="string">'zod'</span>;
+
+<span class="keyword">const</span> { text, toolCalls } = <span class="keyword">await</span> generateText({
+  model: saturn(<span class="string">'openai/gpt-4o'</span>),
+  prompt: <span class="string">'What is the weather in San Francisco?'</span>,
+  tools: {
+    getWeather: tool({
+      description: <span class="string">'Get the current weather for a location'</span>,
+      parameters: z.object({
+        location: z.string().describe(<span class="string">'The city name'</span>),
+      }),
+      execute: <span class="keyword">async</span> ({ location }) =&gt; {
+        <span class="keyword">return</span> { temperature: <span class="number">72</span>, condition: <span class="string">'sunny'</span>, location };
+      },
+    }),
+  },
+});</pre>
+                        </div>
+                    </div>
+
+                    <h3>Discovery Inspection</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">inspect.ts</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="keyword">import</span> { createSaturn } <span class="keyword">from</span> <span class="string">'ai-sdk-provider-saturn'</span>;
+
+<span class="keyword">const</span> saturn = createSaturn({ logLevel: <span class="string">'info'</span> });
+<span class="keyword">const</span> discovery = saturn.getDiscovery();
+
+<span class="comment">// Wait for services to appear</span>
+<span class="keyword">await new</span> Promise(resolve =&gt; setTimeout(resolve, <span class="number">3000</span>));
+
+<span class="keyword">const</span> services = discovery.getAllServices();
+<span class="keyword">for</span> (<span class="keyword">const</span> service <span class="keyword">of</span> services) {
+  console.log(<span class="string">`${service.name}: ${service.models.join(', ')}`</span>);
+  console.log(<span class="string">`  endpoint: ${service.endpoint}`</span>);
+  console.log(<span class="string">`  priority: ${service.priority}, deployment: ${service.deployment}`</span>);
+}
+
+saturn.destroy();</pre>
+                        </div>
+                    </div>
+
+                    <h3>Service Event Monitoring</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">events.ts</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="keyword">import</span> { createSaturn } <span class="keyword">from</span> <span class="string">'ai-sdk-provider-saturn'</span>;
+
+<span class="keyword">const</span> saturn = createSaturn({
+  onServiceDiscovered: (service) =&gt; {
+    console.log(<span class="string">`Found: ${service.name} at ${service.endpoint}`</span>);
+    console.log(<span class="string">`  deployment: ${service.deployment}, priority: ${service.priority}`</span>);
+  },
+  onServiceRemoved: (name) =&gt; {
+    console.log(<span class="string">`Service left: ${name}`</span>);
+  },
+  onServiceUnhealthy: (service) =&gt; {
+    console.log(<span class="string">`Unhealthy: ${service.name}`</span>);
+  },
+});</pre>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="int-sdk-advanced">
+                    <h2>Advanced Usage</h2>
+
+                    <h3>Direct Mode</h3>
+                    <p>Bypass mDNS discovery and connect to a known endpoint. Useful for testing, CI environments, or networks where multicast is unavailable.</p>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">direct.ts</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="keyword">import</span> { createSaturn } <span class="keyword">from</span> <span class="string">'ai-sdk-provider-saturn'</span>;
+
+<span class="keyword">const</span> saturn = createSaturn({
+  serviceEndpoint: <span class="string">'http://192.168.1.100:8080/v1'</span>,
+  serviceName: <span class="string">'my-ollama'</span>,
+  serviceEphemeralKey: <span class="string">'optional-key'</span>,
+});</pre>
+                        </div>
+                    </div>
+
+                    <h3>Circuit Breaker</h3>
+                    <p>The provider implements Martin Fowler's circuit breaker pattern for per-service health tracking. Each service has an independent breaker that transitions through three states:</p>
+                    <ol class="steps-list">
+                        <li>
+                            <div class="step-content">
+                                <div class="step-title">Closed (healthy)</div>
+                                <div class="step-desc">Requests flow normally. Failures are counted.</div>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="step-content">
+                                <div class="step-title">Open (skip)</div>
+                                <div class="step-desc">After reaching the failure threshold (default 3), the breaker opens and the service is skipped during routing.</div>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="step-content">
+                                <div class="step-title">Half-Open (probing)</div>
+                                <div class="step-desc">After the reset timeout (default 30s), a single probe request is allowed. Success closes the breaker; failure re-opens it.</div>
+                            </div>
+                        </li>
+                    </ol>
+
+                    <h3>Request Routing Flow</h3>
+                    <p>When a model is requested, the provider follows this sequence:</p>
+                    <ol class="steps-list">
+                        <li>
+                            <div class="step-content">
+                                <div class="step-title">Find services</div>
+                                <div class="step-desc">Query all discovered services for the requested model via <code>GET /v1/models</code> (cached with 30s cooldown).</div>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="step-content">
+                                <div class="step-title">Sort by priority</div>
+                                <div class="step-desc">Services sorted by priority (lower number first), filtered by circuit breaker availability.</div>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="step-content">
+                                <div class="step-title">Try with retry</div>
+                                <div class="step-desc">Each service gets up to <code>maxRetries</code> attempts with <code>retryDelay</code> between them. On 401, ephemeral key refresh is requested via mDNS automatically.</div>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="step-content">
+                                <div class="step-title">Failover</div>
+                                <div class="step-desc">On failure, record circuit breaker event and try the next service. If all fail, an aggregate error is thrown listing each endpoint's failure.</div>
+                            </div>
+                        </li>
+                    </ol>
+
+                    <h3>Cleanup</h3>
+                    <p>Always call <code>destroy()</code> when you're done to stop mDNS listening and clear internal intervals.</p>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">cleanup.ts</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="comment">// In long-running applications</span>
+process.on(<span class="string">'SIGINT'</span>, () =&gt; {
+  saturn.destroy();
+  process.exit(<span class="number">0</span>);
+});</pre>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="int-sdk-mock">
+                    <h2>Mock Server</h2>
+                    <p>The package includes a standalone ELIZA chatbot test server that announces itself via mDNS and serves OpenAI-compatible endpoints. Use it to test the full discovery-to-chat flow without a real AI backend or API costs.</p>
+
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">Terminal</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="comment"># Run from the package</span>
+npm run mock
+
+<span class="comment"># Or via npx</span>
+npx saturn-mock-server
+npx saturn-mock-server --port 8080 --priority 10 --name "MyEliza"</pre>
+                        </div>
+                    </div>
+
+                    <h3>Mock Server Options</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Option</th>
+                                <th>Default</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>--port, -p</code></td>
+                                <td>random</td>
+                                <td>Port to listen on</td>
+                            </tr>
+                            <tr>
+                                <td><code>--priority</code></td>
+                                <td>50</td>
+                                <td>Service priority</td>
+                            </tr>
+                            <tr>
+                                <td><code>--name, -n</code></td>
+                                <td>"Eliza"</td>
+                                <td>Service name</td>
+                            </tr>
+                            <tr>
+                                <td><code>--rotation, -r</code></td>
+                                <td>60</td>
+                                <td>Key rotation interval (seconds)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <div class="callout callout-tip">
+                        <div class="callout-title">Testing Key Rotation</div>
+                        <div class="callout-content">The mock server rotates ephemeral API keys on a configurable interval and validates Bearer tokens on chat requests. This exercises the provider's automatic 401 retry and key refresh logic.</div>
+                    </div>
+                </section>
+
+                <section id="int-router">
+                    <h2>Router Deployment (OpenWRT)</h2>
+                    <p>Saturn-router turns a consumer OpenWRT router into a zero-configuration AI service discovery beacon. A network administrator configures Saturn on the router once, and the router announces AI services via mDNS. Every Saturn-aware client on the network auto-discovers them.</p>
+
+                    <div class="callout callout-info">
+                        <div class="callout-title">Beacon, Not Proxy</div>
+                        <div class="callout-content">
+                            The router does NOT proxy API traffic. It only advertises service locations and credentials via mDNS TXT records. Clients discover the service, extract connection details from the TXT record, then connect directly to the upstream API provider. API traffic never flows through the router.
+                        </div>
+                    </div>
+
+                    <h3>Two Deployment Modes</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Mode</th>
+                                <th>Description</th>
+                                <th>Use Case</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Cloud</strong></td>
+                                <td>Router manages credentials for a remote API (OpenRouter, OpenAI, DeepInfra). Supports ephemeral key rotation where the router generates short-lived API keys, rotates them on a timer, and deletes old keys on shutdown.</td>
+                                <td>Sharing cloud API access across a network without distributing master keys</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Network</strong></td>
+                                <td>Router advertises the location of a local AI service (Ollama, vLLM, LocalAI on another machine). Performs health checks and only advertises the service when healthy.</td>
+                                <td>Auto-discovery of LAN-hosted AI services with automatic failover</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <h3>Target Hardware</h3>
+                    <p>Tested on the GL.iNet GL-MT300N-V2 (Mango), a mipsel_24kc OpenWRT device with approximately 800KB free flash and 128MB RAM. The compiled binary is approximately 2MB with TLS or 500KB without (network-only mode).</p>
+                </section>
+
+                <section id="int-router-install">
+                    <h2>Installation</h2>
+                    <p>Three deployment methods are available depending on your environment.</p>
+
+                    <h3>Method 1: One-Line Install</h3>
+                    <p>Run directly on the OpenWRT router. Auto-detects architecture, downloads the binary from GitHub Releases, verifies SHA256 checksum, and installs init scripts.</p>
+
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">One-Line Install</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre>curl -sSL https://raw.githubusercontent.com/jperrello/Saturn/main/install-router.sh | sh</pre>
+                        </div>
+                    </div>
+
+                    <p>Optional flags:</p>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">Install Options</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="comment"># Smaller binary without TLS (network-only, ~500KB)</span>
+curl -sSL https://raw.githubusercontent.com/jperrello/Saturn/main/install-router.sh | sh -s -- --network
+
+<span class="comment"># Install a specific version</span>
+curl -sSL https://raw.githubusercontent.com/jperrello/Saturn/main/install-router.sh | sh -s -- --version v1.0.0</pre>
+                        </div>
+                    </div>
+
+                    <div class="callout callout-warning">
+                        <div class="callout-title">Binary Persistence</div>
+                        <div class="callout-content">
+                            The binary installs to <code>/tmp</code> (RAM), so it is lost on reboot. The init script auto-downloads it again on boot, but you must re-run the installer after each reboot if the router cannot reach GitHub.
+                        </div>
+                    </div>
+
+                    <h3>Method 2: Tarball Package</h3>
+                    <p>Build a self-contained tarball on your development machine, then deploy to the router.</p>
+
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">Build and Deploy Tarball</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="comment"># Build the tarball (on dev machine)</span>
+cd saturn-router/openwrt
+./package.sh
+
+<span class="comment"># Deploy to router</span>
+scp saturn-openwrt.tar.gz root@192.168.8.1:/tmp/
+ssh root@192.168.8.1
+cd /tmp && tar xzf saturn-openwrt.tar.gz && ./install.sh</pre>
+                        </div>
+                    </div>
+
+                    <h3>Method 3: PowerShell Deploy (Windows)</h3>
+                    <p>Deploys the binary, init script, UCI config, uninstall script, and all LuCI web interface files. Handles CRLF conversion and permissions automatically.</p>
+
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">PowerShell</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="comment"># Deploy to default router (192.168.8.1)</span>
+.\deploy-to-router.ps1
+
+<span class="comment"># Deploy to a different router</span>
+.\deploy-to-router.ps1 -RouterIP 192.168.1.1</pre>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="int-router-uci">
+                    <h2>UCI Configuration</h2>
+                    <p>Saturn uses OpenWRT's standard UCI configuration system. The config file is at <code>/etc/config/saturn</code>.</p>
+
+                    <h3>Global Settings</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">/etc/config/saturn</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre>config saturn 'global'
+    option enabled '1'
+    option health_interval '30'
+    option mdns_base_port '8400'</pre>
+                        </div>
+                    </div>
+
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Option</th>
+                                <th>Description</th>
+                                <th>Default</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>enabled</code></td>
+                                <td>Master on/off switch</td>
+                                <td><code>1</code></td>
+                            </tr>
+                            <tr>
+                                <td><code>health_interval</code></td>
+                                <td>Health check interval in seconds</td>
+                                <td><code>30</code></td>
+                            </tr>
+                            <tr>
+                                <td><code>mdns_base_port</code></td>
+                                <td>Starting port for cloud service mDNS advertisement</td>
+                                <td><code>8400</code></td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <h3>Cloud Service Example</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">/etc/config/saturn</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre>config service 'openrouter'
+    option name 'openrouter'
+    option enabled '1'
+    option deployment 'cloud'
+    option api_type 'openai'
+    option base_url 'https://openrouter.ai/api/v1'
+    option api_key 'sk-or-...'
+    option priority '10'
+    option ephemeral_keys '1'
+    option key_endpoint 'https://openrouter.ai/api/v1/keys'
+    option spending_limit '1.00'
+    option rotation_interval '300'
+    option expires_interval '600'</pre>
+                        </div>
+                    </div>
+
+                    <h3>Network Service Example</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">/etc/config/saturn</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre>config service 'ollama'
+    option name 'ollama'
+    option enabled '1'
+    option deployment 'network'
+    option api_type 'ollama'
+    option host '192.168.1.50'
+    option port '11434'
+    option priority '5'</pre>
+                        </div>
+                    </div>
+
+                    <h3>UCI Service Options Reference</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Option</th>
+                                <th>Applies To</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td><code>name</code></td><td>Both</td><td>Service name (alphanumeric, hyphens, underscores, max 63 chars)</td></tr>
+                            <tr><td><code>enabled</code></td><td>Both</td><td>Enable/disable this service</td></tr>
+                            <tr><td><code>deployment</code></td><td>Both</td><td><code>cloud</code> or <code>network</code></td></tr>
+                            <tr><td><code>api_type</code></td><td>Both</td><td><code>openai</code> or <code>ollama</code></td></tr>
+                            <tr><td><code>priority</code></td><td>Both</td><td>Lower number = higher priority</td></tr>
+                            <tr><td><code>base_url</code></td><td>Cloud</td><td>Upstream API base URL</td></tr>
+                            <tr><td><code>api_key</code></td><td>Cloud</td><td>Provisioning API key</td></tr>
+                            <tr><td><code>advertise_port</code></td><td>Cloud</td><td>Port for mDNS advertisement (auto-allocated from base port if omitted)</td></tr>
+                            <tr><td><code>ephemeral_keys</code></td><td>Cloud</td><td>Enable ephemeral key rotation</td></tr>
+                            <tr><td><code>key_endpoint</code></td><td>Cloud</td><td>API endpoint for key generation (required if ephemeral_keys enabled)</td></tr>
+                            <tr><td><code>spending_limit</code></td><td>Cloud</td><td>Spending limit per ephemeral key</td></tr>
+                            <tr><td><code>rotation_interval</code></td><td>Cloud</td><td>Key rotation period in seconds</td></tr>
+                            <tr><td><code>expires_interval</code></td><td>Cloud</td><td>Key expiration time in seconds (must be greater than rotation)</td></tr>
+                            <tr><td><code>host</code></td><td>Network</td><td>IP address of the local AI service</td></tr>
+                            <tr><td><code>port</code></td><td>Network</td><td>Port of the local AI service</td></tr>
+                        </tbody>
+                    </table>
+                </section>
+
+                <section id="int-router-json">
+                    <h2>JSON Config Format</h2>
+                    <p>The init script generates per-service JSON configs at runtime in <code>/tmp/saturn.d/</code>. You can also write JSON configs directly for manual use with the <code>saturn</code> binary.</p>
+
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">beacon.json</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre>{
+  "name": "my-service",
+  "priority": 10,
+  "advertise_port": 8400,
+  "service": {
+    "deployment": "cloud",
+    "api_type": "openai",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key": "sk-or-...",
+    "ephemeral_keys": true,
+    "key_endpoint": "https://openrouter.ai/api/v1/keys",
+    "rotation_seconds": 300,
+    "expires_seconds": 600,
+    "spending_limit": 1.0
+  }
+}</pre>
+                        </div>
+                    </div>
+
+                    <h3>CLI Arguments</h3>
+                    <p>The <code>saturn</code> binary accepts these flags, which override JSON config values:</p>
+
+                    <table>
+                        <thead>
+                            <tr><th>Flag</th><th>Short</th><th>Description</th><th>Default</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td><code>--config</code></td><td><code>-c</code></td><td>JSON config file path</td><td><code>/etc/saturn/beacon.json</code></td></tr>
+                            <tr><td><code>--api-key</code></td><td><code>-k</code></td><td>API key (overrides config)</td><td>--</td></tr>
+                            <tr><td><code>--priority</code></td><td><code>-p</code></td><td>Service priority (overrides config)</td><td><code>10</code></td></tr>
+                            <tr><td><code>--limit</code></td><td><code>-l</code></td><td>Spending limit for ephemeral keys</td><td>--</td></tr>
+                            <tr><td><code>--health-interval</code></td><td><code>-i</code></td><td>Health check interval in seconds</td><td><code>30</code></td></tr>
+                        </tbody>
+                    </table>
+                </section>
+
+                <section id="int-router-service">
+                    <h2>Service Management</h2>
+                    <p>Saturn uses OpenWRT's procd init system. The init script reads all UCI service sections, generates per-service JSON configs, and launches a separate <code>saturn</code> process per service.</p>
+
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">Service Commands</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="comment"># Start / stop / restart</span>
+/etc/init.d/saturn start
+/etc/init.d/saturn stop
+/etc/init.d/saturn restart
+
+<span class="comment"># Enable auto-start on boot</span>
+/etc/init.d/saturn enable
+
+<span class="comment"># Check status</span>
+/etc/init.d/saturn status
+
+<span class="comment"># Show generated configs</span>
+/etc/init.d/saturn show_config</pre>
+                        </div>
+                    </div>
+
+                    <h3>File Locations</h3>
+                    <table>
+                        <thead>
+                            <tr><th>File</th><th>Purpose</th><th>Persistent</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td><code>/tmp/saturn</code></td><td>Binary</td><td>No (RAM)</td></tr>
+                            <tr><td><code>/etc/init.d/saturn</code></td><td>procd init script</td><td>Yes</td></tr>
+                            <tr><td><code>/etc/config/saturn</code></td><td>UCI configuration</td><td>Yes</td></tr>
+                            <tr><td><code>/tmp/saturn.d/*.json</code></td><td>Runtime per-service configs</td><td>No</td></tr>
+                            <tr><td><code>/var/run/saturn-*.pid</code></td><td>PID files</td><td>No</td></tr>
+                            <tr><td><code>/usr/bin/saturn-uninstall</code></td><td>Uninstall script</td><td>Yes</td></tr>
+                        </tbody>
+                    </table>
+
+                    <h3>mDNS TXT Records</h3>
+                    <p>Each service announces itself under <code>_saturn._tcp.local.</code> with these TXT records:</p>
+
+                    <table>
+                        <thead>
+                            <tr><th>Key</th><th>Value</th><th>Present</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td><code>version</code></td><td><code>"1.0"</code></td><td>Always</td></tr>
+                            <tr><td><code>deployment</code></td><td><code>"cloud"</code> or <code>"network"</code></td><td>Always</td></tr>
+                            <tr><td><code>api_type</code></td><td><code>"openai"</code> or <code>"ollama"</code></td><td>Always</td></tr>
+                            <tr><td><code>api_base</code></td><td>Full base URL</td><td>Always</td></tr>
+                            <tr><td><code>priority</code></td><td>Priority number</td><td>Always</td></tr>
+                            <tr><td><code>ephemeral_key</code></td><td>Current ephemeral API key</td><td>Only if ephemeral_keys enabled</td></tr>
+                            <tr><td><code>rotation_interval</code></td><td>Rotation period in seconds</td><td>Only if ephemeral_keys enabled</td></tr>
+                            <tr><td><code>features</code></td><td><code>"ephemeral_auth"</code> or <code>"network_proxy"</code></td><td>Conditional</td></tr>
+                        </tbody>
+                    </table>
+                </section>
+
+                <section id="int-router-luci">
+                    <h2>LuCI Web Interface</h2>
+                    <p>Saturn includes a LuCI web interface accessible at <strong>Services &gt; Saturn</strong> in the router admin panel.</p>
+
+                    <h3>Features</h3>
+                    <ul>
+                        <li><strong>Service control panel</strong> -- Start, Stop, and Restart buttons with live RUNNING/STOPPED status badge</li>
+                        <li><strong>Dynamic service forms</strong> -- Fields show/hide based on deployment type (cloud vs network)</li>
+                        <li><strong>Auto-refresh status</strong> -- Status badges poll every 10 seconds</li>
+                        <li><strong>Test Connection</strong> -- Button for network services that curls the health endpoint</li>
+                        <li><strong>Input validation</strong> -- Name format, URL format, port range, expiration &gt; rotation checks</li>
+                        <li><strong>Uninstall button</strong> -- Removes all Saturn files from the router with confirmation</li>
+                    </ul>
+
+                    <h3>LuCI File Locations</h3>
+                    <table>
+                        <thead>
+                            <tr><th>File</th><th>Purpose</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td><code>/www/luci-static/resources/view/saturn/services.js</code></td><td>LuCI frontend (service CRUD, status polling)</td></tr>
+                            <tr><td><code>/usr/libexec/rpcd/luci.saturn</code></td><td>Shell RPC backend</td></tr>
+                            <tr><td><code>/usr/share/luci/menu.d/luci-app-saturn.json</code></td><td>Menu entry</td></tr>
+                            <tr><td><code>/usr/share/rpcd/acl.d/luci-app-saturn.json</code></td><td>RPC ACL permissions</td></tr>
+                        </tbody>
+                    </table>
+
+                    <div class="callout callout-tip">
+                        <div class="callout-title">RPC Backend</div>
+                        <div class="callout-content">
+                            The LuCI JavaScript frontend communicates with a shell RPC backend via ubus. Available RPC methods: <code>get_status</code>, <code>test_connection</code>, <code>start</code>, <code>stop</code>, <code>restart</code>, <code>get_logs</code>, <code>get_running_status</code>, <code>uninstall</code>.
+                        </div>
+                    </div>
+                </section>
+
+                <section id="int-router-build">
+                    <h2>Building from Source</h2>
+                    <p>The build process cross-compiles the Rust binary for MIPS inside a Docker container to avoid host toolchain mismatches.</p>
+
+                    <h3>Prerequisites</h3>
+                    <ul>
+                        <li>Docker (running)</li>
+                        <li>Rust nightly (installed automatically inside container)</li>
+                    </ul>
+
+                    <h3>Build Script</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">Terminal</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="comment"># Full build with TLS (~2MB binary)</span>
+./build-mips-docker.sh
+
+<span class="comment"># Network-only without TLS (~500KB)</span>
+./build-mips-docker.sh --network-only
+
+<span class="comment"># Force Docker image rebuild</span>
+./build-mips-docker.sh --rebuild</pre>
+                        </div>
+                    </div>
+
+                    <h3>Build Details</h3>
+                    <table>
+                        <thead>
+                            <tr><th>Property</th><th>Value</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td>Target triple</td><td><code>mipsel-unknown-linux-musl</code></td></tr>
+                            <tr><td>Rust tier</td><td>Tier 3 (no pre-built std, uses <code>-Zbuild-std</code>)</td></tr>
+                            <tr><td>Rust channel</td><td>Nightly (pinned in <code>rust-toolchain.toml</code>)</td></tr>
+                            <tr><td>Toolchain</td><td><code>mipsel-linux-muslsf</code> (soft-float)</td></tr>
+                            <tr><td>Full binary size</td><td>~2MB (with TLS)</td></tr>
+                            <tr><td>Network-only size</td><td>~500KB (no TLS)</td></tr>
+                        </tbody>
+                    </table>
+
+                    <p>Binary size is optimized with <code>opt-level = "z"</code>, LTO, single codegen unit, panic abort, and symbol stripping. No async runtime or heavy CLI parser is used.</p>
+                </section>
+
+                <section id="int-router-troubleshooting">
+                    <h2>Router Troubleshooting</h2>
+
+                    <h3>Binary Not Found After Reboot</h3>
+                    <p>The binary lives in <code>/tmp</code> (RAM) and is lost on reboot. The init script calls <code>ensure_binary()</code> which auto-downloads from GitHub Releases. If the router has no internet access, manually SCP the binary to <code>/tmp/saturn</code> after each reboot.</p>
+
+                    <h3>Service Not Advertising</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">Diagnostics</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="comment"># Check service status</span>
+/etc/init.d/saturn status
+
+<span class="comment"># View logs (set RUST_LOG for detail)</span>
+logread | grep saturn
+
+<span class="comment"># Verify generated configs</span>
+/etc/init.d/saturn show_config
+ls -la /tmp/saturn.d/
+
+<span class="comment"># Test mDNS from another machine</span>
+dns-sd -B _saturn._tcp local.</pre>
+                        </div>
+                    </div>
+
+                    <h3>Network Service Shows Unhealthy</h3>
+                    <p>The router checks health before advertising. Verify the target service is reachable from the router:</p>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">Health Check</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="comment"># For Ollama services</span>
+curl http://192.168.1.50:11434/api/tags
+
+<span class="comment"># For OpenAI-compatible services</span>
+curl http://192.168.1.50:8080/models</pre>
+                        </div>
+                    </div>
+
+                    <h3>Ephemeral Key Rotation Failing</h3>
+                    <p>Verify the provisioning key and key endpoint are correct. The binary needs outbound HTTPS access to the key provider. Check that <code>expires_interval</code> is greater than <code>rotation_interval</code> in your UCI config.</p>
+
+                    <h3>Uninstalling</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">Uninstall</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="comment"># Via the uninstall script</span>
+/usr/bin/saturn-uninstall
+
+<span class="comment"># Or via LuCI: Services > Saturn > Uninstall</span></pre>
+                        </div>
+                    </div>
+                </section>
+
             </section>
 
             <!-- Integrations Section -->
@@ -4352,11 +5762,11 @@ except: pass
                     <p>Saturn currently provides the following integrations, with more planned for the future:</p>
 
                     <div class="feature-grid">
-                        <a href="#aider-overview" class="feature-card-link" data-link-placeholder="true">
+                        <a href="#opencode-overview" class="feature-card-link" data-link-placeholder="true">
                             <div class="feature-card">
-                                <div class="feature-card-title">Aider (AI Pair Programming)</div>
+                                <div class="feature-card-title">OpenCode (AI Coding Agent)</div>
                                 <div class="feature-card-desc">
-                                    Zero-configuration Aider integration. Discovers Saturn services automatically, sets up environment, and launches Aider with the best available model.
+                                    Open source AI coding agent with native Saturn provider. Discovers services via mDNS, registers models dynamically, and provides automatic failover.
                                 </div>
                             </div>
                         </a>
@@ -4384,6 +5794,14 @@ except: pass
                                 </div>
                             </div>
                         </a>
+                        <a href="#aider-overview" class="feature-card-link" data-link-placeholder="true">
+                            <div class="feature-card">
+                                <div class="feature-card-title">Aider (AI Pair Programming)</div>
+                                <div class="feature-card-desc">
+                                    Zero-configuration Aider integration. Discovers Saturn services automatically, sets up environment, and launches Aider with the best available model.
+                                </div>
+                            </div>
+                        </a>
                     </div>
 
                     <div class="callout callout-info">
@@ -4394,31 +5812,40 @@ except: pass
                     </div>
                 </section>
 
-                <!-- Aider Integration -->
-                <section id="aider-overview">
-                    <h2>Aider: AI Pair Programming</h2>
-                    <p><a href="https://aider.chat" target="_blank">Aider</a> is an AI pair programming tool that runs in your terminal. The <code>aider-saturn</code> command provides zero-configuration integration - it discovers Saturn services, selects the best available model, and launches Aider with the correct environment.</p>
+                <!-- OpenCode Integration -->
+                <section id="opencode-overview">
+                    <h2>OpenCode: AI Coding Agent</h2>
+                    <p><a href="https://opencode.ai" target="_blank">OpenCode</a> is an open source AI coding agent that runs in your terminal. <a href="https://github.com/jperrello/opencode-saturn" target="_blank">OpenCode-Saturn</a> is a fork with a native Saturn provider bundled in, so it discovers services via mDNS and makes their models available automatically&mdash;no API keys or manual configuration required.</p>
 
                     <h3>How It Works</h3>
                     <div class="diagram">
-                        <div class="diagram-title">Aider-Saturn Flow</div>
+                        <div class="diagram-title">OpenCode-Saturn Flow</div>
                         <div class="diagram-content">
                             <div class="diagram-box diagram-box-dark">
-                                aider-saturn
-                                <small>CLI wrapper</small>
+                                OpenCode
+                                <small>TUI coding agent</small>
                             </div>
                             <div class="diagram-connector-bidirectional"></div>
                             <div class="diagram-box diagram-box-primary">
-                                Saturn Discovery
-                                <small>mDNS + service selection</small>
+                                Saturn Provider
+                                <small>mDNS discovery + model registration</small>
                             </div>
                             <div class="diagram-connector-bidirectional"></div>
                             <div class="diagram-box diagram-box-success">
-                                Aider
-                                <small>with OPENAI_BASE_URL set</small>
+                                Saturn Services
+                                <small>Ollama, OpenRouter, vLLM, etc.</small>
                             </div>
                         </div>
                     </div>
+
+                    <h3>What Changed in the Fork</h3>
+                    <ul>
+                        <li><strong>Saturn provider</strong> added to <code>BUNDLED_PROVIDERS</code> in the provider system</li>
+                        <li><strong>Custom loader</strong> performs mDNS discovery to find <code>_saturn._tcp.local</code> services</li>
+                        <li><strong>Dynamic model registration</strong> from discovered network services</li>
+                        <li><strong>Automatic failover</strong> with fetch timeout patches and service notifications</li>
+                        <li><strong>Default configuration</strong> in <code>.opencode/opencode.jsonc</code> with Saturn enabled</li>
+                    </ul>
 
                     <h3>Installation</h3>
                     <div class="code-block">
@@ -4427,141 +5854,65 @@ except: pass
                             <button class="code-copy" onclick="copyCode(this)">Copy</button>
                         </div>
                         <div class="code-content">
-<pre><span class="comment"># Install Aider</span>
-pip install aider-chat
+<pre><span class="comment"># Clone the Saturn fork</span>
+git clone https://github.com/jperrello/opencode-saturn.git
+cd opencode-saturn
 
-<span class="comment"># Install Saturn (includes aider-saturn command)</span>
-pip install saturn</pre>
+<span class="comment"># Install dependencies and run</span>
+bun install
+bun run dev</pre>
                         </div>
                     </div>
 
-                    <h3>Basic Usage</h3>
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span class="code-filename">Terminal</span>
-                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
-                        </div>
-                        <div class="code-content">
-<pre><span class="comment"># Launch with automatic service and model selection</span>
-aider-saturn
+                    <h3>Usage</h3>
+                    <p>Once launched, OpenCode-Saturn automatically discovers Saturn services on your network and registers their models. You can select any discovered model from the model picker in the TUI.</p>
 
-<span class="comment"># Interactive selection of service and model</span>
-aider-saturn --select
-
-<span class="comment"># Specify a model directly</span>
-aider-saturn --saturn-model llama3.2
-
-<span class="comment"># Pass arguments through to Aider</span>
-aider-saturn --yes --auto-commits
-
-<span class="comment"># Filter services by capabilities</span>
-aider-saturn --saturn-needs code,chat --saturn-min-context 64000</pre>
-                        </div>
-                    </div>
-
-                    <h3>Saturn-Specific Options</h3>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Option</th>
-                                <th>Description</th>
-                                <th>Default</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td><code>--select</code></td>
-                                <td>Interactive service and model selection</td>
-                                <td>Auto-select</td>
-                            </tr>
-                            <tr>
-                                <td><code>--saturn-model</code></td>
-                                <td>Specify model name directly</td>
-                                <td>First available</td>
-                            </tr>
-                            <tr>
-                                <td><code>--saturn-needs</code></td>
-                                <td>Required capabilities (comma-separated)</td>
-                                <td>None</td>
-                            </tr>
-                            <tr>
-                                <td><code>--saturn-min-context</code></td>
-                                <td>Minimum context window size</td>
-                                <td>0</td>
-                            </tr>
-                            <tr>
-                                <td><code>--saturn-prefer-free</code></td>
-                                <td>Prefer free services over paid</td>
-                                <td>True</td>
-                            </tr>
-                            <tr>
-                                <td><code>--timeout</code></td>
-                                <td>Discovery timeout in seconds</td>
-                                <td>8.0</td>
-                            </tr>
-                            <tr>
-                                <td><code>--saturn-verbose</code></td>
-                                <td>Show discovery details</td>
-                                <td>False</td>
-                            </tr>
-                        </tbody>
-                    </table>
-
-                    <p>All other arguments are passed directly to Aider. For example:</p>
-
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span class="code-filename">Terminal</span>
-                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
-                        </div>
-                        <div class="code-content">
-<pre><span class="comment"># Saturn options + Aider options</span>
-aider-saturn --saturn-needs code --yes --auto-commits --dark-mode</pre>
-                        </div>
-                    </div>
-
-                    <h3>Example Session</h3>
                     <div class="code-block">
                         <div class="code-header">
                             <span class="code-filename">Terminal Output</span>
                         </div>
                         <div class="code-content">
-<pre>$ aider-saturn --select
-Saturn: Discovering services...
-Saturn: Found 2 service(s):
-  [1] Ollama at http://192.168.1.100:8080/v1
-      models: llama3.2, codellama, mistral...
-      context: 128000 | cost: free | priority: 10
-  [2] OpenRouter at http://192.168.1.100:8081/v1
-      models: claude-3-opus, gpt-4, gemini-pro...
-      context: 200000 | cost: paid | priority: 50
+<pre><span class="comment"># Start OpenCode-Saturn</span>
+bun run dev
 
-Select service [1-2]: 1
-
-Saturn: Available models from Ollama:
-  [1] llama3.2
-  [2] codellama
-  [3] mistral
-
-Select model [1-3] (Enter for first): 2
-
-Saturn: Using Ollama at http://192.168.1.100:8080/v1
-Saturn: Model: codellama
-Aider v0.50.0
-Model: openai/codellama with whole edit format
-───────────────────────────────────────────────────────────────</pre>
+<span class="comment"># Saturn services are discovered automatically</span>
+<span class="comment"># Models appear in the model picker as they are found</span>
+<span class="comment"># Select any discovered model and start coding</span></pre>
                         </div>
                     </div>
 
-                    <div class="callout callout-tip">
-                        <div class="callout-title">Why Use aider-saturn?</div>
+                    <h3>Key Features</h3>
+                    <div class="feature-grid">
+                        <div class="feature-card">
+                            <div class="feature-card-title">Native Provider</div>
+                            <div class="feature-card-desc">
+                                Saturn is bundled as a first-class provider alongside Claude, OpenAI, and Google. Uses the <code>ai-sdk-provider-saturn</code> package under the hood.
+                            </div>
+                        </div>
+                        <div class="feature-card">
+                            <div class="feature-card-title">Zero Configuration</div>
+                            <div class="feature-card-desc">
+                                No API keys, no endpoint URLs, no environment variables. Launch and start coding with whatever models are available on your network.
+                            </div>
+                        </div>
+                        <div class="feature-card">
+                            <div class="feature-card-title">Automatic Failover</div>
+                            <div class="feature-card-desc">
+                                Fetch timeout patches and service notifications ensure requests route to healthy services. If one backend goes down, another takes over.
+                            </div>
+                        </div>
+                        <div class="feature-card">
+                            <div class="feature-card-title">Provider Agnostic</div>
+                            <div class="feature-card-desc">
+                                Saturn models coexist with all other OpenCode providers. Use Saturn-discovered models alongside direct Claude, OpenAI, or local model connections.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="callout callout-info">
+                        <div class="callout-title">Source Code</div>
                         <div class="callout-content">
-                            <ul>
-                                <li><strong>Zero configuration:</strong> No need to set OPENAI_API_KEY or OPENAI_BASE_URL manually</li>
-                                <li><strong>Automatic failover:</strong> If your preferred service is down, Saturn selects the next best option</li>
-                                <li><strong>Model discovery:</strong> See all available models across all Saturn services</li>
-                                <li><strong>Cost optimization:</strong> Prefer free local models (Ollama) over paid cloud models</li>
-                            </ul>
+                            OpenCode-Saturn is open source. View the code, file issues, or contribute at <a href="https://github.com/jperrello/opencode-saturn" target="_blank">github.com/jperrello/opencode-saturn</a>. This fork is not affiliated with the OpenCode team.
                         </div>
                     </div>
                 </section>
@@ -4687,7 +6038,7 @@ Model: openai/codellama with whole edit format
                         <li>
                             <div class="step-content">
                                 <div class="step-title">Download</div>
-                                <div class="step-desc">Get the <code>vlc_extension</code> folder from the Saturn repository: <a href="https://github.com/jperrello/Zeroconf-AI/tree/main/vlc_extension" target="_blank">VLC Extension Repository</a></div>
+                                <div class="step-desc">Get the <code>vlc_extension</code> folder from the Saturn repository: <a href="https://github.com/jperrello/Saturn/tree/main/vlc_extension" target="_blank">VLC Extension Repository</a></div>
                             </div>
                         </li>
                         <li>
@@ -4847,7 +6198,7 @@ Model: openai/codellama with whole edit format
                     <p>Download the Saturn VLC extension from the repository:</p>
 
                     <div style="margin: 2rem 0; padding: 2rem; background: rgb(var(--gray-900)); border: 1px solid rgb(var(--gray-800)); border-radius: 0.75rem; text-align: center;">
-                        <a href="https://github.com/jperrello/Zeroconf-AI/tree/main/vlc_extension" target="_blank" class="btn btn-large">VLC Extension Repository</a>
+                        <a href="https://github.com/jperrello/Saturn/tree/main/vlc_extension" target="_blank" class="btn btn-large">VLC Extension Repository</a>
                     </div>
 
                     <div class="callout callout-info">
@@ -5063,7 +6414,7 @@ cd ~/.local/share/vlc/lua/extensions/vlc_extension/bridge/
                     <ul>
                         <li>At least one Saturn server running on your network (OpenRouter or Ollama)</li>
                         <li>Jan desktop application installed on your computer</li>
-                        <li>Python 3.7+ installed for running the local proxy client</li>
+                        <li>Python 3.10+ installed for running the local proxy client</li>
                     </ul>
 
                     <h3>Installation Steps</h3>
@@ -5081,10 +6432,10 @@ cd ~/.local/share/vlc/lua/extensions/vlc_extension/bridge/
                                     <div class="code-block" style="margin-top: 0.5rem;">
                                         <div class="code-content">
 <pre><span class="comment"># Using CLI commands (recommended)</span>
-saturn-openrouter
+saturn run openrouter
 
-<span class="comment"># Or from source</span>
-python -m saturn openrouter</pre>
+<span class="comment"># Or using shorthand</span>
+saturn openrouter</pre>
                                         </div>
                                     </div>
                                 </div>
@@ -5100,7 +6451,7 @@ python -m saturn openrouter</pre>
 python clients/local_proxy_client.py
 
 <span class="comment"># Or use the saturn package directly in your app</span>
-<span class="keyword">from</span> saturn <span class="keyword">import</span> discover_services</pre>
+<span class="keyword">from</span> saturn <span class="keyword">import</span> discover</pre>
                                         </div>
                                     </div>
                                     The proxy will start on <code>http://127.0.0.1:8080</code> by default and begin discovering Saturn services.
@@ -5541,6 +6892,180 @@ python clients/local_proxy_client.py
                     </div>
                 </section>
 
+                <!-- Aider Integration -->
+                <section id="aider-overview">
+                    <h2>Aider: AI Pair Programming</h2>
+                    <p><a href="https://aider.chat" target="_blank">Aider</a> is an AI pair programming tool that runs in your terminal. The <code>aider-saturn</code> command provides zero-configuration integration - it discovers Saturn services, selects the best available model, and launches Aider with the correct environment.</p>
+
+                    <h3>How It Works</h3>
+                    <div class="diagram">
+                        <div class="diagram-title">Aider-Saturn Flow</div>
+                        <div class="diagram-content">
+                            <div class="diagram-box diagram-box-dark">
+                                aider-saturn
+                                <small>CLI wrapper</small>
+                            </div>
+                            <div class="diagram-connector-bidirectional"></div>
+                            <div class="diagram-box diagram-box-primary">
+                                Saturn Discovery
+                                <small>mDNS + service selection</small>
+                            </div>
+                            <div class="diagram-connector-bidirectional"></div>
+                            <div class="diagram-box diagram-box-success">
+                                Aider
+                                <small>with OPENAI_BASE_URL set</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h3>Installation</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">Terminal</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="comment"># Install Aider</span>
+pip install aider-chat
+
+<span class="comment"># Install Saturn from source (includes aider-saturn command)</span>
+git clone https://github.com/jperrello/Saturn.git
+cd Saturn
+pip install -e .</pre>
+                        </div>
+                    </div>
+
+                    <h3>Basic Usage</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">Terminal</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="comment"># Launch with automatic service and model selection</span>
+aider-saturn
+
+<span class="comment"># Interactive selection of service and model</span>
+aider-saturn --select
+
+<span class="comment"># Specify a model directly</span>
+aider-saturn --saturn-model llama3.2
+
+<span class="comment"># Pass arguments through to Aider</span>
+aider-saturn --yes --auto-commits
+
+<span class="comment"># Filter services by capabilities</span>
+aider-saturn --saturn-needs code,chat --saturn-min-context 64000</pre>
+                        </div>
+                    </div>
+
+                    <h3>Saturn-Specific Options</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Option</th>
+                                <th>Description</th>
+                                <th>Default</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>--select</code></td>
+                                <td>Interactive service and model selection</td>
+                                <td>Auto-select</td>
+                            </tr>
+                            <tr>
+                                <td><code>--saturn-model</code></td>
+                                <td>Specify model name directly</td>
+                                <td>First available</td>
+                            </tr>
+                            <tr>
+                                <td><code>--saturn-needs</code></td>
+                                <td>Required capabilities (comma-separated)</td>
+                                <td>None</td>
+                            </tr>
+                            <tr>
+                                <td><code>--saturn-min-context</code></td>
+                                <td>Minimum context window size</td>
+                                <td>0</td>
+                            </tr>
+                            <tr>
+                                <td><code>--saturn-prefer-free</code></td>
+                                <td>Prefer free services over paid</td>
+                                <td>True</td>
+                            </tr>
+                            <tr>
+                                <td><code>--timeout</code></td>
+                                <td>Discovery timeout in seconds</td>
+                                <td>8.0</td>
+                            </tr>
+                            <tr>
+                                <td><code>--saturn-verbose</code></td>
+                                <td>Show discovery details</td>
+                                <td>False</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <p>All other arguments are passed directly to Aider. For example:</p>
+
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">Terminal</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="comment"># Saturn options + Aider options</span>
+aider-saturn --saturn-needs code --yes --auto-commits --dark-mode</pre>
+                        </div>
+                    </div>
+
+                    <h3>Example Session</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">Terminal Output</span>
+                        </div>
+                        <div class="code-content">
+<pre>$ aider-saturn --select
+Saturn: Discovering services...
+Saturn: Found 2 service(s):
+  [1] Ollama at http://192.168.1.100:8080/v1
+      models: llama3.2, codellama, mistral...
+      context: 128000 | cost: free | priority: 10
+  [2] OpenRouter at http://192.168.1.100:8081/v1
+      models: claude-3-opus, gpt-4, gemini-pro...
+      context: 200000 | cost: paid | priority: 50
+
+Select service [1-2]: 1
+
+Saturn: Available models from Ollama:
+  [1] llama3.2
+  [2] codellama
+  [3] mistral
+
+Select model [1-3] (Enter for first): 2
+
+Saturn: Using Ollama at http://192.168.1.100:8080/v1
+Saturn: Model: codellama
+Aider v0.50.0
+Model: openai/codellama with whole edit format
+───────────────────────────────────────────────────────────────</pre>
+                        </div>
+                    </div>
+
+                    <div class="callout callout-tip">
+                        <div class="callout-title">Why Use aider-saturn?</div>
+                        <div class="callout-content">
+                            <ul>
+                                <li><strong>Zero configuration:</strong> No need to set OPENAI_API_KEY or OPENAI_BASE_URL manually</li>
+                                <li><strong>Automatic failover:</strong> If your preferred service is down, Saturn selects the next best option</li>
+                                <li><strong>Model discovery:</strong> See all available models across all Saturn services</li>
+                                <li><strong>Cost optimization:</strong> Prefer free local models (Ollama) over paid cloud models</li>
+                            </ul>
+                        </div>
+                    </div>
+                </section>
+
                 <section id="integrations-troubleshooting">
                     <h2>Integration Troubleshooting</h2>
 
@@ -5644,6 +7169,55 @@ python clients/local_proxy_client.py
                             </ul>
                         </div>
                     </details>
+                </section>
+
+                <section id="sdk-overview">
+                    <h2>AI SDK Provider (TypeScript)</h2>
+                    <p>The <code>ai-sdk-provider-saturn</code> npm package is a <a href="https://sdk.vercel.ai" target="_blank">Vercel AI SDK</a> provider that brings Saturn's zero-configuration service discovery to TypeScript and JavaScript applications. It implements the AI SDK's <code>LanguageModelV3</code> interface, so any application built on the Vercel AI SDK can use Saturn services as a drop-in model provider.</p>
+
+                    <h3>Why Use It</h3>
+                    <ul>
+                        <li><strong>Zero Configuration:</strong> Import <code>saturn</code> and call <code>saturn('model-name')</code>. mDNS discovery handles the rest.</li>
+                        <li><strong>Automatic Failover:</strong> Priority-based routing with per-service circuit breakers and retry logic.</li>
+                        <li><strong>Full AI SDK Compatibility:</strong> <code>generateText()</code>, <code>streamText()</code>, tool calls, JSON mode, and all standard model settings.</li>
+                        <li><strong>Ephemeral Key Rotation:</strong> Automatic 401 retry with mDNS key refresh -- no manual key management.</li>
+                    </ul>
+
+                    <h3>Quick Start</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">Terminal</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre>npm install ai-sdk-provider-saturn ai</pre>
+                        </div>
+                    </div>
+
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-filename">app.ts</span>
+                            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <div class="code-content">
+<pre><span class="keyword">import</span> { saturn } <span class="keyword">from</span> <span class="string">'ai-sdk-provider-saturn'</span>;
+<span class="keyword">import</span> { generateText } <span class="keyword">from</span> <span class="string">'ai'</span>;
+
+<span class="keyword">const</span> { text } = <span class="keyword">await</span> generateText({
+  model: saturn(<span class="string">'openai/gpt-4o'</span>),
+  prompt: <span class="string">'Hello!'</span>,
+});
+console.log(text);
+
+<span class="comment">// Always clean up when done</span>
+saturn.destroy();</pre>
+                        </div>
+                    </div>
+
+                    <div class="callout callout-info">
+                        <div class="callout-title">Full Reference</div>
+                        <div class="callout-content">For the complete API reference, configuration options, code examples, and advanced usage (direct mode, circuit breaker, mock server), see the <a href="#int-sdk-provider">AI SDK Provider section</a> in the Integrator Guide.</div>
+                    </div>
                 </section>
             </section>
         </main>
@@ -6349,7 +7923,7 @@ ${data.screenshot ? `**Screenshot/Logo URL:** ${data.screenshot}` : ''}
 ---
 *Submitted via Saturn Documentation*`);
 
-            const githubIssueUrl = `https://github.com/jperrello/Zeroconf-AI/issues/new?title=${issueTitle}&body=${issueBody}&labels=integration-submission`;
+            const githubIssueUrl = `https://github.com/jperrello/Saturn/issues/new?title=${issueTitle}&body=${issueBody}&labels=integration-submission`;
 
             // Show success state
             formContent.innerHTML = `
