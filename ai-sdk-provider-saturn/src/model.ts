@@ -551,6 +551,8 @@ export class SaturnChatLanguageModel implements LanguageModelV3 {
     };
     let currentTextId: string | null = null;
     const toolInputIds = new Map<number, string>();
+    const toolNames = new Map<string, string>();
+    const toolInputs = new Map<string, string>();
     let fallbackIndex = 0;
 
     const self = this;
@@ -671,6 +673,8 @@ export class SaturnChatLanguageModel implements LanguageModelV3 {
                     const newToolId: string = tc.id;
                     toolId = newToolId;
                     toolInputIds.set(index, newToolId);
+                    toolNames.set(newToolId, tc.function?.name || '');
+                    toolInputs.set(newToolId, '');
                     controller.enqueue({
                       type: 'tool-input-start',
                       id: newToolId,
@@ -679,6 +683,7 @@ export class SaturnChatLanguageModel implements LanguageModelV3 {
                   }
 
                   if (toolId !== undefined && tc.function?.arguments) {
+                    toolInputs.set(toolId, (toolInputs.get(toolId) || '') + tc.function.arguments);
                     controller.enqueue({
                       type: 'tool-input-delta',
                       id: toolId,
@@ -697,6 +702,12 @@ export class SaturnChatLanguageModel implements LanguageModelV3 {
 
                 for (const [, toolId] of toolInputIds) {
                   controller.enqueue({ type: 'tool-input-end', id: toolId });
+                  controller.enqueue({
+                    type: 'tool-call',
+                    toolCallId: toolId,
+                    toolName: toolNames.get(toolId) || '',
+                    input: toolInputs.get(toolId) || '{}',
+                  });
                 }
               }
 
@@ -723,10 +734,12 @@ export class SaturnChatLanguageModel implements LanguageModelV3 {
                   controller.enqueue({ type: 'text-end', id: currentTextId });
                   currentTextId = null;
                 }
-                controller.enqueue({ type: 'finish', finishReason, usage });
-                controller.close();
-                currentReader.cancel().catch(() => {});
-                return;
+                if (finishReason.unified !== 'tool-calls') {
+                  controller.enqueue({ type: 'finish', finishReason, usage });
+                  controller.close();
+                  currentReader.cancel().catch(() => {});
+                  return;
+                }
               }
             } catch {
               // Ignore parse errors for malformed chunks
