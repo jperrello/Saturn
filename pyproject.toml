@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "saturn-ai"
-version = "1.0.0"
+version = "1.0.1"
 description = "Zero-configuration AI service discovery using mDNS/DNS-SD"
 readme = "README.md"
 requires-python = ">=3.10"
