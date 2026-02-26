@@ -49,3 +49,6 @@ Repository = "https://github.com/jperrello/Saturn"
 
 [tool.setuptools.packages.find]
 include = ["saturn", "saturn.*"]
+
+[tool.setuptools.package-data]
+saturn = ["services/*.toml"]
