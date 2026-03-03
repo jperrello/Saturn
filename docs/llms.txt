@@ -1,0 +1,80 @@
+# Saturn
+
+> Saturn is a zero-configuration AI service discovery system using mDNS/DNS-SD to automatically advertise and locate OpenAI-compatible AI services on a local network. Think Bonjour for printers, but for AI APIs. Install with `pip install saturn-ai`.
+
+Saturn eliminates per-app API key management and subscription juggling. A household, university, or office sets up Saturn servers once, and every device on the network gets AI access automatically.
+
+- All services expose OpenAI-compatible endpoints: `/v1/health`, `/v1/models`, `/v1/chat/completions`
+- Services register as `_saturn._tcp.local.` with TXT records (priority, version, capabilities, models)
+- Priority-based routing: lower number = higher preference (10 beats 50)
+- Health monitoring polls `/v1/health` every 20 seconds with automatic failover
+- Streaming uses SSE format: `data: {json}\n\n` terminated by `data: [DONE]\n\n`
+- Python 3.10+, MIT license, available on PyPI as `saturn-ai`
+
+## Core API
+
+- [Python Package (saturn)](https://raw.githubusercontent.com/jperrello/Saturn/main/saturn/README.md): Core package docs covering `discover()`, `select_best_service()`, `SaturnService`, `SaturnDiscovery`, and `SaturnAdvertiser`
+- [AI SDK Provider (TypeScript)](https://raw.githubusercontent.com/jperrello/Saturn/main/ai-sdk-provider-saturn/README.md): Vercel AI SDK provider for Node.js — `ai-sdk-provider-saturn` on npm
+
+
+## Quickstart
+
+- [README](https://raw.githubusercontent.com/jperrello/Saturn/main/README.md): Installation, CLI commands, server setup, discovery usage, and integration examples
+- [Client Examples](https://raw.githubusercontent.com/jperrello/Saturn/main/clients/README.md): Reference implementations — simple chat, local proxy, file upload
+
+## CLI Reference
+
+```
+saturn discover          # Find all Saturn services on network
+saturn endpoint          # Get best service URL (for scripts)
+saturn endpoint --json   # Machine-readable output
+saturn run <name>        # Start a configured service (ollama, openrouter, deepinfra, orbeacon, fallback)
+saturn stop <name>       # Stop a running service
+saturn config list       # List all service configurations
+saturn config new        # Create custom service interactively
+saturn ollama            # Shortcut: run Ollama service
+saturn openrouter        # Shortcut: run OpenRouter service
+```
+
+## Python API
+
+```python
+from saturn import discover, select_best_service, SaturnService
+
+# discover all services (blocking, with timeout)
+services = discover(timeout=8.0, settle_time=1.0)
+
+# select best match by capability, context size, cost
+best = select_best_service(services, needs=["code"], min_context=64000, prefer_free=True)
+
+# use the endpoint (OpenAI-compatible)
+print(best.effective_endpoint)  # e.g. "http://192.168.1.10:8080"
+```
+
+## Service Configuration (TOML)
+
+```toml
+name = "my-service"
+deployment = "cloud"        # cloud | local | network
+api_type = "openai"         # openai | ollama | anthropic
+priority = 50               # lower = preferred
+
+[upstream]
+base_url = "https://api.example.com/v1"
+api_key_env = "MY_API_KEY"
+
+[server]
+port = 0                    # 0 = auto-assign
+
+[beacon]
+enabled = false
+provider = "openrouter"
+rotation_interval = 300
+```
+
+## Optional
+- [MCP Server](https://raw.githubusercontent.com/jperrello/Saturn/main/saturn-mcp/README.md): Model Context Protocol server for Claude Code, Cursor, and Claude Desktop
+- [Router Implementation (Rust)](https://raw.githubusercontent.com/jperrello/Saturn/main/saturn-router/openwrt/README.md): Run Saturn beacon on OpenWRT routers with ephemeral key rotation
+- [Design Fictions](https://raw.githubusercontent.com/jperrello/Saturn/main/fiction/README.md): Narrative use cases illustrating Saturn's real-world applications
+- [Project Repository](https://github.com/jperrello/Saturn): Full source code, issues, and contributions
+- [PyPI Page](https://pypi.org/project/saturn-ai/): Package metadata and version history
