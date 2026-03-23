@@ -166,6 +166,18 @@ def config_exists(name: str) -> bool:
     return get_config_path(name).exists()
 
 
+def cmd_config_list() -> int:
+    configs = list_service_configs()
+    if not configs:
+        print("No services configured.")
+        return 0
+    for name, config, builtin in configs:
+        tag = " (built-in)" if builtin else ""
+        server = config.server.module if config.server else "no server"
+        print(f"  {name}{tag} — {server}")
+    return 0
+
+
 def cmd_config_delete(name: str, force: bool = False) -> int:
     import time
     from .runner import is_service_running, stop_service, remove_service_info
