@@ -276,6 +276,7 @@ class ServiceRunner:
         self.api_key: Optional[str] = None
         self.models_cache: List[str] = []
         self.app: Optional[FastAPI] = None
+        self._advertiser = None
 
     def _get_api_key(self) -> Optional[str]:
         if self.config.upstream.api_key_env:
@@ -316,6 +317,10 @@ class ServiceRunner:
                 logger.info(f"Cached {len(runner.models_cache)} models")
             else:
                 logger.warning("No models fetched at startup")
+            if runner._advertiser is not None and runner.models_cache:
+                runner._advertiser.models = runner.models_cache[:50]
+                runner._advertiser.unregister()
+                runner._advertiser.register()
             yield
             logger.info(f"Shutting down {runner.config.name} service...")
 
@@ -431,16 +436,15 @@ def run_service(config: ServiceConfig, host: str = "0.0.0.0", port: Optional[int
     if port and actual_port != port:
         logger.info(f"Port {port} in use, using {actual_port}")
 
-    models_for_mdns = []
+    svc_runner = None
 
     if config.server.module:
         import importlib
         mod = importlib.import_module(config.server.module)
         app = mod.app
     else:
-        runner = ServiceRunner(config)
-        app = runner.create_app()
-        models_for_mdns = runner.models_cache[:50]
+        svc_runner = ServiceRunner(config)
+        app = svc_runner.create_app()
 
     mdns_name = f"{config.name}-{actual_port}"
     advertiser = SaturnAdvertiser(
@@ -449,9 +453,12 @@ def run_service(config: ServiceConfig, host: str = "0.0.0.0", port: Optional[int
         deployment=config.deployment,
         api_type=config.api_type,
         priority=config.priority,
-        models=models_for_mdns,
+        models=[],
         capabilities=["chat"],
     )
+
+    if svc_runner is not None:
+        svc_runner._advertiser = advertiser
 
     service_file = write_service_info(config.name, actual_port, mdns_name)
     logger.info(f"Starting {config.name} on {host}:{actual_port} with priority {config.priority}")
