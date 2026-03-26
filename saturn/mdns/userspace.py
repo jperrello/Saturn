@@ -80,7 +80,7 @@ class UserspaceBackend:
         host_ip = get_lan_ip()
         name = get_instance_name(spec.name)
         for _ in range(5):
-            self._info = ServiceInfo(
+            kwargs = dict(
                 type_=SERVICE_TYPE,
                 name=f"{name}.{SERVICE_TYPE}",
                 port=spec.port,
@@ -88,6 +88,9 @@ class UserspaceBackend:
                 server=f"{socket.gethostname()}.local.",
                 properties=spec.txt,
             )
+            if spec.ttl is not None:
+                kwargs["other_ttl"] = spec.ttl
+            self._info = ServiceInfo(**kwargs)
             try:
                 self._zc.register_service(self._info)
                 if name != spec.name:

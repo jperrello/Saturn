@@ -104,7 +104,7 @@ class SaturnDiscovery:
             host=rec.host,
             port=rec.port,
             version=props.get('version', '1.0'),
-            deployment=props.get('deployment', 'network'),
+            deployment=props.get('dep', props.get('deployment', 'network')),
             api_type=props.get('api_type', props.get('api', 'openai')),
             api_base=props.get('api_base', ''),
             priority=int(props.get('priority', 100)),
@@ -332,6 +332,12 @@ def get_lan_ip():
         s.close()
 
 
+def _sanitize_txt_value(v: str) -> str:
+    v = v.replace("=", "").replace("\x00", "").replace("\n", "").replace("\r", "")
+    encoded = v.encode("utf-8")[:63]
+    return encoded.decode("utf-8", errors="ignore")
+
+
 class SaturnAdvertiser:
     SERVICE_TYPE = "_saturn._tcp.local."
 
@@ -370,17 +376,17 @@ class SaturnAdvertiser:
 
     def _properties(self) -> dict:
         MODELS_KEY = 'models'
-        MAX_TXT_RECORD_BYTES = 255
-        MAX_VALUE_BYTES = MAX_TXT_RECORD_BYTES - len(MODELS_KEY) - 1
+        MAX_VALUE_BYTES = 200
 
         models_str = ''
         models_truncated = False
         if self.models:
             parts = []
             for model in self.models:
-                candidate = ','.join(parts + [model]) if parts else model
+                clean = _sanitize_txt_value(model)
+                candidate = ','.join(parts + [clean]) if parts else clean
                 if len(candidate.encode('utf-8')) <= MAX_VALUE_BYTES:
-                    parts.append(model)
+                    parts.append(clean)
                 else:
                     models_truncated = True
                     break
@@ -392,11 +398,12 @@ class SaturnAdvertiser:
         capabilities_str = ','.join(self.capabilities) if self.capabilities else ''
         features = "network_proxy" if self.deployment == "network" else ""
 
-        return {
+        props = {
             'id': get_node_id(),
             'v': '2',
             'version': '1.0',
-            'deployment': self.deployment,
+            'dep': self.deployment,       # short key (v2)
+            'deployment': self.deployment, # backward compat
             'api_type': self.api_type,
             'api_base': self.api_base,
             'priority': str(self.priority),
@@ -406,6 +413,9 @@ class SaturnAdvertiser:
             'context': str(self.context),
             'cost': self.cost,
         }
+        if models_truncated:
+            props['mtrunc'] = '1'
+        return props
 
     def register(self) -> bool:
         from saturn.mdns.backend import AdvertiseSpec

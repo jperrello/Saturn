@@ -18,6 +18,7 @@ class AdvertiseSpec:
     port: int
     txt: dict[str, str]
     subtypes: list[str] = field(default_factory=list)
+    ttl: int | None = None
 
 
 ServiceEvent = tuple[str, ServiceRecord]

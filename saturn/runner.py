@@ -155,6 +155,26 @@ class BeaconAdvertiser(SaturnAdvertiser):
             'features': 'ephemeral_auth',
         }
 
+    def register(self) -> bool:
+        from saturn.mdns.backend import AdvertiseSpec
+        from saturn.discovery import get_lan_ip
+        try:
+            if not self.api_base:
+                self.api_base = f"http://{get_lan_ip()}:{self.port}/v1"
+            ttl = min(self.credential_manager.expiration_interval, 4500)
+            spec = AdvertiseSpec(
+                name=self.name,
+                port=self.port,
+                txt=self._properties(),
+                ttl=ttl,
+            )
+            self._backend.advertise(spec)
+            logger.info(f"Registered {self.name} on {self.SERVICE_TYPE} at port {self.port} with priority {self.priority}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to register beacon: {e}")
+            return False
+
     def re_register(self) -> None:
         logger.info("Re-registering beacon with updated credential...")
         self.unregister()
