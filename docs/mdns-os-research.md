@@ -18,7 +18,8 @@ are cited throughout.
 6. [OS Implementation APIs](#6-os-implementation-apis)
 7. [Userspace vs OS-Native mDNS](#7-userspace-vs-os-native-mdns)
 8. [Saturn v2 Design Implications](#8-saturn-v2-design-implications)
-9. [Sources](#9-sources)
+9. [Recent Developments (November 2025 – March 2026)](#9-recent-developments-november-2025--march-2026)
+10. [Sources](#10-sources)
 
 ---
 
@@ -75,7 +76,7 @@ setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq));
 // ip_mreqn is preferred over ip_mreq on Linux (uses ifindex, not addr)
 
 // 3. TTL for outgoing multicast
-// RFC 6762 §11.3: incoming packets with TTL < 255 MUST be discarded
+// RFC 6762 §11 (Source Address Check): incoming packets with TTL < 255 SHOULD be discarded
 int ttl = 255;
 setsockopt(fd, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl));
 
@@ -286,7 +287,7 @@ and routes to the mDNSResponder service.
 
 ## 4. RFC 6762 — Multicast DNS Protocol
 
-**Source:** RFC 6762 (Stuart Cheshire, Marc Krochmal; IETF, August 2013).
+**Source:** RFC 6762 (Stuart Cheshire, Marc Krochmal; IETF, February 2013).
 Available at: https://www.rfc-editor.org/rfc/rfc6762
 
 ### 4.1 Packet Format (Section 18)
@@ -328,7 +329,7 @@ the responder sends the answer via unicast directly to the querier rather than m
 
 Standard mDNS query: QCLASS = `0x0001`. QU query: QCLASS = `0x8001`.
 
-**Cache-flush bit in resource records (Section 11.3 / Section 18.13):**
+**Cache-flush bit in resource records (Section 11 / Section 18.13):**
 
 Bit 15 of the CLASS field in a response resource record. When set:
 - Instructs all receivers to flush cached records for this name/type/class received **more than
@@ -375,7 +376,7 @@ their proposals.
 All three probes go to the multicast address. The inter-probe interval is exactly 250ms — not
 implementation-defined.
 
-**Rate limit:** If a host detects ≥9 conflicts within 10 seconds, it MUST wait ≥5 seconds before
+**Rate limit:** If a host detects ≥15 conflicts within 10 seconds, it MUST wait ≥5 seconds before
 probing again.
 
 **Conflict detection:** Any mDNS response containing a record for the probed name triggers a
@@ -408,7 +409,7 @@ After successful probing:
 Announcements are DNS responses (QR=1, AA=1) with records in the Answer section and cache-flush
 bit set on unique records. Minimum two announcements are mandatory.
 
-### 4.5 Goodbye Packets (Section 11.3 and Section 22.4)
+### 4.5 Goodbye Packets (Section 10.1)
 
 When a host withdraws a record: send a DNS response with **TTL=0** for the departing records.
 Cache-flush bit still set.
@@ -441,7 +442,7 @@ For ongoing service discovery:
 
 **Response timing and suppression (Section 6):**
 A host receiving a query for a name it owns waits a random delay before responding:
-- Shared records: 20–500ms delay
+- Shared records: 20–120ms delay (RFC 6762 §6; not 500ms)
 - Unique records: 0–500ms delay
 
 During this window, if the host sees another mDNS response that already answers the query correctly
@@ -480,9 +481,10 @@ visible to it too.
 
 ### 4.8 Cache Coherency (Section 11)
 
-**Standard TTLs:**
+**Standard TTLs (RFC 6762 §10):**
 - Host records (A, AAAA): **120 seconds** (2 minutes)
-- Service records (SRV, TXT, PTR): **4500 seconds** (75 minutes)
+- SRV records: **120 seconds** — SRV contains a hostname in RDATA, so it uses the same 120s rule as A/AAAA
+- Service PTR and TXT records: **4500 seconds** (75 minutes)
 
 **Proactive cache refresh (Section 11.3):**
 
@@ -560,7 +562,7 @@ suppress conflicts from their own source MAC/IP.
 
 ## 5. RFC 6763 — DNS-Based Service Discovery
 
-**Source:** RFC 6763 (Stuart Cheshire, Marc Krochmal; IETF, January 2013).
+**Source:** RFC 6763 (Stuart Cheshire, Marc Krochmal; IETF, February 2013).
 Available at: https://www.rfc-editor.org/rfc/rfc6763
 
 ### 5.1 Name Structure (Section 4.1, 7)
@@ -636,7 +638,7 @@ Every service instance MUST have a TXT record at the same owner name as SRV:
 ```
 [1-byte length][key=value bytes][1-byte length][key=value bytes]...
 ```
-Each string max 255 octets. Total TXT RDATA max 8900 octets (RFC 6763 §6.2), but:
+Each string max 255 octets. Total TXT RDATA max 8900 octets (RFC 6763 §6.1), but:
 - Keep under 1300 bytes to avoid IP fragmentation
 - Recommended practical limit: **under 400 bytes** for reliable link-local behavior
 
@@ -1078,7 +1080,7 @@ listener.service = NWListener.Service(
 listener.start(queue: .main)
 ```
 
-NSNetService (ObjC) is deprecated as of iOS 16.4 / macOS 13.3 — prefer Network.framework for
+NSNetService (ObjC) is deprecated as of iOS 15 / macOS 12 (Monterey) — prefer Network.framework for
 new code.
 
 ### 6.3 Windows DNS Service Discovery API
@@ -1342,14 +1344,54 @@ If Saturn needs to span subnets:
 
 ---
 
-## 9. Sources
+## 9. Recent Developments (November 2025 – March 2026)
+
+### Debian: systemd-resolved mDNS disabled by default
+
+The Debian Technical Committee ruled in **February 2025** (Debian bug #1110883) that
+systemd-resolved must have mDNS disabled by default on Debian Trixie (13). The ruling mandates
+that Avahi is the canonical mDNS implementation on Debian. Upstream `resolved.conf` default of
+`MulticastDNS=yes` is overridden by a distribution-level drop-in.
+
+**Impact for Saturn:** On Debian 13+ systems, the "detect backend" logic in §8 cannot assume
+systemd-resolved is handling mDNS. Avahi will be the expected Linux path on Debian; check Avahi
+via D-Bus first, then fall back to userspace.
+
+### RFC 9665 — Service Registration Protocol for DNS-SD (SRP)
+
+Published **June 2025** (Lemon, Cheshire; IETF). RFC 9665 defines the **Service Registration
+Protocol**, a unicast DNS-based registration mechanism for DNS-SD in environments where multicast
+is expensive or blocked (Wi-Fi with multicast suppression, Thread networks, constrained IoT).
+
+Uses standard DNS Update (RFC 2136) + SIG(0) authentication + lease semantics. The
+PTR/SRV/TXT record structure is identical to §5 of this document — only the transport changes.
+
+**Source:** https://www.rfc-editor.org/rfc/rfc9665
+
+**Impact for Saturn:** SRP is the canonical path for registering Saturn services on networks
+where mDNS multicast does not propagate. Worth tracking for Saturn v3 if subnet-spanning is
+needed without a full DNS infrastructure.
+
+### Avahi 0.9-rc3
+
+Avahi 0.9-rc3 was released **January 27, 2026**, ending a 5-year stable period at 0.8 (2020).
+Distributions shipping in early 2026 (Arch, Fedora rawhide, RHEL 10) package 0.9-rc3. The
+release fixes three denial-of-service CVEs reachable by local users or network attackers via
+reachable assertion failures: CVE-2025-68276, CVE-2025-68468, CVE-2025-68471.
+
+**Impact for Saturn:** No API changes. Avahi 0.8 documentation remains accurate. Ensure
+deployment environments apply security updates.
+
+---
+
+## 10. Sources
 
 ### RFCs (Normative)
 
-- **RFC 6762 — Multicast DNS** (Cheshire, Krochmal; IETF, August 2013):
+- **RFC 6762 — Multicast DNS** (Cheshire, Krochmal; IETF, February 2013):
   https://www.rfc-editor.org/rfc/rfc6762
 
-- **RFC 6763 — DNS-Based Service Discovery** (Cheshire, Krochmal; IETF, January 2013):
+- **RFC 6763 — DNS-Based Service Discovery** (Cheshire, Krochmal; IETF, February 2013):
   https://www.rfc-editor.org/rfc/rfc6763
 
 - **RFC 2782 — DNS SRV Records** (Gulbrandsen et al.; IETF, February 2000):
@@ -1366,6 +1408,9 @@ If Saturn needs to span subnets:
 
 - **RFC 6335 — IANA Port/Service Name Assignment** (Cotton et al.; IETF, August 2011):
   https://www.rfc-editor.org/rfc/rfc6335
+
+- **RFC 9665 — Service Registration Protocol for DNS-SD** (Lemon, Cheshire; IETF, June 2025):
+  https://www.rfc-editor.org/rfc/rfc9665
 
 - **RFC 4795 — LLMNR** (Aboba et al.; IETF, January 2007):
   https://www.rfc-editor.org/rfc/rfc4795
