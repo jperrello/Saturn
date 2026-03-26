@@ -163,7 +163,6 @@ class BonjourBackend:
         self._stop = threading.Event()
         self._reg_cb_keep = None   # prevent GC of ctypes callback
         self._browse_cb_keep = None
-        self._resolve_cb_keep = None
         self._browse_event_thread: threading.Thread | None = None
         self._reg_event_thread: threading.Thread | None = None
 
@@ -285,7 +284,11 @@ class BonjourBackend:
             stype = regtype.decode("utf-8", errors="replace") if regtype else SERVICE_TYPE
             sdomain = domain.decode("utf-8", errors="replace") if domain else "local."
             if is_add:
-                self._resolve_service(sname, stype, sdomain, iface)
+                threading.Thread(
+                    target=self._resolve_service,
+                    args=(sname, stype, sdomain, iface),
+                    daemon=True,
+                ).start()
             else:
                 rec = ServiceRecord(name=sname, node_id="", host="", port=0, txt={})
                 self._cb(("removed", rec))
@@ -313,10 +316,8 @@ class BonjourBackend:
 
     def _resolve_service(self, name: str, regtype: str, domain: str, iface: int) -> None:
         ref = DNSServiceRef(None)
-        fired = [False]
 
         def _resolve_reply(sdref, flags, riface, err, fullname, host, port_nbo, txt_len, txt_ptr, ctx):
-            fired[0] = True
             if err != kDNSServiceErr_NoError:
                 log.warning("DNSServiceResolve error %d for %r", err, name)
                 return
@@ -327,8 +328,8 @@ class BonjourBackend:
             rec = ServiceRecord(name=name, node_id=txt.get("id", ""), host=h, port=p, txt=txt)
             self._cb(("added", rec))
 
+        # Keep cb alive for the duration of this call (local var, not shared)
         cb = _ResolveCallbackType(_resolve_reply)
-        self._resolve_cb_keep = cb  # brief hold; overwritten each resolve (fine for sequential)
 
         err = self._lib.DNSServiceResolve(
             ctypes.byref(ref),
@@ -344,7 +345,6 @@ class BonjourBackend:
             log.warning("DNSServiceResolve start failed %d for %r", err, name)
             return
 
-        # Process resolve result synchronously (one shot)
         fd = self._lib.DNSServiceRefSockFD(ref)
         if fd >= 0:
             try:
