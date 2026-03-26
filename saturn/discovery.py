@@ -1,7 +1,6 @@
 import socket
 import subprocess
 import sys
-import time
 import threading
 import logging
 import argparse
@@ -9,7 +8,8 @@ import json
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional
 
-from zeroconf import ServiceBrowser, ServiceListener, Zeroconf, ServiceInfo
+from saturn.mdns.identity import get_node_id
+from saturn.mdns.backend import ServiceRecord
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,6 +39,7 @@ class SaturnService:
     capabilities: List[str] = field(default_factory=list)  # e.g., ["chat", "code", "vision"]
     context: int = 4096                                    # max context window
     cost: str = "unknown"                                  # free, paid, unknown
+    node_id: str = ""                                      # stable UUID from saturn/mdns/identity.py
 
     @property
     def is_beacon(self) -> bool:
@@ -76,97 +77,95 @@ class SaturnService:
         return all(cap in self.capabilities for cap in needs)
 
 
-class SaturnDiscovery(ServiceListener):
+class SaturnDiscovery:
     SERVICE_TYPE = "_saturn._tcp.local."
 
     def __init__(self, on_service_change=None):
         self.services: Dict[str, SaturnService] = {}
         self.lock = threading.Lock()
         self.on_service_change = on_service_change
-        self.zeroconf = Zeroconf()
-        self.browser = ServiceBrowser(self.zeroconf, self.SERVICE_TYPE, self)
+        from saturn.mdns.detect import backend as make_backend
+        self._backend = make_backend()
+        self._backend.browse(self._on_event)
 
-    def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        info = zc.get_service_info(type_, name)
-        if not info:
-            return
-
-        try:
-            if info.addresses:
-                ip_address = socket.inet_ntoa(info.addresses[0])
-            else:
-                ip_address = info.server.rstrip('.')
-        except Exception:
-            ip_address = info.server.rstrip('.') if info.server else "unknown"
-
-        props = {}
-        if info.properties:
-            for k, v in info.properties.items():
-                key = k.decode('utf-8') if isinstance(k, bytes) else k
-                val = v.decode('utf-8') if isinstance(v, bytes) else str(v)
-                props[key] = val
-
+    def _to_service(self, rec: ServiceRecord) -> SaturnService:
+        props = rec.txt
         models_str = props.get('models', '')
         models = [m for m in models_str.split(',') if m]
-
         capabilities_str = props.get('capabilities', '')
         capabilities = [c for c in capabilities_str.split(',') if c]
-
-        service_name = name.replace(f'.{type_}', '')
-
         rotation_str = props.get('rotation_interval', '0')
         try:
             rotation_interval = int(rotation_str)
         except ValueError:
             rotation_interval = 0
-
-        service = SaturnService(
-            name=service_name,
-            host=ip_address,
-            port=info.port,
-            # Production schema fields (saturn-router compatible)
+        return SaturnService(
+            name=rec.name,
+            host=rec.host,
+            port=rec.port,
             version=props.get('version', '1.0'),
             deployment=props.get('deployment', 'network'),
-            api_type=props.get('api_type', props.get('api', 'openai')),  # fallback to old 'api' field
+            api_type=props.get('api_type', props.get('api', 'openai')),
             api_base=props.get('api_base', ''),
             priority=int(props.get('priority', 100)),
             ephemeral_key=props.get('ephemeral_key', ''),
             rotation_interval=rotation_interval,
             features=props.get('features', ''),
-            # Extended fields for Saturn proxies
             models=models,
             capabilities=capabilities,
             context=int(props.get('context', 4096)),
             cost=props.get('cost', 'unknown'),
+            node_id=rec.node_id,
         )
 
+    def _on_event(self, event) -> None:
+        action, rec = event
+        if action in ('added', 'updated'):
+            self._add(rec)
+        elif action == 'removed':
+            self._remove(rec.name)
+
+    def _add(self, rec: ServiceRecord) -> None:
+        service = self._to_service(rec)
+        if service.node_id:
+            key = f"{service.node_id}:{service.name}"
+        else:
+            key = service.name
+
         with self.lock:
-            is_new = service_name not in self.services
-            self.services[service_name] = service
+            if service.node_id:
+                for k, s in self.services.items():
+                    if s.node_id == service.node_id and s.name != service.name:
+                        logger.warning(f"Duplicate node_id {service.node_id}: {service.name} and {s.name}")
+                        break
+            is_new = key not in self.services
+            self.services[key] = service
 
             if is_new:
                 svc_type = "beacon" if service.is_beacon else "service"
-                logger.info(f"Discovered Saturn {svc_type}: {service_name} at {ip_address}:{info.port}")
+                logger.info(f"Discovered Saturn {svc_type}: {service.name} at {service.host}:{service.port}")
                 logger.info(f"  deployment: {service.deployment} | api_type: {service.api_type} | priority: {service.priority}")
                 if service.is_beacon:
                     logger.info(f"  api_base: {service.api_base}")
                 else:
-                    logger.info(f"  models: {', '.join(models) if models else 'none'}")
+                    logger.info(f"  models: {', '.join(service.models) if service.models else 'none'}")
                     logger.info(f"  context: {service.context} | cost: {service.cost}")
                 if self.on_service_change:
                     self.on_service_change('added', service)
 
-    def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        self.add_service(zc, type_, name)
-
-    def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        service_name = name.replace(f'.{type_}', '')
+    def _remove(self, name: str) -> None:
         with self.lock:
-            if service_name in self.services:
-                removed_service = self.services.pop(service_name)
-                logger.info(f"Removed Saturn service: {service_name}")
+            key = name
+            if name not in self.services:
+                for k, s in self.services.items():
+                    if s.name == name:
+                        key = k
+                        break
+            if key in self.services:
+                removed = self.services.pop(key)
+                logger.info(f"Removed Saturn service: {name}")
                 if self.on_service_change:
-                    self.on_service_change('removed', removed_service)
+                    self.on_service_change('removed', removed)
 
     def get_all_services(self) -> List[SaturnService]:
         with self.lock:
@@ -179,36 +178,25 @@ class SaturnDiscovery(ServiceListener):
             return min(self.services.values(), key=lambda s: s.priority)
 
     def stop(self):
-        self.browser.cancel()
-        self.zeroconf.close()
+        self._backend.stop_browse()
+        self._backend.close()
 
 
 def discover(timeout: float = 8.0, settle_time: float = 1.0) -> List[SaturnService]:
-    # settle_time prevents returning too early - wait for network to calm down
-    # mdns responses trickle in, so we wait until no new services for settle_time seconds
-    service_event = threading.Event()
-    last_discovery_time = [0.0]
+    from saturn.mdns.settle import SettleDetector
 
-    def on_change(action: str, service: SaturnService):
+    settle = SettleDetector()
+
+    def on_change(action, service):
         if action == 'added':
-            last_discovery_time[0] = time.time()
-            service_event.set()
+            settle.arm()
 
     discovery = SaturnDiscovery(on_service_change=on_change)
-    deadline = time.time() + timeout
-
-    while time.time() < deadline:
-        service_event.wait(timeout=0.25)
-        service_event.clear()
-
-        services = discovery.get_all_services()
-        if services:
-            time_since_last = time.time() - last_discovery_time[0]
-            if time_since_last >= settle_time:
-                break
+    settle.wait(timeout=timeout)
 
     services = discovery.get_all_services()
     discovery.stop()
+    settle.close()
     return services
 
 
@@ -369,7 +357,7 @@ class SaturnAdvertiser:
         # Production schema
         self.deployment = deployment
         self.api_type = api_type
-        self.api_base = api_base  # Will be computed if not provided
+        self.api_base = api_base
         self.priority = priority
         # Extended fields
         self.models = models or []
@@ -377,28 +365,8 @@ class SaturnAdvertiser:
         self.context = context
         self.cost = cost
         self.mcp = mcp
-        self._zeroconf: Optional[Zeroconf] = None
-        self._info: Optional[ServiceInfo] = None
-
-    def _find_available_priority(self) -> int:
-        # scan network for existing services to avoid priority collisions
-        try:
-            services = discover(timeout=2.0, settle_time=0.5)
-            priorities = {s.priority for s in services}
-        except Exception as e:
-            logger.warning(f"Error checking priorities: {e}")
-            return self.priority
-
-        current = self.priority
-        while current in priorities:
-            logger.info(f"Priority {current} in use, trying {current + 1}")
-            current += 1
-
-        if current != self.priority:
-            logger.info(f"Adjusted priority from {self.priority} to {current}")
-
-        return current
-
+        from saturn.mdns.detect import backend as make_backend
+        self._backend = make_backend()
 
     def _properties(self) -> dict:
         MODELS_KEY = 'models'
@@ -425,6 +393,8 @@ class SaturnAdvertiser:
         features = "network_proxy" if self.deployment == "network" else ""
 
         return {
+            'id': get_node_id(),
+            'v': '2',
             'version': '1.0',
             'deployment': self.deployment,
             'api_type': self.api_type,
@@ -438,28 +408,19 @@ class SaturnAdvertiser:
         }
 
     def register(self) -> bool:
-        actual_priority = self._find_available_priority()
-
+        from saturn.mdns.backend import AdvertiseSpec
         try:
-            host = socket.gethostname()
-            host_ip = get_lan_ip()
-
             if not self.api_base:
+                host_ip = get_lan_ip()
                 self.api_base = f"http://{host_ip}:{self.port}/v1"
 
-            self.priority = actual_priority
-            self._zeroconf = Zeroconf()
-            self._info = ServiceInfo(
-                type_=self.SERVICE_TYPE,
-                name=f"{self.name}.{self.SERVICE_TYPE}",
+            spec = AdvertiseSpec(
+                name=self.name,
                 port=self.port,
-                addresses=[socket.inet_aton(host_ip)],
-                server=f"{host}.local.",
-                properties=self._properties(),
+                txt=self._properties(),
             )
-
-            self._zeroconf.register_service(self._info)
-            logger.info(f"Registered {self.name} on {self.SERVICE_TYPE} at port {self.port} with priority {actual_priority}")
+            self._backend.advertise(spec)
+            logger.info(f"Registered {self.name} on {self.SERVICE_TYPE} at port {self.port} with priority {self.priority}")
             return True
 
         except Exception as e:
@@ -467,12 +428,9 @@ class SaturnAdvertiser:
             return False
 
     def unregister(self):
-        if self._zeroconf and self._info:
-            logger.info(f"Unregistering {self.name} from {self.SERVICE_TYPE}")
-            self._zeroconf.unregister_service(self._info)
-            self._zeroconf.close()
-            self._zeroconf = None
-            self._info = None
+        logger.info(f"Unregistering {self.name} from {self.SERVICE_TYPE}")
+        self._backend.withdraw()
+        self._backend.close()
 
     def __enter__(self):
         self.register()
