@@ -72,6 +72,7 @@ class UserspaceBackend:
     def __init__(self):
         self._zc = Zeroconf()
         self._info: ServiceInfo | None = None
+        self._sub_infos: list[ServiceInfo] = []
         self._browser: ServiceBrowser | None = None
         self._listener: _Listener | None = None
 
@@ -79,13 +80,15 @@ class UserspaceBackend:
         from saturn.discovery import get_lan_ip
         host_ip = get_lan_ip()
         name = get_instance_name(spec.name)
+        addr = [socket.inet_aton(host_ip)]
+        server = f"{socket.gethostname()}.local."
         for _ in range(5):
             kwargs = dict(
                 type_=SERVICE_TYPE,
                 name=f"{name}.{SERVICE_TYPE}",
                 port=spec.port,
-                addresses=[socket.inet_aton(host_ip)],
-                server=f"{socket.gethostname()}.local.",
+                addresses=addr,
+                server=server,
                 properties=spec.txt,
             )
             if spec.ttl is not None:
@@ -95,6 +98,18 @@ class UserspaceBackend:
                 self._zc.register_service(self._info)
                 if name != spec.name:
                     update_instance_name(name)
+                for sub in spec.subtypes:
+                    sub_type = f"{sub}._sub._saturn._tcp.local."
+                    sub_info = ServiceInfo(
+                        type_=sub_type,
+                        name=f"{name}.{sub_type}",
+                        port=spec.port,
+                        addresses=addr,
+                        server=server,
+                        properties=spec.txt,
+                    )
+                    self._zc.register_service(sub_info)
+                    self._sub_infos.append(sub_info)
                 return
             except NonUniqueNameException:
                 logger.warning("mDNS name conflict for %r, trying next", name)
@@ -103,6 +118,12 @@ class UserspaceBackend:
         update_instance_name(name)
 
     def withdraw(self) -> None:
+        for sub_info in self._sub_infos:
+            try:
+                self._zc.unregister_service(sub_info)
+            except Exception:
+                pass
+        self._sub_infos = []
         if self._info:
             self._zc.unregister_service(self._info)
             self._info = None

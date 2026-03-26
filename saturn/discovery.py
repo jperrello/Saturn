@@ -357,6 +357,7 @@ class SaturnAdvertiser:
         cost: str = "unknown",
         # Legacy fields (kept for backwards compatibility but not advertised)
         mcp: str = "none",
+        role: str = "",
     ):
         self.name = name
         self.port = port
@@ -371,6 +372,8 @@ class SaturnAdvertiser:
         self.context = context
         self.cost = cost
         self.mcp = mcp
+        from saturn.mdns.subtypes import subtypes_for_role
+        self._subtypes = subtypes_for_role(role)
         from saturn.mdns.detect import backend as make_backend
         self._backend = make_backend()
 
@@ -428,6 +431,7 @@ class SaturnAdvertiser:
                 name=self.name,
                 port=self.port,
                 txt=self._properties(),
+                subtypes=self._subtypes,
             )
             self._backend.advertise(spec)
             logger.info(f"Registered {self.name} on {self.SERVICE_TYPE} at port {self.port} with priority {self.priority}")

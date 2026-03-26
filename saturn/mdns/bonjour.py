@@ -157,11 +157,13 @@ class BonjourBackend:
     def __init__(self):
         self._lib = _load()
         self._reg_ref: DNSServiceRef | None = None
+        self._sub_refs: list[DNSServiceRef] = []
         self._browse_ref: DNSServiceRef | None = None
         self._spec: AdvertiseSpec | None = None
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._reg_cb_keep = None   # prevent GC of ctypes callback
+        self._sub_cb_keeps: list = []
         self._browse_cb_keep = None
         self._browse_event_thread: threading.Thread | None = None
         self._reg_event_thread: threading.Thread | None = None
@@ -220,6 +222,41 @@ class BonjourBackend:
         )
         self._reg_event_thread.start()
 
+        for sub in spec.subtypes:
+            sub_type = f"{sub}._sub._saturn._tcp"
+            sub_ref = DNSServiceRef(None)
+
+            def _sub_reply(sdref, flags, err, rname, regtype, domain, ctx, _s=sub_type):
+                if err != kDNSServiceErr_NoError:
+                    log.warning("DNSServiceRegister subtype %r error %d", _s, err)
+
+            sub_cb = _RegisterCallbackType(_sub_reply)
+            self._sub_cb_keeps.append(sub_cb)
+
+            serr = self._lib.DNSServiceRegister(
+                ctypes.byref(sub_ref),
+                0,
+                0,
+                name.encode(),
+                sub_type.encode(),
+                None,
+                None,
+                _htons(spec.port),
+                txt_len,
+                txt_data,
+                sub_cb,
+                None,
+            )
+            if serr == kDNSServiceErr_NoError:
+                self._sub_refs.append(sub_ref)
+                t = threading.Thread(
+                    target=self._run_ref, args=(sub_ref, f"advertise-sub:{sub}"), daemon=True
+                )
+                t.start()
+            else:
+                log.warning("DNSServiceRegister subtype %r failed: %d", sub_type, serr)
+
+
     def _reregister(self) -> None:
         self.withdraw()
         if self._spec:
@@ -259,6 +296,11 @@ class BonjourBackend:
         with self._lock:
             ref = self._reg_ref
             self._reg_ref = None
+            sub_refs = self._sub_refs[:]
+            self._sub_refs = []
+            self._sub_cb_keeps = []
+        for sr in sub_refs:
+            self._lib.DNSServiceRefDeallocate(sr)
         if ref:
             self._lib.DNSServiceRefDeallocate(ref)
 
