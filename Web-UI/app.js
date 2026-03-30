@@ -485,6 +485,25 @@ function esc(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+// markdown rendering for assistant messages
+;(function() {
+  if (typeof marked !== 'undefined') {
+    marked.use({ gfm: true, breaks: true })
+  }
+})()
+
+function renderMarkdown(s) {
+  if (typeof marked === 'undefined') return esc(s)
+  const raw = marked.parse(s)
+  if (typeof DOMPurify !== 'undefined') return DOMPurify.sanitize(raw)
+  return raw
+}
+
+function highlightCode(el) {
+  if (typeof hljs === 'undefined') return
+  el.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block))
+}
+
 // populate service dropdown from discovered services
 function syncServices() {
   const prev = serviceSelect.value
@@ -556,11 +575,12 @@ function renderMessages() {
       div.className = 'msg assistant'
       div.innerHTML = `
         <div class="meta">${m.service || ''} // ${m.model || ''}</div>
-        <div class="bubble">${esc(m.text)}</div>
+        <div class="bubble markdown-body">${renderMarkdown(m.text)}</div>
       `
     }
     messagesEl.appendChild(div)
   })
+  highlightCode(messagesEl)
   messagesEl.scrollTop = messagesEl.scrollHeight
 }
 
@@ -627,7 +647,7 @@ async function send() {
   aDiv.className = 'msg assistant'
   aDiv.innerHTML = `
     <div class="meta">${esc(service)} // ${esc(model)}</div>
-    <div class="bubble"><span class="cursor">▊</span></div>
+    <div class="bubble markdown-body"><span class="cursor">▊</span></div>
   `
   messagesEl.appendChild(aDiv)
   messagesEl.scrollTop = messagesEl.scrollHeight
@@ -675,7 +695,7 @@ async function send() {
           const delta = chunk.choices?.[0]?.delta?.content
           if (delta) {
             full += delta
-            bubble.innerHTML = esc(full) + '<span class="cursor">▊</span>'
+            bubble.innerHTML = renderMarkdown(full) + '<span class="cursor">▊</span>'
             messagesEl.scrollTop = messagesEl.scrollHeight
           }
         } catch {
@@ -685,7 +705,8 @@ async function send() {
     }
 
     // remove cursor, finalize
-    bubble.innerHTML = esc(full || '[empty response]')
+    bubble.innerHTML = renderMarkdown(full || '[empty response]')
+    highlightCode(bubble)
     chat.messages.push({ role: 'assistant', text: full || '[empty response]', service, model })
   } catch (e) {
     full = `[error] ${e.message}`
@@ -921,7 +942,7 @@ async function brutusSendMsg() {
   aDiv.className = 'msg assistant'
   aDiv.innerHTML = `
     <div class="meta">brutus // routing...</div>
-    <div class="bubble"><span class="cursor">▊</span></div>
+    <div class="bubble markdown-body"><span class="cursor">▊</span></div>
   `
   brutusMessages.appendChild(aDiv)
   brutusMessages.scrollTop = brutusMessages.scrollHeight
@@ -975,14 +996,15 @@ async function brutusSendMsg() {
           const delta = chunk.choices?.[0]?.delta?.content
           if (delta) {
             full += delta
-            bubble.innerHTML = esc(full) + '<span class="cursor">▊</span>'
+            bubble.innerHTML = renderMarkdown(full) + '<span class="cursor">▊</span>'
             brutusMessages.scrollTop = brutusMessages.scrollHeight
           }
         } catch { /* skip */ }
       }
     }
 
-    bubble.innerHTML = esc(full || '[empty response]')
+    bubble.innerHTML = renderMarkdown(full || '[empty response]')
+    highlightCode(bubble)
     const reply = full || '[empty response]'
     brutusHistory.push({ role: 'assistant', content: reply })
     syncBrutusToChat(text, reply, service, model)
