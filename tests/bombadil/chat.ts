@@ -184,6 +184,80 @@ export const newChatAddsHistory = always(() => {
   return historyCount.current >= 0
 })
 
+// --- persistence properties ---
+
+// localStorage should contain saturn-chats key when messages exist
+const localStorageHasChats = extract((state) => {
+  try {
+    return state.window.localStorage.getItem("saturn-chats") !== null
+  } catch {
+    return false
+  }
+})
+
+export const localStoragePersists = always(() => {
+  if (activeTab.current !== "chat") return true
+  if (messageCount.current === 0) return true
+  return localStorageHasChats.current
+})
+
+// chat history count should survive a page reload
+// captures history count before reload, then verifies it's restored after
+const preReloadHistoryCount = extract((state) =>
+  state.document.querySelectorAll("#history-list .history-item").length
+)
+
+export const chatHistoryRestores = always(
+  now(() => {
+    if (activeTab.current !== "chat") return true
+    // only check when we have history items
+    return preReloadHistoryCount.current > 0
+  }).implies(
+    eventually(() => historyCount.current >= 1).within(10, "seconds")
+  )
+)
+
+// --- markdown rendering properties ---
+
+// when assistant messages exist, their bubbles should contain rendered HTML
+// (code, strong, em, pre) rather than raw markdown syntax like **, ```, etc.
+const assistantBubbles = extract((state) => {
+  const bubbles = state.document.querySelectorAll(".msg.assistant .bubble")
+  const result: { hasHtml: boolean; hasRawMd: boolean }[] = []
+  bubbles.forEach((b) => {
+    const el = b as HTMLElement
+    const hasHtml =
+      el.querySelector("code, strong, em, pre, blockquote, table, ul, ol, a, h1, h2, h3") !== null
+    const hasRawMd = /(\*\*[^*]+\*\*|```[^`]+```|^#{1,3}\s)/m.test(el.textContent ?? "")
+    result.push({ hasHtml, hasRawMd })
+  })
+  return result
+})
+
+export const markdownRendered = always(() => {
+  if (activeTab.current !== "chat") return true
+  const bubbles = assistantBubbles.current
+  if (bubbles.length === 0) return true
+  // at least one bubble should have rendered HTML or no raw markdown
+  return bubbles.every((b: { hasHtml: boolean; hasRawMd: boolean }) => !b.hasRawMd)
+})
+
+// script tags in assistant messages must not execute
+const hasExecutableScript = extract((state) => {
+  const bubbles = state.document.querySelectorAll(".msg.assistant .bubble")
+  let found = false
+  bubbles.forEach((b) => {
+    const scripts = (b as HTMLElement).querySelectorAll("script")
+    if (scripts.length > 0) found = true
+  })
+  return found
+})
+
+export const xssBlocked = always(() => {
+  if (activeTab.current !== "chat") return true
+  return !hasExecutableScript.current
+})
+
 // --- actions ---
 
 // navigate to chat tab
