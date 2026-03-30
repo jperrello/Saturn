@@ -477,8 +477,48 @@ const historyList = document.getElementById('history-list')
 const serviceSelect = document.getElementById('service-select')
 const modelSelect = document.getElementById('model-select')
 
-const chats = []
-let activeChat = null
+// localStorage persistence
+const STORAGE_KEY = 'saturn-chats'
+const PREFS_KEY = 'saturn-prefs'
+const MAX_CHATS = 50
+
+function loadChats() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) return parsed.slice(0, MAX_CHATS)
+  } catch { /* corrupt data */ }
+  return []
+}
+
+function saveChats() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(chats.slice(0, MAX_CHATS)))
+  } catch { /* quota exceeded — drop oldest */
+    while (chats.length > 10) {
+      chats.pop()
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(chats)); return } catch { /* keep trimming */ }
+    }
+  }
+}
+
+function loadPrefs() {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch { /* ignore */ }
+  return {}
+}
+
+function savePrefs(updates) {
+  const prefs = loadPrefs()
+  Object.assign(prefs, updates)
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)) } catch { /* ignore */ }
+}
+
+const chats = loadChats()
+let activeChat = chats.length > 0 ? 0 : null
 let sending = false
 
 function esc(s) {
@@ -518,9 +558,10 @@ function syncServices() {
     opt.textContent = `⊙ ${s.name}`
     serviceSelect.appendChild(opt)
   })
-  // restore previous selection if still available
-  if (prev && [...serviceSelect.options].some(o => o.value === prev)) {
-    serviceSelect.value = prev
+  // restore previous selection or saved pref
+  const saved = prev || loadPrefs().service
+  if (saved && [...serviceSelect.options].some(o => o.value === saved)) {
+    serviceSelect.value = saved
   }
   loadModels()
 }
@@ -547,12 +588,22 @@ async function loadModels() {
       opt.textContent = m.id
       modelSelect.appendChild(opt)
     })
+    const savedModel = loadPrefs().model
+    if (savedModel && [...modelSelect.options].some(o => o.value === savedModel)) {
+      modelSelect.value = savedModel
+    }
   } catch {
     modelSelect.innerHTML = '<option value="" disabled selected>-- error --</option>'
   }
 }
 
-serviceSelect.addEventListener('change', loadModels)
+serviceSelect.addEventListener('change', () => {
+  savePrefs({ service: serviceSelect.value })
+  loadModels()
+})
+modelSelect.addEventListener('change', () => {
+  savePrefs({ model: modelSelect.value })
+})
 
 // auto-refresh models every 30s (same pattern as omlx-saturn chat.html)
 setInterval(() => {
@@ -604,6 +655,8 @@ function loadChat(idx) {
 
 function newChat() {
   chats.unshift({ name: 'New Chat', messages: [] })
+  if (chats.length > MAX_CHATS) chats.length = MAX_CHATS
+  saveChats()
   loadChat(0)
 }
 
@@ -629,6 +682,7 @@ async function send() {
   }
 
   chat.messages.push({ role: 'user', text })
+  saveChats()
   welcome.classList.add('hidden')
 
   const userDiv = document.createElement('div')
@@ -669,6 +723,7 @@ async function send() {
       full = `[error] ${err.error || res.statusText}`
       bubble.innerHTML = esc(full)
       chat.messages.push({ role: 'assistant', text: full, service, model })
+      saveChats()
       return
     }
 
@@ -708,10 +763,12 @@ async function send() {
     bubble.innerHTML = renderMarkdown(full || '[empty response]')
     highlightCode(bubble)
     chat.messages.push({ role: 'assistant', text: full || '[empty response]', service, model })
+    saveChats()
   } catch (e) {
     full = `[error] ${e.message}`
     bubble.innerHTML = esc(full)
     chat.messages.push({ role: 'assistant', text: full, service, model })
+    saveChats()
   } finally {
     sending = false
     sendBtn.disabled = false
@@ -719,6 +776,13 @@ async function send() {
 }
 
 document.getElementById('new-chat-btn').addEventListener('click', newChat)
+document.getElementById('clear-chats-btn').addEventListener('click', () => {
+  chats.length = 0
+  activeChat = null
+  saveChats()
+  renderHistory()
+  renderMessages()
+})
 sendBtn.addEventListener('click', send)
 input.addEventListener('keydown', e => { if (e.key === 'Enter') send() })
 
@@ -730,6 +794,7 @@ document.querySelectorAll('.example').forEach(ex => {
 })
 
 renderHistory()
+renderMessages()
 
 // ===== BRUTUS =====
 const brutusGate = document.getElementById('brutus-gate')
@@ -1030,6 +1095,7 @@ function syncBrutusToChat(userText, assistantText, service, model) {
   }
   chats[idx].messages.push({ role: 'user', text: userText })
   chats[idx].messages.push({ role: 'assistant', text: assistantText, service, model })
+  saveChats()
   renderHistory()
 }
 
