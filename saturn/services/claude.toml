@@ -1,0 +1,14 @@
+name = "claude"
+deployment = "network"
+api_type = "openai"
+priority = 5
+
+[upstream]
+base_url = ""
+
+[server]
+port = 8091
+module = "saturn.servers.claude"
+
+[beacon]
+enabled = false

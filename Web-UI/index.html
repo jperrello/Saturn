@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SATURN</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <nav class="tabs">
+      <button class="tab active" data-tab="discover">Discover</button>
+      <button class="tab" data-tab="start">Start</button>
+      <button class="tab" data-tab="chat">Chat</button>
+      <button class="tab" data-tab="brutus">Brutus</button>
+    </nav>
+
+    <!-- DISCOVER -->
+    <section id="discover" class="page active">
+      <div class="discover-layout">
+        <div class="discover-left" id="saturn-container">
+          <pre id="saturn-ascii">
+       .    *         .       *
+   *         .                .
+              ████████████
+        ═════████████████████═════
+      ═══════████████████████═══════
+        ═════████████████████═════
+              ████████████
+    .              *      .      *
+        *      .        *
+
+            S  A  T  U  R  N</pre>
+        </div>
+        <div class="discover-right">
+          <button id="discover-btn" class="btn">Discover</button>
+          <div id="services-list" class="checklist"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- START -->
+    <section id="start" class="page">
+      <div id="password-gate" class="gate">
+        <div class="gate-icon">&#9888;</div>
+        <h2>Enter Admin Password</h2>
+        <input type="password" id="admin-pw" placeholder="********">
+        <button id="pw-submit" class="btn">Submit</button>
+      </div>
+
+      <div id="server-panel" class="panel hidden">
+        <h2>Current Running Servers</h2>
+        <div id="server-list" class="checklist"></div>
+        <button id="config-btn" class="btn">Configure New Service</button>
+      </div>
+
+      <div id="config-page" class="hidden">
+        <div class="discover-layout">
+          <div class="discover-left config-left" id="config-stars">
+            <canvas id="config-canvas"></canvas>
+            <button id="config-left-btn" class="btn config-center-btn">Configure New Service</button>
+          </div>
+          <div class="discover-right config-right">
+            <h2 class="config-heading">Configure New Service</h2>
+            <div class="config-form">
+              <label>
+                Name
+                <input type="text" id="cfg-name" placeholder="my-service" pattern="[A-Za-z0-9_-]+">
+              </label>
+              <label>
+                Deployment
+                <select id="cfg-deployment">
+                  <option value="cloud">Cloud (remote API)</option>
+                  <option value="network">Network (local/LAN)</option>
+                </select>
+              </label>
+              <label>
+                API Type
+                <select id="cfg-api-type">
+                  <option value="openai">OpenAI-compatible</option>
+                  <option value="ollama">Ollama-native</option>
+                </select>
+              </label>
+              <label>
+                Enabled
+                <input type="checkbox" id="cfg-enabled" checked>
+              </label>
+              <label>
+                Priority
+                <input type="number" id="cfg-priority" min="0" max="100" value="10" placeholder="10">
+              </label>
+              <label>
+                Base URL
+                <input type="text" id="cfg-base-url" placeholder="https://api.example.com/v1" required>
+              </label>
+
+              <!-- Cloud-only fields -->
+              <div id="cloud-fields">
+                <label>
+                  Advertise Port
+                  <input type="number" id="cfg-adv-port" placeholder="8400">
+                </label>
+                <label>
+                  API Key
+                  <input type="password" id="cfg-api-key" placeholder="sk-...">
+                </label>
+                <label>
+                  Ephemeral Keys
+                  <input type="checkbox" id="cfg-ephemeral">
+                </label>
+                <div id="ephemeral-fields" class="hidden">
+                  <label>
+                    Key Generation Endpoint
+                    <input type="text" id="cfg-keygen-url" placeholder="https://openrouter.ai/api/v1/keys">
+                  </label>
+                  <label>
+                    Spending Limit
+                    <input type="number" id="cfg-spend-limit" min="0" value="0" placeholder="0">
+                  </label>
+                  <label>
+                    Rotation Interval
+                    <input type="number" id="cfg-rotation" min="0" value="300" placeholder="300">
+                  </label>
+                  <label>
+                    Expiration Interval
+                    <input type="number" id="cfg-expiration" min="0" value="600" placeholder="600">
+                  </label>
+                </div>
+              </div>
+
+              <!-- Network-only fields -->
+              <div id="network-fields" class="hidden">
+                <label>
+                  Host
+                  <input type="text" id="cfg-host" placeholder="192.168.1.50">
+                </label>
+                <label>
+                  Port
+                  <input type="number" id="cfg-net-port" placeholder="8080">
+                </label>
+              </div>
+
+              <div class="config-actions">
+                <button id="cfg-test" class="btn btn-secondary hidden">Test Connection</button>
+                <button id="cfg-save" class="btn">Save</button>
+                <button id="cfg-back" class="btn btn-secondary">Back</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CHAT -->
+    <section id="chat" class="page">
+      <div class="chat-layout">
+        <aside class="chat-sidebar">
+          <h3>History</h3>
+          <button id="new-chat-btn" class="btn new-chat-btn">New Chat</button>
+          <ul id="history-list">
+            <li class="history-item" data-chat="0">Python</li>
+            <li class="history-item" data-chat="1">how to..</li>
+            <li class="history-item" data-chat="2">Schedule..</li>
+          </ul>
+        </aside>
+        <div class="chat-main">
+          <div class="chat-topbar">
+            <div class="chat-selectors">
+              <label class="selector-label">Saturn Service:
+                <select id="service-select">
+                  <option value="" disabled selected>-- discover first --</option>
+                </select>
+              </label>
+              <label class="selector-label">Model:
+                <select id="model-select">
+                  <option value="" disabled selected>-- select service --</option>
+                </select>
+              </label>
+            </div>
+            <button class="chat-settings-btn" title="Settings">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <ellipse cx="12" cy="12" rx="5" ry="4"/>
+                <ellipse cx="12" cy="12" rx="11" ry="3" transform="rotate(-30 12 12)"/>
+              </svg>
+            </button>
+          </div>
+          <div id="messages" class="messages">
+            <div id="welcome" class="welcome">
+              <div class="welcome-prompt">&gt; How can I help today?</div>
+              <div class="quick-examples">
+                <span class="example">What is Saturn?</span>
+                <span class="example">Help me write an email</span>
+                <span class="example">Lets make a web page</span>
+              </div>
+            </div>
+          </div>
+          <div class="chat-input-area">
+            <input type="text" id="chat-input" placeholder="&gt; ">
+            <button id="send-btn" class="btn">Send</button>
+          </div>
+        </div>
+      </div>
+    </section>
+    <!-- BRUTUS -->
+    <section id="brutus" class="page">
+      <div id="brutus-gate" class="gate">
+        <div class="gate-icon">&#9888;</div>
+        <h2>Remote Access Warning</h2>
+        <p class="gate-text">
+          Brutus routes your messages to LLM backends on your local network.<br>
+          Enabling remote access exposes these services beyond your LAN.<br>
+          Only proceed if you trust the network you are connecting from.
+        </p>
+        <button id="brutus-accept" class="btn">I Understand — Enable Brutus</button>
+      </div>
+
+      <div id="brutus-main" class="brutus-layout hidden">
+        <div class="brutus-chat-col">
+          <div class="brutus-header">
+            <span class="brutus-title">BRUTUS</span>
+            <span class="brutus-status" id="brutus-status">● idle</span>
+            <button id="brutus-clear" class="btn btn-secondary brutus-clear-btn">Clear</button>
+          </div>
+          <div id="brutus-messages" class="messages">
+            <div id="brutus-welcome" class="welcome">
+              <div class="welcome-prompt">&gt; Talk to Brutus</div>
+              <div class="quick-examples">
+                <span class="brutus-example">What can you do?</span>
+                <span class="brutus-example">Summarize the news</span>
+                <span class="brutus-example">Write me a haiku</span>
+              </div>
+            </div>
+          </div>
+          <div class="chat-input-area">
+            <input type="text" id="brutus-input" placeholder="&gt; ">
+            <button id="brutus-send" class="btn">Send</button>
+          </div>
+        </div>
+        <aside class="brutus-sidebar">
+          <h3>Remote Access</h3>
+          <div id="brutus-qr" class="brutus-qr"></div>
+          <div id="brutus-url" class="brutus-url-text">No tunnel active</div>
+          <div id="brutus-tunnel-status" class="brutus-tunnel-status">● stopped</div>
+          <div class="brutus-qr-config">
+            <button id="brutus-tunnel-start" class="btn brutus-qr-btn brutus-tunnel-btn">Start Tunnel</button>
+            <button id="brutus-tunnel-stop" class="btn btn-secondary brutus-qr-btn brutus-tunnel-btn hidden">Stop Tunnel</button>
+            <button id="brutus-qr-refresh" class="btn btn-secondary brutus-qr-btn">LAN Only</button>
+          </div>
+          <h3>Backends</h3>
+          <div id="brutus-backends" class="brutus-backends"></div>
+        </aside>
+      </div>
+    </section>
+
+  </div>
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/textmode.js@latest/dist/textmode.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

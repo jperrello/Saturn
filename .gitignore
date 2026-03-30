@@ -44,3 +44,7 @@ saturnd/saturn-router/target/
 thesis/
 
 chomp/
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db

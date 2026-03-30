@@ -21,6 +21,9 @@ Commands:
   config new            Create a new service (interactive)
   config delete <name>  Delete a user service configuration
     --force               Stop the service first if running
+  web                   Launch the Saturn Web UI
+    --host <addr>         Host to bind to (default: 0.0.0.0)
+    --port <port>         Port to bind to (default: 3000)
   aider                 Launch Aider with auto-discovered Saturn service
 
 Examples:
@@ -74,6 +77,17 @@ def main():
             return 1
         from .runner import stop_service
         return stop_service(remaining[0])
+
+    if command == 'web':
+        from .web import main as web_main
+        host = "0.0.0.0"
+        port = 3000
+        for i, arg in enumerate(remaining):
+            if arg == "--host" and i + 1 < len(remaining):
+                host = remaining[i + 1]
+            if arg == "--port" and i + 1 < len(remaining):
+                port = int(remaining[i + 1])
+        return web_main(host=host, port=port)
 
     if command == 'aider':
         sys.argv = ['aider-saturn'] + remaining

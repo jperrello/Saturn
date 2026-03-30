@@ -1,0 +1,20 @@
+[Unit]
+Description=Brutus Discord Bot (Saturn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/Saturn
+EnvironmentFile=/home/pi/Saturn/brutus/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/pi/Saturn/.venv/bin/python3 -m brutus.bot
+Restart=on-failure
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=300
+WatchdogSec=60
+
+[Install]
+WantedBy=multi-user.target
