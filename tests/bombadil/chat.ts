@@ -209,7 +209,7 @@ const preReloadHistoryCount = extract((state) =>
 
 export const chatHistoryRestores = always(
   now(() => {
-    if (activeTab.current !== "chat") return true
+    if (activeTab.current !== "chat") return false
     // only check when we have history items
     return preReloadHistoryCount.current > 0
   }).implies(
