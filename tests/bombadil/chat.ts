@@ -447,6 +447,56 @@ export const mcpToolBadgesRender = always(() => {
   return badges.every((b: { hasToolCall: boolean; hasBadge: boolean }) => b.hasBadge)
 })
 
+// --- file context injection properties ---
+
+// file upload button should be visible in the chat input area
+const fileUploadBtn = extract((state) => {
+  const btn = state.document.querySelector("#file-upload-btn, .file-upload-btn, [data-file-upload]")
+  if (!btn) return null
+  const el = btn as HTMLElement
+  if (el.offsetParent === null) return null
+  const r = el.getBoundingClientRect()
+  if (r.width === 0) return null
+  return { point: { x: r.left + r.width / 2, y: r.top + r.height / 2 } }
+})
+
+export const fileUploadButtonVisible = always(() => {
+  if (activeTab.current !== "chat") return true
+  return fileUploadBtn.current !== null
+})
+
+// after file selection, a file badge element should render
+const fileBadge = extract((state) => {
+  const badge = state.document.querySelector(".file-badge, #file-badge, [data-file-badge]")
+  if (!badge) return null
+  const el = badge as HTMLElement
+  if (el.offsetParent === null) return null
+  return {
+    name: el.textContent?.trim() ?? "",
+    visible: true,
+  }
+})
+
+const fileInputHasFile = extract((state) => {
+  const input = state.document.querySelector('input[type="file"]') as HTMLInputElement | null
+  if (!input) return false
+  return input.files !== null && input.files.length > 0
+})
+
+export const fileBadgeAppears = always(() => {
+  if (activeTab.current !== "chat") return true
+  // when a file is attached, a badge should be visible
+  if (!fileInputHasFile.current) return true
+  return fileBadge.current !== null && fileBadge.current.visible
+})
+
+// action: click file upload button
+export const clickFileUpload = actions(() => {
+  const btn = fileUploadBtn.current
+  if (!btn) return []
+  return [{ Click: { name: "file-upload-btn", point: btn.point } }]
+})
+
 // --- actions ---
 
 // navigate to chat tab

@@ -1,3 +1,10 @@
+import * as THREE from 'three'
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+
 // Toast (replaces alert() so automated testing doesn't freeze)
 function toast(msg, ms = 3000) {
   const el = document.getElementById('toast')
@@ -16,177 +23,539 @@ document.querySelectorAll('.tab').forEach(tab => {
   })
 })
 
-// ===== TEXTMODE.JS SATURN =====
-// moons state — populated after discovery scan
+// ===== CHROMATIC ABERRATION SHADER =====
+const ChromaticAberrationShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uAmount: { value: 0.003 },
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float uAmount;
+    varying vec2 vUv;
+    void main() {
+      vec2 dir = normalize(vUv - 0.5 + 0.001);
+      float dist = length(vUv - 0.5);
+      vec2 offset = dir * uAmount * dist;
+      float r = texture2D(tDiffuse, vUv + offset).r;
+      float g = texture2D(tDiffuse, vUv).g;
+      float b = texture2D(tDiffuse, vUv - offset).b;
+      gl_FragColor = vec4(r, g, b, 1.0);
+    }
+  `
+}
+
+// ===== BRIGHTNESS CLAMP SHADER (pre-bloom) =====
+const BrightnessClampShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uMax: { value: 1.2 },
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float uMax;
+    varying vec2 vUv;
+    void main() {
+      vec4 col = texture2D(tDiffuse, vUv);
+      col.rgb = min(col.rgb, vec3(uMax));
+      gl_FragColor = col;
+    }
+  `
+}
+
+// ===== FILM GRAIN + SCANLINES SHADER =====
+const FilmGrainShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uTime: { value: 0 },
+    uGrainIntensity: { value: 0.035 },
+    uScanlineOpacity: { value: 0.0 },
+    uVignetteStrength: { value: 0.25 },
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float uTime;
+    uniform float uGrainIntensity;
+    uniform float uScanlineOpacity;
+    uniform float uVignetteStrength;
+    varying vec2 vUv;
+
+    float hash(vec2 p) {
+      return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+    }
+
+    void main() {
+      vec4 col = texture2D(tDiffuse, vUv);
+
+      // film grain
+      float grain = hash(vUv * 1000.0 + uTime * 100.0) * 2.0 - 1.0;
+      col.rgb += grain * uGrainIntensity;
+
+      // scanlines
+      float scanline = step(0.5, fract(gl_FragCoord.y / 4.0));
+      col.rgb -= scanline * uScanlineOpacity;
+
+      // vignette
+      vec2 uv = vUv * (1.0 - vUv);
+      float vig = uv.x * uv.y * 15.0;
+      vig = pow(vig, uVignetteStrength);
+      col.rgb *= vig;
+
+      gl_FragColor = col;
+    }
+  `
+}
+
+// ===== 3D PARTICLE SATURN =====
 window.saturnMoons = []
 
 function initSaturn() {
   const container = document.getElementById('saturn-container')
-  const fallback = document.getElementById('saturn-ascii')
+  container.innerHTML = ''
 
-  if (typeof textmode === 'undefined') return
+  const w = container.clientWidth, h = container.clientHeight
+  const scene = new THREE.Scene()
+  const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100)
+  camera.position.set(0, 0.4, 6.5)
+  camera.lookAt(0, -0.15, 0)
 
-  const w = container.clientWidth || 500
-  const h = container.clientHeight || 500
-  const fs = 14
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+  renderer.setSize(w, h)
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  renderer.setClearColor(0x000000, 1)
+  renderer.toneMapping = THREE.ACESFilmicToneMapping
+  renderer.toneMappingExposure = 1.0
+  container.appendChild(renderer.domElement)
 
-  let t
-  try {
-    t = textmode.create({ width: w, height: h, fontSize: fs, frameRate: 24 })
-  } catch (e) {
-    return
-  }
+  // post-processing
+  const composer = new EffectComposer(renderer)
+  composer.addPass(new RenderPass(scene, camera))
 
-  const tmCanvas = t.canvas
-  if (!tmCanvas) return
-  container.appendChild(tmCanvas)
-  fallback.style.display = 'none'
+  const clampPass = new ShaderPass(BrightnessClampShader)
+  composer.addPass(clampPass)
 
-  const cols = Math.floor(w / fs)
-  const rows = Math.floor(h / fs)
-  const starChars = ['.', '*', '+', '·']
+  const bloom = new UnrealBloomPass(
+    new THREE.Vector2(w, h),
+    1.8,   // strength
+    0.5,   // radius
+    0.55   // threshold
+  )
+  composer.addPass(bloom)
 
-  const stars = []
-  for (let i = 0; i < 50; i++) {
-    stars.push({
-      x: Math.floor(Math.random() * cols) - Math.floor(cols / 2),
-      y: Math.floor(Math.random() * rows) - Math.floor(rows / 2),
-      c: starChars[Math.floor(Math.random() * starChars.length)],
-      phase: Math.random() * Math.PI * 2
-    })
-  }
+  const chromaPass = new ShaderPass(ChromaticAberrationShader)
+  composer.addPass(chromaPass)
 
-  let frame = 0
-  let discovering = false
+  const filmPass = new ShaderPass(FilmGrainShader)
+  composer.addPass(filmPass)
 
-  // 45-degree tilt angle
-  const tilt = Math.PI / 4
+  composer.addPass(new OutputPass())
 
-  t.draw(() => {
-    t.background(0)
-
-    // stars
-    stars.forEach(s => {
-      const speed = discovering ? 0.15 : 0.02
-      const base = discovering ? 80 : 40
-      const range = discovering ? 120 : 30
-      const b = base + range * Math.sin(frame * speed + s.phase)
-      t.push()
-      t.translate(s.x, s.y)
-      t.char(s.c)
-      t.charColor(b, b, b)
-      t.point()
-      t.pop()
-    })
-
-    // ring — drawn as individual points with gaps for transparency
-    const ringRx = 18
-    const ringRy = 3
-    const ringGlow = discovering ? 100 + 155 * Math.abs(Math.sin(frame * 0.1)) : 180
-    for (let a = 0; a < Math.PI * 2; a += 0.08) {
-      const rx = Math.cos(a) * ringRx
-      const ry = Math.sin(a) * ringRy
-      // apply 45-degree tilt
-      const px = rx * Math.cos(tilt) - ry * Math.sin(tilt)
-      const py = rx * Math.sin(tilt) + ry * Math.cos(tilt)
-      // skip points that would be behind the planet body
-      const bodyRx = 9
-      const bodyRy = 6
-      const bx = px / bodyRx
-      const by = py / bodyRy
-      if (bx * bx + by * by < 0.7 && a > Math.PI * 0.3 && a < Math.PI * 1.2) continue
-      // ring gap pattern
-      if (Math.sin(a * 12) > 0.7) continue
-      t.push()
-      t.translate(Math.round(px), Math.round(py))
-      t.char('═')
-      if (discovering) {
-        t.charColor(0, ringGlow, 0)
-      } else {
-        t.charColor(ringGlow, ringGlow * 0.7, ringGlow * 0.12)
-      }
-      t.point()
-      t.pop()
-    }
-
-    // planet body
-    const pGlow = discovering ? 240 + 15 * Math.sin(frame * 0.12) : 220
-    t.char('█')
-    t.charColor(pGlow, pGlow * 0.75, pGlow * 0.15)
-    t.ellipse(9, 6)
-
-    // front ring overlay (portion in front of planet)
-    for (let a = Math.PI * 1.2; a < Math.PI * 2.3; a += 0.08) {
-      const rx = Math.cos(a) * ringRx
-      const ry = Math.sin(a) * ringRy
-      const px = rx * Math.cos(tilt) - ry * Math.sin(tilt)
-      const py = rx * Math.sin(tilt) + ry * Math.cos(tilt)
-      const bx = px / 9
-      const by = py / 6
-      if (bx * bx + by * by < 0.8) {
-        if (Math.sin(a * 12) > 0.7) continue
-        t.push()
-        t.translate(Math.round(px), Math.round(py))
-        t.char('═')
-        if (discovering) {
-          t.charColor(0, ringGlow, 0)
-        } else {
-          t.charColor(ringGlow, ringGlow * 0.7, ringGlow * 0.12)
-        }
-        t.point()
-        t.pop()
-      }
-    }
-
-    // moons — one per online service
-    window.saturnMoons.forEach((moon, i) => {
-      const speed = 0.012 + i * 0.004
-      const radius = 13 + i * 2
-      const angle = frame * speed + (i * Math.PI * 2 / Math.max(window.saturnMoons.length, 1))
-      const mx = Math.cos(angle) * radius
-      const my = Math.sin(angle) * -(radius * 0.6)
-      t.push()
-      t.translate(Math.round(mx), Math.round(my))
-      t.char('○')
-      if (moon.selected) {
-        t.charColor(0, 255, 0)
-      } else {
-        t.charColor(140, 140, 140)
-      }
-      t.point()
-      t.pop()
-    })
-
-    // label
-    const label = 'S A T U R N'
-    for (let i = 0; i < label.length; i++) {
-      t.push()
-      t.translate(i - Math.floor(label.length / 2), 10)
-      t.char(label[i])
-      t.charColor(255, 255, 255)
-      t.point()
-      t.pop()
-    }
-
-    // scan line during discovery — GREEN
-    if (discovering) {
-      const scanY = (frame % rows) - Math.floor(rows / 2)
-      t.char('─')
-      t.charColor(0, 255, 0)
-      t.push()
-      t.translate(0, scanY)
-      t.rect(cols, 1)
-      t.pop()
-    }
-
-    frame++
+  // pointer tracking (unified mouse + touch)
+  const mouse = new THREE.Vector2(9999, 9999)
+  container.style.touchAction = 'none'
+  container.addEventListener('pointermove', e => {
+    const rect = container.getBoundingClientRect()
+    mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+    mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
   })
+  container.addEventListener('pointerleave', () => { mouse.x = 9999; mouse.y = 9999 })
+
+  // planet particles — fibonacci sphere
+  const planetCount = 12000
+  const planetPos = new Float32Array(planetCount * 3)
+  const planetBase = new Float32Array(planetCount * 3)
+  const planetPhase = new Float32Array(planetCount)
+  const golden = Math.PI * (3 - Math.sqrt(5))
+
+  for (let i = 0; i < planetCount; i++) {
+    const y = 1 - (i / (planetCount - 1)) * 2
+    const radius = Math.sqrt(1 - y * y)
+    const theta = golden * i
+    const x = Math.cos(theta) * radius
+    const z = Math.sin(theta) * radius
+    planetBase[i * 3] = x
+    planetBase[i * 3 + 1] = y
+    planetBase[i * 3 + 2] = z
+    planetPos[i * 3] = x
+    planetPos[i * 3 + 1] = y
+    planetPos[i * 3 + 2] = z
+    planetPhase[i] = Math.random() * Math.PI * 2
+  }
+
+  const planetGeo = new THREE.BufferGeometry()
+  planetGeo.setAttribute('position', new THREE.BufferAttribute(planetPos, 3))
+  const planetMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uDiscovering: { value: 0 },
+      uMouse: { value: new THREE.Vector3(9999, 9999, 9999) },
+    },
+    vertexShader: `
+      uniform float uTime;
+      uniform float uDiscovering;
+      uniform vec3 uMouse;
+      varying float vBright;
+      varying vec3 vPos;
+      varying float vFresnel;
+      void main() {
+        vPos = position;
+        vec3 norm = normalize(position);
+
+        // wrap lighting (Valve 2004) — extends diffuse past terminator
+        vec3 light = normalize(vec3(0.15, -0.3, 0.9));
+        float wrap = 0.3;
+        float diffuse = max(0.0, (dot(norm, light) + wrap) / (1.0 + wrap));
+        vBright = max(0.1, diffuse);
+
+        // latitude band modulation
+        vBright *= 0.85 + 0.15 * sin(norm.y * 22.0 + uTime * 0.5);
+
+        // Fresnel rim glow (Schlick approximation)
+        vec3 viewDir = normalize(cameraPosition - (modelMatrix * vec4(position, 1.0)).xyz);
+        vec3 worldNorm = normalize((modelMatrix * vec4(norm, 0.0)).xyz);
+        vFresnel = pow(1.0 - max(dot(worldNorm, viewDir), 0.0), 3.0);
+
+        // GPU-side mouse repulsion
+        vec3 worldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+        vec3 dir = worldPos - uMouse;
+        float dist = length(dir);
+        float force = smoothstep(0.6, 0.0, dist) * 0.15;
+        vec3 displaced = position + normalize(dir) * force;
+
+        vec4 mv = modelViewMatrix * vec4(displaced, 1.0);
+        gl_PointSize = max(2.0, 5.5 * (1.0 / -mv.z));
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uDiscovering;
+      varying float vBright;
+      varying vec3 vPos;
+      varying float vFresnel;
+      void main() {
+        float d = length(gl_PointCoord - 0.5);
+        if (d > 0.5) discard;
+        float glow = 1.0 - d * 2.0;
+        glow = glow * glow;
+
+        float pulse = 0.65 + 0.35 * sin(uTime * 1.5);
+        vec3 gold = vec3(0.94, 0.71, 0.16) * vBright;
+        vec3 green = vec3(0.0, vBright * pulse, vBright * 0.14);
+        vec3 col = mix(gold, green, uDiscovering);
+
+        // add fresnel rim
+        vec3 rimColor = mix(vec3(0.7, 0.5, 0.15), vec3(0.0, 0.8, 0.2), uDiscovering);
+        col += rimColor * vFresnel * 0.6;
+
+        col += col * glow * 0.4;
+        gl_FragColor = vec4(col, 0.7 + glow * 0.3);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  })
+  const planet = new THREE.Points(planetGeo, planetMat)
+  scene.add(planet)
+
+  // ring particles
+  const ringCount = 8000
+  const ringPos = new Float32Array(ringCount * 3)
+  const ringBase = new Float32Array(ringCount * 3)
+  const ringRadius = new Float32Array(ringCount)
+  const ringPhase = new Float32Array(ringCount)
+  const ringIn = 1.4, ringOut = 2.3
+
+  for (let i = 0; i < ringCount; i++) {
+    const angle = Math.random() * Math.PI * 2
+    const r = ringIn + Math.random() * (ringOut - ringIn)
+    const gap = 1.75
+    if (Math.abs(r - gap) < 0.06) {
+      ringBase[i * 3] = 0
+      ringBase[i * 3 + 1] = 0
+      ringBase[i * 3 + 2] = 0
+      ringRadius[i] = 0
+    } else {
+      ringBase[i * 3] = Math.cos(angle) * r
+      ringBase[i * 3 + 1] = (Math.random() - 0.5) * 0.03
+      ringBase[i * 3 + 2] = Math.sin(angle) * r
+      ringRadius[i] = r
+    }
+    ringPos[i * 3] = ringBase[i * 3]
+    ringPos[i * 3 + 1] = ringBase[i * 3 + 1]
+    ringPos[i * 3 + 2] = ringBase[i * 3 + 2]
+    ringPhase[i] = Math.random() * Math.PI * 2
+  }
+
+  const ringGeo = new THREE.BufferGeometry()
+  ringGeo.setAttribute('position', new THREE.BufferAttribute(ringPos, 3))
+  const ringMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uDiscovering: { value: 0 },
+      uMouse: { value: new THREE.Vector3(9999, 9999, 9999) },
+      uLight: { value: new THREE.Vector3(0.15, -0.3, 0.9).normalize() },
+    },
+    vertexShader: `
+      uniform float uTime;
+      uniform vec3 uMouse;
+      varying float vDist;
+      varying float vBright;
+      varying vec3 vWorldPos;
+      void main() {
+        vDist = length(position.xz);
+        float t = (vDist - 1.4) / 0.9;
+        vBright = 0.15 + 0.6 * (1.0 - t);
+
+        // density wave modulation (Lin & Shu 1964 approximation)
+        vBright *= 0.88 + 0.12 * sin(vDist * 14.0 + uTime * 0.3);
+
+        vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+
+        // GPU-side mouse repulsion
+        vec3 dir = vWorldPos - uMouse;
+        float dist = length(dir);
+        float force = smoothstep(0.8, 0.0, dist) * 0.12;
+        vec3 displaced = position + normalize(dir) * force;
+
+        vec4 mv = modelViewMatrix * vec4(displaced, 1.0);
+        gl_PointSize = max(1.5, 4.0 * (1.0 / -mv.z));
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uDiscovering;
+      uniform vec3 uLight;
+      varying float vBright;
+      varying float vDist;
+      varying vec3 vWorldPos;
+
+      // Henyey-Greenstein phase function for forward scattering
+      float HG(float cosTheta, float g) {
+        float g2 = g * g;
+        return (1.0 - g2) / (4.0 * 3.14159 * pow(1.0 + g2 - 2.0 * g * cosTheta, 1.5));
+      }
+
+      void main() {
+        float d = length(gl_PointCoord - 0.5);
+        if (d > 0.5) discard;
+        float glow = 1.0 - d * 2.0;
+        glow = glow * glow;
+
+        // forward scattering — rings brighter when backlit
+        vec3 viewDir = normalize(cameraPosition - vWorldPos);
+        float cosTheta = dot(viewDir, uLight);
+        float scatter = HG(cosTheta, 0.35);
+        float scatterBoost = 0.6 + scatter * 1.5;
+
+        float pulse = 0.65 + 0.35 * sin(uTime * 1.5);
+        vec3 gold = vec3(0.85, 0.65, 0.25) * vBright * scatterBoost;
+        vec3 green = vec3(0.0, vBright * pulse * scatterBoost, vBright * 0.1);
+        vec3 col = mix(gold, green, uDiscovering);
+        col += col * glow * 0.3;
+        gl_FragColor = vec4(col, 0.6 + glow * 0.3);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  })
+  const rings = new THREE.Points(ringGeo, ringMat)
+  rings.rotation.x = 0.35
+  scene.add(rings)
+
+  planet.rotation.x = 0.35
+
+  // stars
+  const starCount = 500
+  const starPos = new Float32Array(starCount * 3)
+  const starPhases = new Float32Array(starCount)
+  for (let i = 0; i < starCount; i++) {
+    starPos[i * 3] = (Math.random() - 0.5) * 30
+    starPos[i * 3 + 1] = (Math.random() - 0.5) * 30
+    starPos[i * 3 + 2] = -10 - Math.random() * 20
+    starPhases[i] = Math.random() * Math.PI * 2
+  }
+  const starGeo = new THREE.BufferGeometry()
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3))
+  starGeo.setAttribute('aPhase', new THREE.BufferAttribute(starPhases, 1))
+  const starMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 }, uDiscovering: { value: 0 } },
+    vertexShader: `
+      attribute float aPhase;
+      varying float vPhase;
+      void main() {
+        vPhase = aPhase;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = max(1.0, 2.5 * (1.0 / -mv.z));
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uDiscovering;
+      varying float vPhase;
+      void main() {
+        float d = length(gl_PointCoord - 0.5);
+        if (d > 0.5) discard;
+        float twinkle = 0.3 + 0.7 * abs(sin(uTime * 0.5 + vPhase));
+        vec3 white = vec3(twinkle);
+        vec3 green = vec3(0.0, twinkle, 0.0);
+        gl_FragColor = vec4(mix(white, green, uDiscovering), 1.0);
+      }
+    `,
+    transparent: true,
+    depthWrite: false
+  })
+  scene.add(new THREE.Points(starGeo, starMat))
+
+  // moon sprites for discovered services
+  const moonGroup = new THREE.Group()
+  moonGroup.rotation.x = 0.45
+  scene.add(moonGroup)
+
+  // label as HTML overlay
+  const label = document.createElement('div')
+  label.textContent = 'S A T U R N'
+  label.style.cssText = 'position:absolute;bottom:8%;left:0;right:0;text-align:center;color:#fff;font:1.2em monospace;letter-spacing:0.4em;pointer-events:none;text-shadow:0 0 10px rgba(255,200,60,0.5)'
+  container.appendChild(label)
+
+  let discovering = false
+  let discoverLerp = 0
+  const clock = new THREE.Clock()
+
+  // raycaster for mouse → world projection
+  const raycaster = new THREE.Raycaster()
+
+  function animate() {
+    const t = clock.getElapsedTime()
+
+    // smooth discovering transition
+    discoverLerp += ((discovering ? 1 : 0) - discoverLerp) * 0.04
+
+    // rotate — planet spins, rings drift slowly
+    planet.rotation.y = t * 0.12
+    rings.rotation.y = t * 0.05
+
+    // project mouse into world space for GPU repulsion
+    raycaster.setFromCamera(mouse, camera)
+    const mouseWorld = new THREE.Vector3()
+    raycaster.ray.at(camera.position.z, mouseWorld)
+    planetMat.uniforms.uMouse.value.copy(mouseWorld)
+    ringMat.uniforms.uMouse.value.copy(mouseWorld)
+
+    // update planet particles — breathing
+    const pPos = planetGeo.attributes.position.array
+    for (let i = 0; i < planetCount; i++) {
+      const i3 = i * 3
+      const bx = planetBase[i3], by = planetBase[i3 + 1], bz = planetBase[i3 + 2]
+      const breathe = 1 + 0.008 * Math.sin(t * 2 + planetPhase[i])
+      pPos[i3] = bx * breathe
+      pPos[i3 + 1] = by * breathe
+      pPos[i3 + 2] = bz * breathe
+    }
+    planetGeo.attributes.position.needsUpdate = true
+
+    // update ring particles — Keplerian differential rotation (v ∝ 1/√r)
+    const rPos = ringGeo.attributes.position.array
+    for (let i = 0; i < ringCount; i++) {
+      const i3 = i * 3
+      const r = ringRadius[i]
+      if (r === 0) continue
+      const speed = 0.04 / Math.sqrt(r)
+      const angle = Math.atan2(ringBase[i3 + 2], ringBase[i3]) + t * speed + ringPhase[i] * 0.001
+      rPos[i3] = Math.cos(angle) * r
+      rPos[i3 + 1] = ringBase[i3 + 1] + Math.sin(t * 1.5 + ringPhase[i]) * 0.01
+      rPos[i3 + 2] = Math.sin(angle) * r
+    }
+    ringGeo.attributes.position.needsUpdate = true
+
+    // update moons
+    while (moonGroup.children.length > window.saturnMoons.length) {
+      moonGroup.remove(moonGroup.children[moonGroup.children.length - 1])
+    }
+    window.saturnMoons.forEach((moon, i) => {
+      let sprite = moonGroup.children[i]
+      if (!sprite) {
+        const sg = new THREE.SphereGeometry(0.06, 8, 8)
+        const sm = new THREE.MeshBasicMaterial({ color: 0x888888 })
+        sprite = new THREE.Mesh(sg, sm)
+        moonGroup.add(sprite)
+      }
+      const speed = 0.3 + i * 0.12
+      const orbitR = 1.6 + i * 0.25
+      const angle = t * speed + i * Math.PI * 2 / Math.max(window.saturnMoons.length, 1)
+      sprite.position.set(
+        Math.cos(angle) * orbitR,
+        Math.sin(angle) * orbitR * 0.15,
+        Math.sin(angle) * orbitR * 0.5
+      )
+      sprite.material.color.setHex(moon.selected ? 0x00ff00 : 0x888888)
+    })
+
+    // uniforms
+    planetMat.uniforms.uTime.value = t
+    planetMat.uniforms.uDiscovering.value = discoverLerp
+    ringMat.uniforms.uTime.value = t
+    ringMat.uniforms.uDiscovering.value = discoverLerp
+    starMat.uniforms.uTime.value = t
+    starMat.uniforms.uDiscovering.value = discoverLerp
+    filmPass.uniforms.uTime.value = t
+
+    // label glow in discover mode
+    if (discoverLerp > 0.01) {
+      label.style.color = `rgb(${Math.round(255 * (1 - discoverLerp))},255,${Math.round(255 * (1 - discoverLerp))})`
+      label.style.textShadow = `0 0 12px rgba(0,255,0,${discoverLerp * 0.6})`
+    } else {
+      label.style.color = '#fff'
+      label.style.textShadow = '0 0 8px rgba(255,200,60,0.4)'
+    }
+
+    composer.render()
+    requestAnimationFrame(animate)
+  }
+
+  animate()
+
+  // resize handler
+  const ro = new ResizeObserver(() => {
+    const w = container.clientWidth, h = container.clientHeight
+    if (w === 0 || h === 0) return
+    camera.aspect = w / h
+    camera.updateProjectionMatrix()
+    renderer.setSize(w, h)
+    composer.setSize(w, h)
+  })
+  ro.observe(container)
 
   window.saturnDiscover = (on) => { discovering = on }
 }
 
 window.addEventListener('load', () => {
-  setTimeout(initSaturn, 300)
+  setTimeout(initSaturn, 100)
 })
 
 // ===== DISCOVER =====
@@ -289,8 +658,14 @@ function renderServers() {
       ${tag}
       ${info}
       ${statusBadge(s)}
+      <button class="btn btn-secondary btn-cfg" data-name="${s.name}" title="Settings">&#9881;</button>
       ${actionBtn(s)}
     `
+    // wire config button
+    div.querySelector('.btn-cfg').addEventListener('click', (e) => {
+      e.stopPropagation()
+      openConfig(s.name)
+    })
     // wire start/stop buttons
     const btn = div.querySelector('.btn-start, .btn-stop')
     if (btn) {
@@ -315,20 +690,60 @@ function renderServers() {
   })
 }
 
-// skip password gate — go straight to server panel
-document.getElementById('password-gate').classList.add('hidden')
-document.getElementById('server-panel').classList.remove('hidden')
 loadServices()
 
+// admin password gate for service configuration
+let adminUnlocked = sessionStorage.getItem('saturn-admin') === '1'
+
+function showAdminState() {
+  document.getElementById('admin-gate').classList.toggle('hidden', adminUnlocked)
+  document.getElementById('admin-prompt').classList.add('hidden')
+  document.getElementById('config-btn').classList.toggle('hidden', !adminUnlocked)
+}
+showAdminState()
+
+document.getElementById('admin-unlock').addEventListener('click', () => {
+  document.getElementById('admin-gate').classList.add('hidden')
+  document.getElementById('admin-prompt').classList.remove('hidden')
+  document.getElementById('admin-pw').focus()
+})
+
+async function tryAdminAuth() {
+  const pw = document.getElementById('admin-pw').value
+  if (!pw) return
+  try {
+    const res = await fetch('/api/admin/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw }),
+    })
+    if (res.ok) {
+      adminUnlocked = true
+      sessionStorage.setItem('saturn-admin', '1')
+      showAdminState()
+    } else {
+      toast('Wrong password')
+      document.getElementById('admin-pw').value = ''
+    }
+  } catch {
+    toast('Auth failed')
+  }
+}
+
+document.getElementById('admin-pw-submit').addEventListener('click', tryAdminAuth)
+document.getElementById('admin-pw').addEventListener('keydown', e => {
+  if (e.key === 'Enter') tryAdminAuth()
+})
+
 document.getElementById('config-btn').addEventListener('click', () => {
-  document.getElementById('server-panel').classList.add('hidden')
+  document.getElementById('discover-main').classList.add('hidden')
   document.getElementById('config-page').classList.remove('hidden')
   initConfigStars()
 })
 
 document.getElementById('cfg-back').addEventListener('click', () => {
   document.getElementById('config-page').classList.add('hidden')
-  document.getElementById('server-panel').classList.remove('hidden')
+  document.getElementById('discover-main').classList.remove('hidden')
 })
 
 // Deployment toggle — show/hide cloud vs network fields
@@ -402,7 +817,7 @@ document.getElementById('cfg-save').addEventListener('click', async () => {
 
   resetConfigForm()
   document.getElementById('config-page').classList.add('hidden')
-  document.getElementById('server-panel').classList.remove('hidden')
+  document.getElementById('discover-main').classList.remove('hidden')
   await loadServices()
 })
 
@@ -581,19 +996,38 @@ function syncServices() {
     opt.textContent = `⊙ ${s.name}`
     serviceSelect.appendChild(opt)
   })
+  // Brutus auto-routing option
+  const sep = document.createElement('option')
+  sep.disabled = true
+  sep.textContent = '────────────'
+  serviceSelect.appendChild(sep)
+  const brutusOpt = document.createElement('option')
+  brutusOpt.value = '__brutus__'
+  brutusOpt.textContent = '⊛ Brutus (auto)'
+  serviceSelect.appendChild(brutusOpt)
   // restore previous selection or saved pref
   const saved = prev || loadPrefs().service
   if (saved && [...serviceSelect.options].some(o => o.value === saved)) {
     serviceSelect.value = saved
   }
+  // apply deferred brutus selection from hash deep-link
+  if (_pendingBrutus) {
+    serviceSelect.value = '__brutus__'
+    _pendingBrutus = false
+  }
   loadModels()
 }
+let _pendingBrutus = false
 
 // fetch models from selected service
 async function loadModels() {
   const name = serviceSelect.value
   if (!name) {
     modelSelect.innerHTML = '<option value="" disabled selected>-- select service --</option>'
+    return
+  }
+  if (name === '__brutus__') {
+    modelSelect.innerHTML = '<option value="auto" selected>auto (best available)</option>'
     return
   }
   modelSelect.innerHTML = '<option value="" disabled selected>loading...</option>'
@@ -633,10 +1067,7 @@ const modelsPanel = document.getElementById('models-panel')
 const modelList = document.getElementById('model-list')
 let allModels = []
 
-document.getElementById('models-toggle').addEventListener('click', () => {
-  modelsPanel.classList.toggle('hidden')
-  if (!modelsPanel.classList.contains('hidden')) refreshAllModels()
-})
+// models panel is accessed via tools panel only
 
 document.getElementById('models-refresh').addEventListener('click', refreshAllModels)
 
@@ -712,8 +1143,11 @@ function renderMessages() {
         }).join(' ')
         toolHTML = `<div class="tool-calls-row">${badges}</div>`
       }
+      const metaLabel = m.routedBy === 'brutus'
+        ? `brutus → ${m.service || ''} // ${m.model || ''}`
+        : `${m.service || ''} // ${m.model || ''}`
       div.innerHTML = `
-        <div class="meta">${m.service || ''} // ${m.model || ''}</div>
+        <div class="meta">${metaLabel}</div>
         <div class="bubble markdown-body">${toolHTML}${renderWithThinking(m.text)}</div>
       `
     }
@@ -787,15 +1221,21 @@ async function send() {
   messagesEl.scrollTop = messagesEl.scrollHeight
 
   // build OpenAI-format messages array
-  const apiMessages = chat.messages
-    .filter(m => m.role === 'user' || m.role === 'assistant')
-    .map(m => ({ role: m.role, content: m.text }))
+  const sysPrompt = getSystemPrompt()
+  const apiMessages = [
+    ...(sysPrompt ? [{ role: 'system', content: sysPrompt }] : []),
+    ...chat.messages
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .map(m => ({ role: m.role, content: m.text }))
+  ]
+
+  const isBrutus = service === '__brutus__'
 
   // create assistant placeholder with streaming cursor
   const aDiv = document.createElement('div')
   aDiv.className = 'msg assistant'
   aDiv.innerHTML = `
-    <div class="meta">${esc(service)} // ${esc(model)}</div>
+    <div class="meta">${isBrutus ? 'brutus // routing...' : `${esc(service)} // ${esc(model)}`}</div>
     <div class="bubble markdown-body"><span class="cursor">▊</span></div>
   `
   messagesEl.appendChild(aDiv)
@@ -807,20 +1247,43 @@ async function send() {
   sending = true
   sendBtn.disabled = true
 
+  let actualService = service, actualModel = model
+
   try {
-    const res = await fetch('/api/chat', {
+    const endpoint = isBrutus ? '/api/brutus/chat' : '/api/chat'
+    const payload = isBrutus
+      ? { messages: apiMessages }
+      : { service, model, messages: apiMessages, ...getActiveParams() }
+
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ service, model, messages: apiMessages }),
+      body: JSON.stringify(payload),
     })
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
       full = `[error] ${err.error || res.statusText}`
       bubble.innerHTML = esc(full)
-      chat.messages.push({ role: 'assistant', text: full, service, model })
+      chat.messages.push({ role: 'assistant', text: full, service: actualService, model: actualModel })
       saveChats()
       return
+    }
+
+    // read Brutus routing metadata from headers
+    if (isBrutus) {
+      actualService = res.headers.get('X-Brutus-Service') || 'unknown'
+      actualModel = res.headers.get('X-Brutus-Model') || 'auto'
+      const skipped = res.headers.get('X-Brutus-Skipped')
+      const latency = res.headers.get('X-Brutus-Latency')
+      const meta = aDiv.querySelector('.meta')
+      meta.textContent = `brutus → ${actualService} // ${actualModel}${latency ? ` · ${latency}ms` : ''}`
+      if (skipped) {
+        const notice = document.createElement('div')
+        notice.className = 'msg system-notice'
+        notice.textContent = `⚠ skipped: ${skipped} → routed to ${actualService}`
+        messagesEl.insertBefore(notice, aDiv)
+      }
     }
 
     // parse SSE stream — same text/event-stream format as omlx
@@ -883,14 +1346,16 @@ async function send() {
     bubble.innerHTML = toolHTML + renderWithThinking(full)
     highlightCode(bubble)
     chat.messages.push({
-      role: 'assistant', text: full || '[empty response]', service, model,
+      role: 'assistant', text: full || '[empty response]',
+      service: actualService, model: actualModel,
+      routedBy: isBrutus ? 'brutus' : undefined,
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     })
     saveChats()
   } catch (e) {
     full = `[error] ${e.message}`
     bubble.innerHTML = esc(full)
-    chat.messages.push({ role: 'assistant', text: full, service, model })
+    chat.messages.push({ role: 'assistant', text: full, service: actualService, model: actualModel })
     saveChats()
   } finally {
     sending = false
@@ -1081,16 +1546,343 @@ function renderToolResult(content) {
   return `<div class="tool-result-block"><div class="tool-result-label">Tool Result</div><pre class="tool-result-content">${esc(text)}</pre></div>`
 }
 
+// ===== SERVICE CONFIGURATION =====
+const configOverlay = document.getElementById('config-overlay')
+const PARAMS_KEY = 'saturn-model-params'
+const SERVICE_PARAMS_KEY = 'saturn-service-params'
+let configScope = 'global' // 'global' or 'service'
+let configService = ''     // selected service name when scope=service
+
+function loadAllConfig() {
+  try {
+    const raw = localStorage.getItem(SERVICE_PARAMS_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch { /* ignore */ }
+  return { global: {}, services: {} }
+}
+
+function saveAllConfig(cfg) {
+  try { localStorage.setItem(SERVICE_PARAMS_KEY, JSON.stringify(cfg)) } catch { /* ignore */ }
+  // sync legacy key for backward compat
+  try { localStorage.setItem(PARAMS_KEY, JSON.stringify(cfg.global)) } catch { /* ignore */ }
+}
+
+function loadParams() {
+  return loadAllConfig().global
+}
+
+function saveParams(params) {
+  const cfg = loadAllConfig()
+  cfg.global = params
+  saveAllConfig(cfg)
+}
+
+function currentParams() {
+  const cfg = loadAllConfig()
+  if (configScope === 'service' && configService) return cfg.services[configService] || {}
+  return cfg.global
+}
+
+function saveCurrentParams(params) {
+  const cfg = loadAllConfig()
+  if (configScope === 'service' && configService) {
+    if (Object.keys(params).length === 0) {
+      delete cfg.services[configService]
+    } else {
+      cfg.services[configService] = params
+    }
+  } else {
+    cfg.global = params
+  }
+  saveAllConfig(cfg)
+}
+
+// merge: per-service overrides global; null values inherit from global
+function getActiveParams() {
+  const cfg = loadAllConfig()
+  const service = document.getElementById('service-select').value
+  const merged = { ...cfg.global }
+  if (service && cfg.services[service]) {
+    for (const [k, v] of Object.entries(cfg.services[service])) {
+      if (v !== null && v !== undefined) merged[k] = v
+    }
+  }
+  const out = {}
+  for (const [k, v] of Object.entries(merged)) {
+    if (v !== null && v !== undefined && k !== 'system_prompt') out[k] = v
+  }
+  return out
+}
+
+function getSystemPrompt() {
+  const cfg = loadAllConfig()
+  const service = document.getElementById('service-select').value
+  if (service && cfg.services[service] && cfg.services[service].system_prompt) return cfg.services[service].system_prompt
+  return cfg.global.system_prompt || null
+}
+
+// populate the config service selector from available services
+function populateConfigServices() {
+  const sel = document.getElementById('config-service-select')
+  const svcSel = document.getElementById('service-select')
+  sel.innerHTML = '<option value="" disabled selected>-- select service --</option>'
+  Array.from(svcSel.options).forEach(opt => {
+    if (opt.value && !opt.disabled) {
+      const o = document.createElement('option')
+      o.value = opt.value
+      o.textContent = opt.textContent
+      sel.appendChild(o)
+    }
+  })
+  // also add services that have saved config
+  const cfg = loadAllConfig()
+  for (const sid of Object.keys(cfg.services)) {
+    if (!sel.querySelector(`option[value="${CSS.escape(sid)}"]`)) {
+      const o = document.createElement('option')
+      o.value = sid
+      o.textContent = sid
+      sel.appendChild(o)
+    }
+  }
+}
+
+function applyParamsToUI(params) {
+  configOverlay.querySelectorAll('.param-row').forEach(row => {
+    const key = row.dataset.param
+    const toggle = row.querySelector('.param-toggle')
+    const controls = row.querySelector('.param-controls')
+    const range = controls.querySelector('input[type="range"]')
+    const num = controls.querySelector('input[type="number"]')
+    const text = controls.querySelector('input[type="text"]')
+    const textarea = controls.querySelector('textarea')
+
+    if (params[key] !== undefined) {
+      toggle.dataset.default = 'false'
+      toggle.textContent = 'Custom'
+      toggle.classList.add('active')
+      controls.classList.remove('hidden')
+      if (key === 'stop') {
+        if (text) text.value = Array.isArray(params[key]) ? params[key].join(', ') : params[key]
+      } else if (key === 'system_prompt' || key === 'keep_alive') {
+        if (textarea) textarea.value = params[key]
+        if (text) text.value = params[key]
+      } else {
+        if (range) range.value = params[key]
+        if (num) num.value = params[key]
+      }
+    } else {
+      toggle.dataset.default = 'true'
+      toggle.textContent = 'Default'
+      toggle.classList.remove('active')
+      controls.classList.add('hidden')
+      if (range) {
+        const def = range.getAttribute('value')
+        range.value = def
+        if (num) num.value = def
+      } else if (num) {
+        num.value = num.getAttribute('value')
+      } else if (text) {
+        text.value = key === 'keep_alive' ? '5m' : ''
+      } else if (textarea) {
+        textarea.value = ''
+      }
+    }
+  })
+}
+
+function initConfig() {
+  configOverlay.querySelectorAll('.param-row').forEach(row => {
+    const key = row.dataset.param
+    const toggle = row.querySelector('.param-toggle')
+    const controls = row.querySelector('.param-controls')
+    const range = controls.querySelector('input[type="range"]')
+    const num = controls.querySelector('input[type="number"]')
+    const text = controls.querySelector('input[type="text"]')
+    const textarea = controls.querySelector('textarea')
+
+    toggle.addEventListener('click', () => {
+      const isDefault = toggle.dataset.default === 'true'
+      if (isDefault) {
+        toggle.dataset.default = 'false'
+        toggle.textContent = 'Custom'
+        toggle.classList.add('active')
+        controls.classList.remove('hidden')
+      } else {
+        toggle.dataset.default = 'true'
+        toggle.textContent = 'Default'
+        toggle.classList.remove('active')
+        controls.classList.add('hidden')
+        const params = currentParams()
+        delete params[key]
+        saveCurrentParams(params)
+      }
+    })
+
+    if (range && num) {
+      range.addEventListener('input', () => {
+        num.value = range.value
+        const params = currentParams()
+        params[key] = parseFloat(range.value)
+        saveCurrentParams(params)
+      })
+      num.addEventListener('input', () => {
+        range.value = num.value
+        const params = currentParams()
+        params[key] = parseFloat(num.value)
+        saveCurrentParams(params)
+      })
+    } else if (num) {
+      num.addEventListener('input', () => {
+        const params = currentParams()
+        params[key] = parseFloat(num.value)
+        saveCurrentParams(params)
+      })
+    } else if (textarea) {
+      textarea.addEventListener('input', () => {
+        const params = currentParams()
+        const val = textarea.value.trim()
+        if (val) {
+          params[key] = val
+        } else {
+          delete params[key]
+        }
+        saveCurrentParams(params)
+      })
+    } else if (text) {
+      text.addEventListener('input', () => {
+        const params = currentParams()
+        const val = text.value.trim()
+        if (key === 'stop') {
+          if (val) {
+            params[key] = val.split(',').map(s => s.trim()).filter(Boolean)
+          } else {
+            delete params[key]
+          }
+        } else {
+          if (val) {
+            params[key] = val
+          } else {
+            delete params[key]
+          }
+        }
+        saveCurrentParams(params)
+      })
+    }
+  })
+
+  // scope buttons
+  document.getElementById('scope-global').addEventListener('click', () => {
+    configScope = 'global'
+    configService = ''
+    document.getElementById('scope-global').classList.add('active')
+    document.getElementById('scope-service').classList.remove('active')
+    document.getElementById('config-service-select').classList.add('hidden')
+    applyParamsToUI(currentParams())
+  })
+
+  document.getElementById('scope-service').addEventListener('click', () => {
+    configScope = 'service'
+    document.getElementById('scope-global').classList.remove('active')
+    document.getElementById('scope-service').classList.add('active')
+    const sel = document.getElementById('config-service-select')
+    sel.classList.remove('hidden')
+    populateConfigServices()
+    // pre-select current chat service
+    const chatService = document.getElementById('service-select').value
+    if (chatService) {
+      sel.value = chatService
+      configService = chatService
+    }
+    applyParamsToUI(currentParams())
+  })
+
+  document.getElementById('config-service-select').addEventListener('change', (e) => {
+    configService = e.target.value
+    applyParamsToUI(currentParams())
+  })
+
+  // migrate legacy params
+  try {
+    const legacy = localStorage.getItem(PARAMS_KEY)
+    const existing = localStorage.getItem(SERVICE_PARAMS_KEY)
+    if (legacy && !existing) {
+      const parsed = JSON.parse(legacy)
+      if (parsed && typeof parsed === 'object' && !parsed.global) {
+        saveAllConfig({ global: parsed, services: {} })
+      }
+    }
+  } catch { /* ignore */ }
+
+  applyParamsToUI(currentParams())
+}
+
+// open config overlay — optional serviceName to pre-scope to a service
+function openConfig(serviceName) {
+  populateConfigServices()
+  if (serviceName) {
+    configScope = 'service'
+    configService = serviceName
+    document.getElementById('scope-global').classList.remove('active')
+    document.getElementById('scope-service').classList.add('active')
+    const sel = document.getElementById('config-service-select')
+    sel.classList.remove('hidden')
+    // ensure the service appears in the dropdown
+    if (!sel.querySelector(`option[value="${CSS.escape(serviceName)}"]`)) {
+      const o = document.createElement('option')
+      o.value = serviceName
+      o.textContent = serviceName
+      sel.appendChild(o)
+    }
+    sel.value = serviceName
+  } else {
+    configScope = 'global'
+    configService = ''
+    document.getElementById('scope-global').classList.add('active')
+    document.getElementById('scope-service').classList.remove('active')
+    document.getElementById('config-service-select').classList.add('hidden')
+  }
+  applyParamsToUI(currentParams())
+  configOverlay.classList.remove('hidden')
+}
+
+document.querySelector('.chat-settings-btn').addEventListener('click', () => openConfig(null))
+
+document.getElementById('config-overlay-close').addEventListener('click', () => {
+  configOverlay.classList.add('hidden')
+})
+
+// close on backdrop click
+configOverlay.addEventListener('click', (e) => {
+  if (e.target === configOverlay) configOverlay.classList.add('hidden')
+})
+
+// close on Escape
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !configOverlay.classList.contains('hidden')) {
+    configOverlay.classList.add('hidden')
+  }
+})
+
+document.getElementById('config-reset').addEventListener('click', () => {
+  if (configScope === 'service' && configService) {
+    const cfg = loadAllConfig()
+    delete cfg.services[configService]
+    saveAllConfig(cfg)
+  } else {
+    const cfg = loadAllConfig()
+    cfg.global = {}
+    saveAllConfig(cfg)
+  }
+  applyParamsToUI(currentParams())
+})
+
+initConfig()
+
 // ===== BRUTUS =====
 const brutusGate = document.getElementById('brutus-gate')
 const brutusMain = document.getElementById('brutus-main')
-const brutusMessages = document.getElementById('brutus-messages')
-const brutusWelcome = document.getElementById('brutus-welcome')
-const brutusInput = document.getElementById('brutus-input')
-const brutusSend = document.getElementById('brutus-send')
 const brutusStatus = document.getElementById('brutus-status')
-let brutusSending = false
-let brutusHistory = []
+let _brutusRefreshTimer = null
 
 // gate acceptance
 document.getElementById('brutus-accept').addEventListener('click', () => {
@@ -1098,7 +1890,7 @@ document.getElementById('brutus-accept').addEventListener('click', () => {
   brutusMain.classList.remove('hidden')
   localStorage.setItem('brutus-accepted', '1')
   loadBrutusQR()
-  loadBrutusBackends()
+  loadBrutusStatus()
 })
 
 // restore gate state
@@ -1107,13 +1899,34 @@ if (localStorage.getItem('brutus-accepted') === '1') {
   brutusMain.classList.remove('hidden')
 }
 
-// hash-based deep link (for QR code scans)
+// "Chat with Brutus" button — switch to Chat tab with Brutus selected
+document.getElementById('brutus-use-btn').addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'))
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'))
+  document.querySelector('[data-tab="chat"]').classList.add('active')
+  document.getElementById('chat').classList.add('active')
+  serviceSelect.value = '__brutus__'
+  loadModels()
+  input.focus()
+})
+
+// hash-based deep link (for QR code scans) — land on Chat tab in Brutus mode
 function checkHash() {
   if (location.hash === '#brutus') {
+    if (localStorage.getItem('brutus-accepted') !== '1') {
+      localStorage.setItem('brutus-accepted', '1')
+    }
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'))
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'))
-    document.querySelector('[data-tab="brutus"]').classList.add('active')
-    document.getElementById('brutus').classList.add('active')
+    document.querySelector('[data-tab="chat"]').classList.add('active')
+    document.getElementById('chat').classList.add('active')
+    // defer Brutus selection until syncServices populates the dropdown
+    if ([...serviceSelect.options].some(o => o.value === '__brutus__')) {
+      serviceSelect.value = '__brutus__'
+      loadModels()
+    } else {
+      _pendingBrutus = true
+    }
   }
 }
 window.addEventListener('hashchange', checkHash)
@@ -1240,161 +2053,112 @@ document.getElementById('brutus-qr-refresh').addEventListener('click', async () 
   }
 })
 
-// backend status display
-async function loadBrutusBackends() {
-  const container = document.getElementById('brutus-backends')
-  if (discoveredServices.length === 0) {
-    container.innerHTML = '<div class="brutus-backend-item"><span class="name" style="color:var(--muted)">Run Discover first</span></div>'
+// dashboard status display
+async function loadBrutusStatus() {
+  try {
+    const res = await fetch('/api/brutus/status')
+    const data = await res.json()
+    renderHealthGrid(data.backends)
+    renderRoutingLog(data.routing_log)
+    renderBackendsSidebar(data.backends)
+    // update header status
+    const healthy = data.backends.filter(b => b.healthy).length
+    if (data.backends.length === 0) {
+      brutusStatus.textContent = '● no backends'
+      brutusStatus.style.color = 'var(--red)'
+    } else if (healthy === data.backends.length) {
+      brutusStatus.textContent = `● ${healthy} backends`
+      brutusStatus.style.color = 'var(--green)'
+    } else {
+      brutusStatus.textContent = `● ${healthy}/${data.backends.length} healthy`
+      brutusStatus.style.color = 'var(--accent)'
+    }
+  } catch {
+    brutusStatus.textContent = '● offline'
+    brutusStatus.style.color = 'var(--red)'
+  }
+}
+
+function renderHealthGrid(backends) {
+  const grid = document.getElementById('brutus-health-grid')
+  if (backends.length === 0) {
+    grid.innerHTML = '<div class="brutus-log-empty">Run Discover to see backends</div>'
+    return
+  }
+  grid.innerHTML = ''
+  backends.forEach(b => {
+    const card = document.createElement('div')
+    card.className = 'brutus-health-card'
+    const dotColor = b.breaker.open ? 'var(--red)' : b.breaker.failures > 0 ? 'var(--accent)' : 'var(--green)'
+    const dot = b.healthy ? '●' : '○'
+    const state = b.breaker.open ? `OPEN (${b.breaker.cooldown}s)` : b.breaker.failures > 0 ? `${b.breaker.failures} failures` : 'healthy'
+    const models = b.models.length > 0 ? b.models[0] : '—'
+    card.innerHTML = `
+      <div class="health-card-header">
+        <span style="color:${dotColor}">${dot}</span>
+        <span class="health-card-name">${b.name}</span>
+        <span class="health-card-priority">p${b.priority}</span>
+      </div>
+      <div class="health-card-detail">${models}</div>
+      <div class="health-card-detail" style="color:${dotColor}">${state}</div>
+    `
+    grid.appendChild(card)
+  })
+}
+
+function renderRoutingLog(log) {
+  const container = document.getElementById('brutus-routing-log')
+  if (!log || log.length === 0) {
+    container.innerHTML = '<div class="brutus-log-empty">No routing activity yet</div>'
     return
   }
   container.innerHTML = ''
-  discoveredServices.forEach(s => {
+  // show most recent first
+  log.slice().reverse().forEach(entry => {
     const div = document.createElement('div')
-    div.className = 'brutus-backend-item'
-    const icon = s.status === 'online' ? '●' : '○'
-    const color = s.status === 'online' ? 'var(--green)' : 'var(--red)'
-    div.innerHTML = `<span style="color:${color}">${icon}</span> <span class="name">${s.name}</span> <span style="color:var(--muted)">p${s.priority}</span>`
+    div.className = 'brutus-log-entry'
+    const time = new Date(entry.ts * 1000).toLocaleTimeString()
+    const skipped = entry.skipped.length > 0 ? ` (skipped: ${entry.skipped.join(', ')})` : ''
+    div.innerHTML = `<span class="log-time">${time}</span> → <span class="log-service">${entry.service}</span> // ${entry.model} · ${entry.latency_ms}ms${skipped}`
     container.appendChild(div)
   })
 }
 
-// refresh when tab shown
+function renderBackendsSidebar(backends) {
+  const container = document.getElementById('brutus-backends')
+  if (backends.length === 0) {
+    container.innerHTML = '<div class="brutus-backend-item"><span class="name" style="color:var(--muted)">Run Discover first</span></div>'
+    return
+  }
+  container.innerHTML = ''
+  backends.forEach(b => {
+    const div = document.createElement('div')
+    div.className = 'brutus-backend-item'
+    const dot = b.healthy ? '●' : '○'
+    const color = b.breaker.open ? 'var(--red)' : b.breaker.failures > 0 ? 'var(--accent)' : 'var(--green)'
+    div.innerHTML = `<span style="color:${color}">${dot}</span> <span class="name">${b.name}</span> <span style="color:var(--muted)">p${b.priority}</span>`
+    container.appendChild(div)
+  })
+}
+
+// refresh when tab shown, auto-refresh every 5s while active
 document.querySelector('[data-tab="brutus"]').addEventListener('click', () => {
   if (!brutusMain.classList.contains('hidden')) {
     loadBrutusQR()
-    loadBrutusBackends()
+    loadBrutusStatus()
   }
 })
 
-// clear
-document.getElementById('brutus-clear').addEventListener('click', () => {
-  brutusHistory = []
-  brutusMessages.querySelectorAll('.msg').forEach(m => m.remove())
-  brutusWelcome.classList.remove('hidden')
-})
-
-// send message through brutus
-async function brutusSendMsg() {
-  const text = brutusInput.value.trim()
-  if (!text || brutusSending) return
-  brutusInput.value = ''
-
-  brutusWelcome.classList.add('hidden')
-  brutusHistory.push({ role: 'user', content: text })
-
-  const userDiv = document.createElement('div')
-  userDiv.className = 'msg user'
-  userDiv.innerHTML = `<div class="prefix">&gt; you</div><div class="bubble">${esc(text)}</div>`
-  brutusMessages.appendChild(userDiv)
-  brutusMessages.scrollTop = brutusMessages.scrollHeight
-
-  const aDiv = document.createElement('div')
-  aDiv.className = 'msg assistant'
-  aDiv.innerHTML = `
-    <div class="meta">brutus // routing...</div>
-    <div class="bubble markdown-body"><span class="cursor">▊</span></div>
-  `
-  brutusMessages.appendChild(aDiv)
-  brutusMessages.scrollTop = brutusMessages.scrollHeight
-
-  const meta = aDiv.querySelector('.meta')
-  const bubble = aDiv.querySelector('.bubble')
-  let full = ''
-  brutusSending = true
-  brutusSend.disabled = true
-  brutusStatus.textContent = '● streaming'
-  brutusStatus.style.color = 'var(--accent)'
-
-  try {
-    const res = await fetch('/api/brutus/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: brutusHistory }),
-    })
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
-      full = `[error] ${err.error || res.statusText}`
-      bubble.innerHTML = esc(full)
-      brutusHistory.push({ role: 'assistant', content: full })
-      syncBrutusToChat(text, full, 'brutus', '?')
-      return
-    }
-
-    const service = res.headers.get('X-Brutus-Service') || 'unknown'
-    const model = res.headers.get('X-Brutus-Model') || 'auto'
-    meta.textContent = `brutus → ${service} // ${model}`
-
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-
-      const lines = buffer.split('\n')
-      buffer = lines.pop()
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
-        const data = line.slice(6)
-        if (data === '[DONE]') break
-        try {
-          const chunk = JSON.parse(data)
-          const delta = chunk.choices?.[0]?.delta?.content
-          if (delta) {
-            full += delta
-            const parts = splitThinking(full)
-            if (parts.pending) {
-              bubble.innerHTML = renderThinkingHTML(parts.thinking) + '<span class="cursor">▊</span>'
-            } else {
-              bubble.innerHTML = renderThinkingHTML(parts.thinking) + renderMarkdown(parts.body) + '<span class="cursor">▊</span>'
-            }
-            brutusMessages.scrollTop = brutusMessages.scrollHeight
-          }
-        } catch { /* skip */ }
+// start/stop auto-refresh based on tab visibility
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    if (tab.dataset.tab === 'brutus') {
+      if (!_brutusRefreshTimer) {
+        _brutusRefreshTimer = setInterval(loadBrutusStatus, 5000)
       }
+    } else if (_brutusRefreshTimer) {
+      clearInterval(_brutusRefreshTimer)
+      _brutusRefreshTimer = null
     }
-
-    bubble.innerHTML = renderWithThinking(full)
-    highlightCode(bubble)
-    const reply = full || '[empty response]'
-    brutusHistory.push({ role: 'assistant', content: reply })
-    syncBrutusToChat(text, reply, service, model)
-  } catch (e) {
-    full = `[error] ${e.message}`
-    bubble.innerHTML = esc(full)
-    brutusHistory.push({ role: 'assistant', content: full })
-    syncBrutusToChat(text, full, 'brutus', '?')
-  } finally {
-    brutusSending = false
-    brutusSend.disabled = false
-    brutusStatus.textContent = '● idle'
-    brutusStatus.style.color = 'var(--green)'
-  }
-}
-
-// sync brutus conversations into Chat tab history
-function syncBrutusToChat(userText, assistantText, service, model) {
-  let idx = chats.findIndex(c => c.name === 'Brutus')
-  if (idx === -1) {
-    chats.unshift({ name: 'Brutus', messages: [] })
-    idx = 0
-  }
-  chats[idx].messages.push({ role: 'user', text: userText })
-  chats[idx].messages.push({ role: 'assistant', text: assistantText, service, model })
-  saveChats()
-  renderHistory()
-}
-
-brutusSend.addEventListener('click', brutusSendMsg)
-brutusInput.addEventListener('keydown', e => { if (e.key === 'Enter') brutusSendMsg() })
-
-document.querySelectorAll('.brutus-example').forEach(ex => {
-  ex.addEventListener('click', () => {
-    brutusInput.value = ex.textContent
-    brutusSendMsg()
   })
 })

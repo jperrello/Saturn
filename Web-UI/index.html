@@ -10,48 +10,29 @@
   <div class="app">
     <nav class="tabs">
       <button class="tab active" data-tab="discover">Discover</button>
-      <button class="tab" data-tab="start">Start</button>
       <button class="tab" data-tab="chat">Chat</button>
       <button class="tab" data-tab="brutus">Brutus</button>
     </nav>
 
     <!-- DISCOVER -->
     <section id="discover" class="page active">
-      <div class="discover-layout">
-        <div class="discover-left" id="saturn-container">
-          <pre id="saturn-ascii">
-       .    *         .       *
-   *         .                .
-              ████████████
-        ═════████████████████═════
-      ═══════████████████████═══════
-        ═════████████████████═════
-              ████████████
-    .              *      .      *
-        *      .        *
-
-            S  A  T  U  R  N</pre>
-        </div>
+      <div class="discover-layout" id="discover-main">
+        <div class="discover-left" id="saturn-container"></div>
         <div class="discover-right">
           <button id="discover-btn" class="btn">Discover</button>
           <div id="services-list" class="checklist"></div>
+          <div class="discover-divider"></div>
+          <div class="discover-section-title">Services</div>
+          <div id="server-list" class="checklist"></div>
+          <div id="admin-gate" class="admin-gate">
+            <button id="admin-unlock" class="btn btn-secondary">Configure New Service</button>
+          </div>
+          <div id="admin-prompt" class="admin-prompt hidden">
+            <input type="password" id="admin-pw" placeholder="admin password">
+            <button id="admin-pw-submit" class="btn">Unlock</button>
+          </div>
+          <button id="config-btn" class="btn hidden" style="margin:16px 0">Configure New Service</button>
         </div>
-      </div>
-    </section>
-
-    <!-- START -->
-    <section id="start" class="page">
-      <div id="password-gate" class="gate">
-        <div class="gate-icon">&#9888;</div>
-        <h2>Enter Admin Password</h2>
-        <input type="password" id="admin-pw" placeholder="********">
-        <button id="pw-submit" class="btn">Submit</button>
-      </div>
-
-      <div id="server-panel" class="panel hidden">
-        <h2>Current Running Servers</h2>
-        <div id="server-list" class="checklist"></div>
-        <button id="config-btn" class="btn">Configure New Service</button>
       </div>
 
       <div id="config-page" class="hidden">
@@ -158,7 +139,7 @@
           <h3>History</h3>
           <button id="new-chat-btn" class="btn new-chat-btn">New Chat</button>
           <ul id="history-list"></ul>
-          <button id="clear-chats-btn" class="btn" style="margin-top:auto;color:var(--red);border-color:var(--red)">Clear All</button>
+          <button id="clear-chats-btn" class="btn clear-chats-btn">Clear All</button>
         </aside>
         <div class="chat-main">
           <div class="chat-topbar">
@@ -174,8 +155,6 @@
                 </select>
               </label>
             </div>
-            <button id="models-toggle" class="btn btn-secondary models-toggle-btn" title="All Models">Models</button>
-            <button id="tools-toggle" class="btn btn-secondary models-toggle-btn" title="MCP Tools">Tools</button>
             <button class="chat-settings-btn" title="Settings">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <ellipse cx="12" cy="12" rx="5" ry="4"/>
@@ -208,6 +187,7 @@
               </div>
             </div>
           </div>
+          <!-- settings-panel removed; config overlay replaces it -->
           <div id="messages" class="messages">
             <div id="welcome" class="welcome">
               <div class="welcome-prompt">&gt; How can I help today?</div>
@@ -225,6 +205,7 @@
           <div class="chat-input-area">
             <input type="file" id="file-input" class="hidden" accept=".txt,.md,.py,.js,.ts,.json,.toml,.yaml,.yml,.csv">
             <button id="file-upload-btn" class="btn file-btn" title="Attach file">&#128206;</button>
+            <button id="tools-toggle" class="btn file-btn" title="MCP Tools">&#128295;</button>
             <input type="text" id="chat-input" placeholder="&gt; ">
             <button id="send-btn" class="btn">Send</button>
           </div>
@@ -245,29 +226,39 @@
       </div>
 
       <div id="brutus-main" class="brutus-layout hidden">
-        <div class="brutus-chat-col">
+        <div class="brutus-dashboard-col">
           <div class="brutus-header">
             <span class="brutus-title">BRUTUS</span>
             <span class="brutus-status" id="brutus-status">● idle</span>
-            <button id="brutus-clear" class="btn btn-secondary brutus-clear-btn">Clear</button>
+            <button id="brutus-use-btn" class="btn brutus-use-btn">Chat with Brutus</button>
           </div>
-          <div id="brutus-messages" class="messages">
-            <div id="brutus-welcome" class="welcome">
-              <div class="welcome-prompt">&gt; Talk to Brutus</div>
-              <div class="quick-examples">
-                <span class="brutus-example">What can you do?</span>
-                <span class="brutus-example">Summarize the news</span>
-                <span class="brutus-example">Write me a haiku</span>
-              </div>
+
+          <div class="brutus-section">
+            <div class="brutus-section-title">Backend Health</div>
+            <div id="brutus-health-grid" class="brutus-health-grid">
+              <div class="brutus-log-empty">Run Discover to see backends</div>
             </div>
           </div>
-          <div class="chat-input-area">
-            <input type="text" id="brutus-input" placeholder="&gt; ">
-            <button id="brutus-send" class="btn">Send</button>
+
+          <div class="brutus-section">
+            <div class="brutus-section-title">Routing Activity</div>
+            <div id="brutus-routing-log" class="brutus-routing-log">
+              <div class="brutus-log-empty">No routing activity yet</div>
+            </div>
+          </div>
+
+          <div class="brutus-section">
+            <div class="brutus-section-title">How Brutus Works</div>
+            <p class="brutus-desc">
+              Brutus auto-routes your messages to the best available LLM backend.
+              Select <strong>Brutus (auto)</strong> in the Chat tab to use it.
+              Scan the QR code to chat from anywhere.
+            </p>
           </div>
         </div>
         <aside class="brutus-sidebar">
           <h3>Remote Access</h3>
+          <p class="brutus-qr-label">Scan to chat from anywhere</p>
           <div id="brutus-qr" class="brutus-qr"></div>
           <div id="brutus-url" class="brutus-url-text">No tunnel active</div>
           <div id="brutus-tunnel-status" class="brutus-tunnel-status">● stopped</div>
@@ -283,14 +274,267 @@
     </section>
 
   </div>
+
+  <!-- CONFIG OVERLAY -->
+  <div id="config-overlay" class="config-overlay hidden">
+    <div class="config-overlay-inner">
+      <div class="config-overlay-header">
+        <span class="config-overlay-title">Configuration</span>
+        <button id="config-overlay-close" class="btn btn-secondary">Close</button>
+      </div>
+
+      <div class="config-overlay-body">
+        <!-- Scope selector -->
+        <div class="config-scope">
+          <label class="config-scope-label">Scope:</label>
+          <button id="scope-global" class="scope-btn active">Global Defaults</button>
+          <button id="scope-service" class="scope-btn">Per-Service</button>
+          <select id="config-service-select" class="config-service-select hidden">
+            <option value="" disabled selected>-- select service --</option>
+          </select>
+        </div>
+
+        <!-- System prompt -->
+        <div class="config-section">
+          <div class="config-section-title">System Prompt</div>
+          <div class="param-row" data-param="system_prompt">
+            <div class="param-label">
+              <span class="param-name">System Prompt</span>
+              <span class="param-hint">Prepended to every conversation</span>
+            </div>
+            <button class="param-toggle" data-default="true">Default</button>
+            <div class="param-controls hidden">
+              <textarea class="config-textarea" rows="3" placeholder="You are a helpful assistant."></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sampling parameters -->
+        <div class="config-section">
+          <div class="config-section-title">Sampling</div>
+          <div class="param-row" data-param="temperature">
+            <div class="param-label">
+              <span class="param-name">Temperature</span>
+              <span class="param-hint">Randomness. 0 = deterministic</span>
+            </div>
+            <button class="param-toggle" data-default="true">Default</button>
+            <div class="param-controls hidden">
+              <input type="range" min="0" max="2" step="0.05" value="0.8">
+              <input type="number" min="0" max="2" step="0.05" value="0.8">
+            </div>
+          </div>
+          <div class="param-row" data-param="max_tokens">
+            <div class="param-label">
+              <span class="param-name">Max Tokens</span>
+              <span class="param-hint">Maximum tokens to generate</span>
+            </div>
+            <button class="param-toggle" data-default="true">Default</button>
+            <div class="param-controls hidden">
+              <input type="range" min="1" max="32768" step="1" value="4096">
+              <input type="number" min="1" max="32768" step="1" value="4096">
+            </div>
+          </div>
+          <div class="param-row" data-param="top_p">
+            <div class="param-label">
+              <span class="param-name">Top P</span>
+              <span class="param-hint">Nucleus sampling threshold</span>
+            </div>
+            <button class="param-toggle" data-default="true">Default</button>
+            <div class="param-controls hidden">
+              <input type="range" min="0" max="1" step="0.01" value="0.9">
+              <input type="number" min="0" max="1" step="0.01" value="0.9">
+            </div>
+          </div>
+          <div class="param-row" data-param="top_k">
+            <div class="param-label">
+              <span class="param-name">Top K</span>
+              <span class="param-hint">Limit sampling to top K tokens</span>
+            </div>
+            <button class="param-toggle" data-default="true">Default</button>
+            <div class="param-controls hidden">
+              <input type="range" min="0" max="1000" step="1" value="40">
+              <input type="number" min="0" max="1000" step="1" value="40">
+            </div>
+          </div>
+          <div class="param-row" data-param="frequency_penalty">
+            <div class="param-label">
+              <span class="param-name">Frequency Penalty</span>
+              <span class="param-hint">Penalize tokens by frequency</span>
+            </div>
+            <button class="param-toggle" data-default="true">Default</button>
+            <div class="param-controls hidden">
+              <input type="range" min="-2" max="2" step="0.05" value="0">
+              <input type="number" min="-2" max="2" step="0.05" value="0">
+            </div>
+          </div>
+          <div class="param-row" data-param="presence_penalty">
+            <div class="param-label">
+              <span class="param-name">Presence Penalty</span>
+              <span class="param-hint">Penalize tokens already present</span>
+            </div>
+            <button class="param-toggle" data-default="true">Default</button>
+            <div class="param-controls hidden">
+              <input type="range" min="-2" max="2" step="0.05" value="0">
+              <input type="number" min="-2" max="2" step="0.05" value="0">
+            </div>
+          </div>
+        </div>
+
+        <!-- Advanced sampling -->
+        <details class="advanced-section">
+          <summary class="advanced-toggle">Advanced Sampling</summary>
+          <div class="advanced-params">
+            <div class="param-row" data-param="repeat_penalty">
+              <div class="param-label">
+                <span class="param-name">Repeat Penalty</span>
+                <span class="param-hint">Penalize repeated tokens</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="range" min="-2" max="2" step="0.05" value="1.1">
+                <input type="number" min="-2" max="2" step="0.05" value="1.1">
+              </div>
+            </div>
+            <div class="param-row" data-param="repeat_last_n">
+              <div class="param-label">
+                <span class="param-name">Repeat Last N</span>
+                <span class="param-hint">Window for repeat penalty</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="range" min="-1" max="128" step="1" value="64">
+                <input type="number" min="-1" max="128" step="1" value="64">
+              </div>
+            </div>
+            <div class="param-row" data-param="min_p">
+              <div class="param-label">
+                <span class="param-name">Min P</span>
+                <span class="param-hint">Minimum probability threshold</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="range" min="0" max="1" step="0.01" value="0">
+                <input type="number" min="0" max="1" step="0.01" value="0">
+              </div>
+            </div>
+            <div class="param-row" data-param="seed">
+              <div class="param-label">
+                <span class="param-name">Seed</span>
+                <span class="param-hint">Random seed (-1 = random)</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="number" min="-1" max="2147483647" step="1" value="-1" style="width:100%">
+              </div>
+            </div>
+            <div class="param-row" data-param="stop">
+              <div class="param-label">
+                <span class="param-name">Stop Sequences</span>
+                <span class="param-hint">Comma-separated stop strings</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="text" placeholder="e.g. \n, END" style="width:100%">
+              </div>
+            </div>
+            <div class="param-row" data-param="mirostat">
+              <div class="param-label">
+                <span class="param-name">Mirostat</span>
+                <span class="param-hint">Mirostat sampling mode (0/1/2)</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="range" min="0" max="2" step="1" value="0">
+                <input type="number" min="0" max="2" step="1" value="0">
+              </div>
+            </div>
+            <div class="param-row" data-param="mirostat_tau">
+              <div class="param-label">
+                <span class="param-name">Mirostat Tau</span>
+                <span class="param-hint">Target entropy</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="range" min="0" max="10" step="0.1" value="5.0">
+                <input type="number" min="0" max="10" step="0.1" value="5.0">
+              </div>
+            </div>
+            <div class="param-row" data-param="mirostat_eta">
+              <div class="param-label">
+                <span class="param-name">Mirostat Eta</span>
+                <span class="param-hint">Learning rate</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="range" min="0" max="1" step="0.01" value="0.1">
+                <input type="number" min="0" max="1" step="0.01" value="0.1">
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <!-- Engine parameters (Ollama-specific) -->
+        <details class="advanced-section">
+          <summary class="advanced-toggle">Engine (Ollama)</summary>
+          <div class="advanced-params">
+            <div class="param-row" data-param="num_ctx">
+              <div class="param-label">
+                <span class="param-name">Context Window</span>
+                <span class="param-hint">Context size in tokens</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="range" min="256" max="131072" step="256" value="2048">
+                <input type="number" min="256" max="131072" step="256" value="2048">
+              </div>
+            </div>
+            <div class="param-row" data-param="num_batch">
+              <div class="param-label">
+                <span class="param-name">Batch Size</span>
+                <span class="param-hint">Batch size for prompt processing</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="range" min="256" max="8192" step="256" value="512">
+                <input type="number" min="256" max="8192" step="256" value="512">
+              </div>
+            </div>
+            <div class="param-row" data-param="keep_alive">
+              <div class="param-label">
+                <span class="param-name">Keep Alive</span>
+                <span class="param-hint">How long to keep model loaded (e.g. 5m)</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="text" value="5m" placeholder="5m" style="width:100%">
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <div class="settings-actions">
+          <button id="config-reset" class="btn btn-secondary">Reset All</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast hidden"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/textmode.js@latest/dist/textmode.umd.js"></script>
+
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github-dark.min.css">
   <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
-  <script src="app.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>

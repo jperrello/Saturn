@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "@types/multicast-dns": "^7.2.4",
-    "multicast-dns": "^7.2.5"
+    "multicast-dns": "^7.2.5",
+    "playwright": "^1.58.2"
   }
 }

@@ -27,16 +27,16 @@ The brutalist terminal aesthetic must be maintained across all features.
 
 ## Architecture Quick Reference
 
-- **Frontend**: `Web-UI/index.html`, `Web-UI/app.js`, `Web-UI/styles.css` — vanilla JS, no framework
-- **Backend**: `saturn/web.py` — FastAPI, serves static files + API endpoints
-- **Discovery**: `saturn/discovery.py` — mDNS/DNS-SD via zeroconf
-- **Runner**: `saturn/runner.py` — starts/stops services, beacon credential rotation
+- **Frontend**: `Web-UI/index.html`, `Web-UI/app.js`, `Web-UI/styles.css` 
+- **Backend**: `saturn/web.py` 
+- **Discovery**: `saturn/discovery.py`
+- **Runner**: `saturn/runner.py` —
 - **Config**: `saturn/config.py` — TOML service configs in `saturn/services/` and `~/.saturn/services/`
-- **MCP Server (existing)**: `saturn-mcp/saturn_mcp/server.py` — FastMCP with 6 tools (discover, models, chat, etc.), stdio transport
-- **Servers**: `saturn/servers/` — claude.py, ollama.py, fallback.py (pluggable)
-- **Tests**: `tests/bombadil/` — property-based UI tests with Bombadil
-- **Design notes**: `Web-UI/ui-notes/` — per-page design specs
-- **Reference images**: `Web-UI/references/` — hand-drawn wireframes
+- **MCP Server (existing)**: `saturn-mcp/saturn_mcp/server.py`
+- **Servers**: `saturn/servers/` 
+- **Tests**: `tests/bombadil/` 
+- **Design notes**: `Web-UI/ui-notes/` 
+- **Reference images**: `Web-UI/references/`
 
 Key existing API endpoints in web.py:
 - `GET /api/discover` — mDNS scan
@@ -129,6 +129,7 @@ If the task failed: add a comment with the failure, do NOT close. The next agent
    cd /Users/jperr/Documents/Saturn
    git add -A
    git commit -m "ralph: <brief description of what changed>"
+   git push origin web-ui
    ```
 4. If the spec **fails**: do NOT commit. Add the failure output as a `bd comments add` on the task, and leave the task open. The next agent will fix it.
 
@@ -139,7 +140,8 @@ You are done. Exit cleanly. The loop will invoke the next agent who picks up whe
 
 ## Important Constraints
 
-1. **Branch**: All work on `web-ui` branch. Never checkout main.
+1. **No background tasks**: Never use `run_in_background` or spawn background tasks. All commands must run synchronously and complete before you exit. Background tasks keep `claude -p` alive indefinitely, blocking the loop.
+2. **Branch**: All work on `web-ui` branch. Never checkout main. You MAY push to `web-ui` (`git push origin web-ui`) but NEVER push to main.
    - **UI variant branches** (`web-ui/variant-a`, `web-ui/variant-b`, `web-ui/variant-c`) MUST all fork from the **same baseline commit** on `web-ui`. That baseline is the commit where all P0 and P1 features are merged and the full Bombadil suite passes. Variant branches change ONLY `styles.css` and HTML class attributes — never `app.js` or backend code. To create them: finish all features on `web-ui`, tag the commit (`git tag variant-baseline`), then branch each variant from that tag.
 2. **No frameworks**: The frontend is vanilla JS. Do not add React, Vue, Svelte, etc. CDN libraries (marked.js, highlight.js, DOMPurify) are fine.
 3. **No build step**: Everything loads from index.html via script tags. No webpack, no bundler.

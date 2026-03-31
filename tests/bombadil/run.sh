@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Saturn Web UI — Bombadil test runner
-# Runs specs in order: empty → start → discover → chat → global
+# Runs specs in order: empty → start → discover → chat → brutus → global
 # Usage: ./run.sh [--headed] [--duration SECONDS] [--exit-on-violation]
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -21,7 +21,7 @@ usage() {
   echo "  --headed             Run browser visibly (default: headless)"
   echo "  --duration SECONDS   How long to run each spec (default: 30)"
   echo "  --exit-on-violation  Stop on first failure"
-  echo "  --spec SPEC          Run only one spec (empty, start, discover, chat, global)"
+  echo "  --spec SPEC          Run only one spec (empty, start, discover, chat, brutus, global)"
   echo "  --port PORT          Saturn port (default: 3000)"
   exit 1
 }
@@ -62,14 +62,14 @@ start_saturn() {
   SATURN_PID=$!
 
   # wait for server to be ready
-  for i in $(seq 1 20); do
+  for i in $(seq 1 40); do
     if curl -s "$ORIGIN" > /dev/null 2>&1; then
       echo "Saturn ready (pid $SATURN_PID)"
       return 0
     fi
     sleep 0.5
   done
-  echo "ERROR: Saturn failed to start within 10 seconds"
+  echo "ERROR: Saturn failed to start within 20 seconds"
   exit 1
 }
 
@@ -145,7 +145,10 @@ else
   # Phase 4: chat tab (messaging, history)
   run_spec "chat" || FAILED=1
 
-  # Phase 5: global invariants (tab switching, layout)
+  # Phase 5: brutus tab (gate, chat, tunnel)
+  run_spec "brutus" || FAILED=1
+
+  # Phase 6: global invariants (tab switching, layout)
   run_spec "global" || FAILED=1
 fi
 

@@ -7,6 +7,7 @@ import time
 import asyncio
 import logging
 import socket
+from collections import deque
 from pathlib import Path
 from typing import Optional, List
 from dataclasses import asdict
@@ -102,6 +103,7 @@ _breakers: dict[str, dict] = {}  # name -> {failures, opened_at}
 _health: dict[str, bool] = {}
 _tunnel_proc: Optional[subprocess.Popen] = None
 _tunnel_url: Optional[str] = None
+_routing_log: deque = deque(maxlen=50)
 
 BREAKER_THRESHOLD = 3
 BREAKER_COOLDOWN = 30
@@ -142,6 +144,20 @@ def _lan_ip() -> Optional[str]:
         return ip
     except Exception:
         return None
+
+
+ADMIN_PASSWORD = os.environ.get("SATURN_ADMIN_PASSWORD", "saturn")
+
+
+class AdminAuth(BaseModel):
+    password: str
+
+
+@app.post("/api/admin/auth")
+async def admin_auth(body: AdminAuth):
+    if body.password != ADMIN_PASSWORD:
+        raise HTTPException(401, "Invalid password")
+    return {"ok": True}
 
 
 # --- API Routes ---
@@ -313,6 +329,23 @@ class ChatRequest(BaseModel):
     service: str
     model: str
     messages: List[dict]
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    frequency_penalty: Optional[float] = None
+    presence_penalty: Optional[float] = None
+    repeat_penalty: Optional[float] = None
+    repeat_last_n: Optional[int] = None
+    min_p: Optional[float] = None
+    seed: Optional[int] = None
+    stop: Optional[List[str]] = None
+    mirostat: Optional[int] = None
+    mirostat_tau: Optional[float] = None
+    mirostat_eta: Optional[float] = None
+    num_ctx: Optional[int] = None
+    num_batch: Optional[int] = None
+    keep_alive: Optional[str] = None
 
 
 @app.get("/api/models/all")
@@ -390,6 +423,13 @@ async def chat(body: ChatRequest):
         "messages": body.messages,
         "stream": True,
     }
+    for key in ("temperature", "max_tokens", "top_p", "top_k", "frequency_penalty",
+                "presence_penalty", "repeat_penalty", "repeat_last_n", "min_p",
+                "seed", "stop", "mirostat", "mirostat_tau", "mirostat_eta",
+                "num_ctx", "num_batch", "keep_alive"):
+        val = getattr(body, key, None)
+        if val is not None:
+            payload[key] = val
 
     async def generate():
         async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
@@ -415,19 +455,28 @@ class BrutusChat(BaseModel):
 
 @app.post("/api/brutus/chat")
 async def brutus_chat(body: BrutusChat):
+    t0 = time.time()
+    skipped = []
+
     # gather candidates from discovered + running configured services
     candidates = []
     for name, d in _discovered.items():
-        if not _breaker_open(_breaker(name)):
-            candidates.append({"name": name, "host": d["host"], "port": d["port"], "priority": d.get("priority", 100), "models": d.get("models", [])})
+        b = _breaker(name)
+        if _breaker_open(b):
+            skipped.append({"name": name, "reason": "circuit_breaker"})
+            continue
+        candidates.append({"name": name, "host": d["host"], "port": d["port"], "priority": d.get("priority", 100), "models": d.get("models", [])})
     for sname, cfg, _ in list_service_configs():
         if sname in _discovered:
             continue
         info = read_service_info(sname)
         if info and _pid_alive(info.get("pid", 0)):
             port = info.get("port")
-            if port and not _breaker_open(_breaker(sname)):
+            b = _breaker(sname)
+            if port and not _breaker_open(b):
                 candidates.append({"name": sname, "host": "127.0.0.1", "port": port, "priority": cfg.priority, "models": []})
+            elif port:
+                skipped.append({"name": sname, "reason": "circuit_breaker"})
 
     candidates.sort(key=lambda c: c["priority"])
 
@@ -447,12 +496,23 @@ async def brutus_chat(body: BrutusChat):
                     elif isinstance(data, list) and data:
                         model = data[0].get("id", data[0].get("name"))
                 except Exception:
-                    pass
+                    skipped.append({"name": c["name"], "reason": "no_models"})
+                    continue
             if not model:
+                skipped.append({"name": c["name"], "reason": "no_models"})
                 continue
 
             try:
+                latency = round((time.time() - t0) * 1000)
                 payload = {"model": model, "messages": body.messages, "stream": True}
+
+                _routing_log.append({
+                    "ts": time.time(),
+                    "service": c["name"],
+                    "model": model,
+                    "skipped": [s["name"] for s in skipped],
+                    "latency_ms": latency,
+                })
 
                 async def generate(base_url=base, pay=payload, hdrs={}, svc_name=c["name"], mdl=model):
                     async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as c2:
@@ -471,20 +531,75 @@ async def brutus_chat(body: BrutusChat):
                                 else:
                                     yield "\n"
 
+                skipped_names = ",".join(s["name"] for s in skipped) if skipped else ""
                 return StreamingResponse(
                     generate(),
                     media_type="text/event-stream",
                     headers={
                         "X-Brutus-Service": c["name"],
                         "X-Brutus-Model": model,
-                        "Access-Control-Expose-Headers": "X-Brutus-Service, X-Brutus-Model",
+                        "X-Brutus-Skipped": skipped_names,
+                        "X-Brutus-Latency": str(latency),
+                        "Access-Control-Expose-Headers": "X-Brutus-Service, X-Brutus-Model, X-Brutus-Skipped, X-Brutus-Latency",
                     },
                 )
             except Exception:
                 _record_failure(c["name"])
+                skipped.append({"name": c["name"], "reason": "error"})
                 continue
 
     raise HTTPException(502, "All backends failed")
+
+
+@app.get("/api/brutus/status")
+async def brutus_status():
+    backends = []
+    for name, d in _discovered.items():
+        b = _breaker(name)
+        is_open = _breaker_open(b)
+        cooldown = 0
+        if is_open:
+            cooldown = max(0, BREAKER_COOLDOWN - (time.time() - b["opened_at"]))
+        backends.append({
+            "name": name,
+            "host": d["host"],
+            "port": d["port"],
+            "priority": d.get("priority", 100),
+            "models": d.get("models", []),
+            "source": "discovered",
+            "healthy": not is_open,
+            "breaker": {"failures": b["failures"], "open": is_open, "cooldown": round(cooldown)},
+        })
+    for sname, cfg, _ in list_service_configs():
+        if sname in _discovered:
+            continue
+        info = read_service_info(sname)
+        running = info and _pid_alive(info.get("pid", 0))
+        if not running:
+            continue
+        b = _breaker(sname)
+        is_open = _breaker_open(b)
+        cooldown = 0
+        if is_open:
+            cooldown = max(0, BREAKER_COOLDOWN - (time.time() - b["opened_at"]))
+        backends.append({
+            "name": sname,
+            "host": "127.0.0.1",
+            "port": info.get("port"),
+            "priority": cfg.priority,
+            "models": [],
+            "source": "configured",
+            "healthy": not is_open,
+            "breaker": {"failures": b["failures"], "open": is_open, "cooldown": round(cooldown)},
+        })
+    backends.sort(key=lambda b: b["priority"])
+
+    running = _tunnel_proc is not None and _tunnel_proc.poll() is None
+    return {
+        "backends": backends,
+        "tunnel": {"status": "running" if running else "stopped", "url": _tunnel_url if running else None},
+        "routing_log": list(_routing_log)[-20:],
+    }
 
 
 @app.get("/api/brutus/url")

@@ -222,7 +222,7 @@ const modelSelectInfo = extract((state) => {
 //  PROPERTIES — GLOBAL
 // ═══════════════════════════════════════════
 
-export const threeTabsExist = always(() => tabCount.current === 3)
+export const fourTabsExist = always(() => tabCount.current === 4)
 
 export const tabMatchesPage = always(() => activeTab.current === activePage.current)
 
