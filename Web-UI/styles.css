@@ -1039,3 +1039,45 @@ select:focus {
 .msg.assistant .bubble.markdown-body h2 { font-size: 14px; }
 .msg.assistant .bubble.markdown-body h3 { font-size: 13px; }
 .msg.assistant .bubble.markdown-body h4 { font-size: 12px; }
+
+/* ===== THINKING BLOCKS ===== */
+.thinking-block {
+  border-left: 3px solid var(--muted);
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.thinking-block summary.thinking-toggle {
+  cursor: pointer;
+  padding: 6px 12px;
+  font-family: var(--font);
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+  list-style: none;
+  user-select: none;
+}
+
+.thinking-block summary.thinking-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.thinking-block summary.thinking-toggle::before {
+  content: '\25B6 ';
+  font-size: 9px;
+  margin-right: 6px;
+}
+
+.thinking-block[open] summary.thinking-toggle::before {
+  content: '\25BC ';
+}
+
+.thinking-block .thinking-content {
+  padding: 8px 12px;
+  border-top: 1px solid var(--muted);
+  color: var(--muted);
+  font-family: var(--font);
+  line-height: 1.5;
+}

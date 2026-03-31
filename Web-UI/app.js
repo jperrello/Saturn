@@ -544,6 +544,29 @@ function highlightCode(el) {
   el.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block))
 }
 
+function splitThinking(text) {
+  const open = text.indexOf('<think>')
+  if (open === -1) return { thinking: '', body: text, pending: false }
+  const close = text.indexOf('</think>', open)
+  if (close === -1) return { thinking: text.slice(open + 7), body: '', pending: true }
+  return {
+    thinking: text.slice(open + 7, close),
+    body: text.slice(0, open) + text.slice(close + 8),
+    pending: false,
+  }
+}
+
+function renderThinkingHTML(thinking) {
+  if (!thinking) return ''
+  return `<details class="thinking-block"><summary class="thinking-toggle">Thinking\u2026 (click to expand)</summary><div class="thinking-content">${renderMarkdown(thinking)}</div></details>`
+}
+
+function renderWithThinking(text) {
+  const { thinking, body, pending } = splitThinking(text)
+  if (pending) return renderThinkingHTML(thinking) + '<span class="cursor">▊</span>'
+  return renderThinkingHTML(thinking) + renderMarkdown(body || '[empty response]')
+}
+
 // populate service dropdown from discovered services
 function syncServices() {
   const prev = serviceSelect.value
@@ -626,7 +649,7 @@ function renderMessages() {
       div.className = 'msg assistant'
       div.innerHTML = `
         <div class="meta">${m.service || ''} // ${m.model || ''}</div>
-        <div class="bubble markdown-body">${renderMarkdown(m.text)}</div>
+        <div class="bubble markdown-body">${renderWithThinking(m.text)}</div>
       `
     }
     messagesEl.appendChild(div)
@@ -750,7 +773,12 @@ async function send() {
           const delta = chunk.choices?.[0]?.delta?.content
           if (delta) {
             full += delta
-            bubble.innerHTML = renderMarkdown(full) + '<span class="cursor">▊</span>'
+            const parts = splitThinking(full)
+            if (parts.pending) {
+              bubble.innerHTML = renderThinkingHTML(parts.thinking) + '<span class="cursor">▊</span>'
+            } else {
+              bubble.innerHTML = renderThinkingHTML(parts.thinking) + renderMarkdown(parts.body) + '<span class="cursor">▊</span>'
+            }
             messagesEl.scrollTop = messagesEl.scrollHeight
           }
         } catch {
@@ -760,7 +788,7 @@ async function send() {
     }
 
     // remove cursor, finalize
-    bubble.innerHTML = renderMarkdown(full || '[empty response]')
+    bubble.innerHTML = renderWithThinking(full)
     highlightCode(bubble)
     chat.messages.push({ role: 'assistant', text: full || '[empty response]', service, model })
     saveChats()
@@ -1061,14 +1089,19 @@ async function brutusSendMsg() {
           const delta = chunk.choices?.[0]?.delta?.content
           if (delta) {
             full += delta
-            bubble.innerHTML = renderMarkdown(full) + '<span class="cursor">▊</span>'
+            const parts = splitThinking(full)
+            if (parts.pending) {
+              bubble.innerHTML = renderThinkingHTML(parts.thinking) + '<span class="cursor">▊</span>'
+            } else {
+              bubble.innerHTML = renderThinkingHTML(parts.thinking) + renderMarkdown(parts.body) + '<span class="cursor">▊</span>'
+            }
             brutusMessages.scrollTop = brutusMessages.scrollHeight
           }
         } catch { /* skip */ }
       }
     }
 
-    bubble.innerHTML = renderMarkdown(full || '[empty response]')
+    bubble.innerHTML = renderWithThinking(full)
     highlightCode(bubble)
     const reply = full || '[empty response]'
     brutusHistory.push({ role: 'assistant', content: reply })
