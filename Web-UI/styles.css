@@ -5,16 +5,16 @@
 }
 
 :root {
-  --bg: #000;
-  --fg: #ccc;
-  --bright: #fff;
-  --border: #fff;
-  --muted: #444;
-  --surface: #0a0a0a;
-  --accent: #f0c040;
-  --green: #0f0;
-  --red: #f00;
-  --font: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  --bg: #FFFFFF;
+  --fg: #222222;
+  --bright: #000000;
+  --border: #000000;
+  --muted: #999999;
+  --surface: #F5F5F5;
+  --accent: #FF0000;
+  --green: #00AA00;
+  --red: #FF0000;
+  --font: Helvetica, 'Helvetica Neue', Arial, system-ui, -apple-system, sans-serif;
 }
 
 body {
@@ -23,26 +23,13 @@ body {
   color: var(--fg);
   height: 100vh;
   overflow: hidden;
-  font-size: 13px;
-  line-height: 1.4;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
-/* CRT scanlines */
+/* CRT scanlines — disabled for Swiss variant */
 body::after {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    transparent 0px,
-    transparent 3px,
-    rgba(0, 0, 0, 0.08) 3px,
-    rgba(0, 0, 0, 0.08) 6px
-  );
-  z-index: 9999;
+  display: none;
 }
 
 .app {
@@ -55,19 +42,20 @@ body::after {
 .tabs {
   display: flex;
   align-items: stretch;
-  border-bottom: 3px solid var(--border);
+  border-bottom: 4px solid var(--bright);
 }
 
 .tab {
   flex: 1;
   background: none;
   border: none;
-  border-right: 1px solid var(--muted);
+  border-bottom: 4px solid transparent;
+  margin-bottom: -4px;
   color: var(--muted);
   font-family: var(--font);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: 2px;
+  letter-spacing: 4px;
   text-transform: uppercase;
   padding: 14px 28px;
   cursor: pointer;
@@ -79,13 +67,15 @@ body::after {
 }
 
 .tab:hover {
-  background: var(--bright);
-  color: var(--bg);
+  background: none;
+  color: var(--bright);
+  border-bottom: 4px solid var(--muted);
 }
 
 .tab.active {
-  background: var(--bright);
-  color: var(--bg);
+  background: none;
+  color: var(--bright);
+  border-bottom: 4px solid var(--accent);
 }
 
 /* ===== PAGES ===== */
@@ -126,7 +116,7 @@ body::after {
 
 .discover-right {
   flex: 1;
-  padding: 40px;
+  padding: 48px;
 }
 
 #discover-btn {
@@ -161,8 +151,8 @@ body::after {
 }
 
 .checklist-item:hover {
-  background: var(--bright);
-  color: var(--bg);
+  background: var(--surface);
+  color: var(--bright);
 }
 
 .checklist-item input[type="checkbox"] {
@@ -195,19 +185,20 @@ body::after {
 .btn {
   background: var(--bright);
   color: var(--bg);
-  border: 2px solid var(--border);
+  border: 3px solid var(--bright);
   padding: 10px 28px;
   font-family: var(--font);
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 2px;
+  letter-spacing: 3px;
   text-transform: uppercase;
   cursor: pointer;
 }
 
 .btn:hover {
-  background: var(--bg);
-  color: var(--bright);
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
 }
 
 .btn:disabled {
@@ -265,16 +256,17 @@ body::after {
 
 /* ===== PANELS ===== */
 .panel {
-  padding: 40px;
+  padding: 48px 56px;
   flex: 1;
 }
 
 .panel h2 {
-  font-size: 14px;
-  letter-spacing: 4px;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 6px;
   text-transform: uppercase;
   color: var(--bright);
-  border-bottom: 3px solid var(--border);
+  border-bottom: 4px solid var(--bright);
   padding-bottom: 10px;
   margin-bottom: 28px;
 }
@@ -551,8 +543,8 @@ body::after {
 /* ===== CHAT BUBBLES — terminal style ===== */
 .msg {
   margin-bottom: 20px;
-  max-width: 80%;
-  font-size: 13px;
+  max-width: 70%;
+  font-size: 14px;
 }
 
 .msg.user {
@@ -560,7 +552,9 @@ body::after {
 }
 
 .msg.user .bubble {
-  border: 2px solid var(--border);
+  background: var(--surface);
+  border: 2px solid var(--bright);
+  color: var(--bright);
   padding: 10px 14px;
 }
 
@@ -582,6 +576,7 @@ body::after {
 }
 
 .msg.assistant .bubble {
+  background: var(--bg);
   border: 2px solid var(--muted);
   padding: 10px 14px;
 }
@@ -633,7 +628,7 @@ body::after {
 /* ===== CHAT INPUT ===== */
 .chat-input-area {
   display: flex;
-  border-top: 3px solid var(--border);
+  border-top: 4px solid var(--bright);
 }
 
 .file-btn {
@@ -684,8 +679,8 @@ select:focus {
   left: 0;
   width: 100%;
   height: 2px;
-  background: var(--green);
-  box-shadow: 0 0 12px var(--green), 0 0 24px var(--green);
+  background: var(--accent);
+  box-shadow: 0 0 12px var(--accent), 0 0 24px var(--accent);
   animation: scan 1.5s linear infinite;
   z-index: 10;
 }
@@ -726,11 +721,12 @@ select:focus {
 }
 
 .config-heading {
-  font-size: 14px;
-  letter-spacing: 4px;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 6px;
   text-transform: uppercase;
   color: var(--bright);
-  border-bottom: 3px solid var(--border);
+  border-bottom: 4px solid var(--bright);
   padding-bottom: 10px;
   margin-bottom: 28px;
 }
@@ -859,11 +855,11 @@ select:focus {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--muted);
+  background: var(--bright);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--bright);
+  background: var(--accent);
 }
 
 /* ===== TEXTMODE CANVAS ===== */
@@ -1045,16 +1041,16 @@ select:focus {
 }
 
 .msg.assistant .bubble.markdown-body code {
-  background: #1a1a1a;
+  background: var(--surface);
   padding: 1px 5px;
-  border: 1px solid var(--muted);
-  font-family: var(--font);
+  border: 2px solid var(--bright);
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
   font-size: 12px;
 }
 
 .msg.assistant .bubble.markdown-body pre {
-  background: #0d0d0d;
-  border: 1px solid var(--muted);
+  background: var(--surface);
+  border: 2px solid var(--bright);
   padding: 10px 14px;
   margin: 8px 0;
   overflow-x: auto;
@@ -1064,6 +1060,7 @@ select:focus {
   background: none;
   border: none;
   padding: 0;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
   font-size: 12px;
   line-height: 1.5;
 }
@@ -1089,7 +1086,7 @@ select:focus {
 }
 
 .msg.assistant .bubble.markdown-body blockquote {
-  border-left: 3px solid var(--accent);
+  border-left: 4px solid var(--accent);
   padding: 4px 12px;
   margin: 8px 0;
   color: var(--muted);
@@ -1110,8 +1107,8 @@ select:focus {
 }
 
 .msg.assistant .bubble.markdown-body th {
-  background: #1a1a1a;
-  color: var(--bright);
+  background: var(--bright);
+  color: var(--bg);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -1120,7 +1117,8 @@ select:focus {
 
 .msg.assistant .bubble.markdown-body a {
   color: var(--accent);
-  text-decoration: underline;
+  text-decoration: none;
+  border-bottom: 2px solid var(--accent);
 }
 
 .msg.assistant .bubble.markdown-body a:hover {
@@ -1140,6 +1138,7 @@ select:focus {
   color: var(--bright);
   margin: 12px 0 6px;
   font-family: var(--font);
+  font-weight: 900;
   letter-spacing: 1px;
 }
 
@@ -1150,7 +1149,7 @@ select:focus {
 
 /* ===== THINKING BLOCKS ===== */
 .thinking-block {
-  border-left: 3px solid var(--muted);
+  border-left: 4px solid var(--accent);
   margin: 0 0 10px;
   font-size: 12px;
   color: var(--muted);
@@ -1161,9 +1160,10 @@ select:focus {
   padding: 6px 12px;
   font-family: var(--font);
   font-size: 11px;
+  font-weight: 700;
   letter-spacing: 1px;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--bright);
   list-style: none;
   user-select: none;
 }
