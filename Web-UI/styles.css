@@ -15,6 +15,7 @@
   --green: #0f0;
   --red: #f00;
   --font: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  --transition: 0.15s ease;
 }
 
 body {
@@ -25,6 +26,7 @@ body {
   overflow: hidden;
   font-size: 13px;
   line-height: 1.4;
+  text-shadow: 0 0 2px rgba(255,255,255,0.06);
 }
 
 /* CRT scanlines */
@@ -39,8 +41,8 @@ body::after {
   background: repeating-linear-gradient(
     transparent 0px,
     transparent 3px,
-    rgba(0, 0, 0, 0.08) 3px,
-    rgba(0, 0, 0, 0.08) 6px
+    rgba(0, 0, 0, 0.04) 3px,
+    rgba(0, 0, 0, 0.04) 6px
   );
   z-index: 9999;
 }
@@ -69,9 +71,10 @@ body::after {
   font-weight: 700;
   letter-spacing: 2px;
   text-transform: uppercase;
-  padding: 14px 28px;
+  padding: 12px 24px;
   cursor: pointer;
   text-align: center;
+  transition: background var(--transition), color var(--transition);
 }
 
 .tab:last-child {
@@ -79,8 +82,8 @@ body::after {
 }
 
 .tab:hover {
-  background: var(--bright);
-  color: var(--bg);
+  background: rgba(255,255,255,0.1);
+  color: var(--bright);
 }
 
 .tab.active {
@@ -126,7 +129,7 @@ body::after {
 
 .discover-right {
   flex: 1;
-  padding: 40px;
+  padding: 32px;
 }
 
 #discover-btn {
@@ -148,12 +151,13 @@ body::after {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 14px;
+  padding: 8px 12px;
   border: 1px solid var(--muted);
   border-bottom: none;
   cursor: pointer;
   font-size: 13px;
   animation: dropIn 0.3s ease both;
+  transition: background var(--transition), color var(--transition);
 }
 
 .checklist-item:last-child {
@@ -203,6 +207,7 @@ body::after {
   letter-spacing: 2px;
   text-transform: uppercase;
   cursor: pointer;
+  transition: background var(--transition), color var(--transition);
 }
 
 .btn:hover {
@@ -265,7 +270,7 @@ body::after {
 
 /* ===== PANELS ===== */
 .panel {
-  padding: 40px;
+  padding: 32px;
   flex: 1;
 }
 
@@ -329,7 +334,7 @@ body::after {
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 3px;
-  padding: 16px;
+  padding: 12px;
   border-bottom: 1px solid var(--muted);
 }
 
@@ -357,6 +362,7 @@ body::after {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: background var(--transition), color var(--transition);
 }
 
 .history-item:hover {
@@ -476,6 +482,7 @@ body::after {
   cursor: pointer;
   font-size: 11px;
   letter-spacing: 0.5px;
+  transition: background var(--transition), color var(--transition);
 }
 
 .model-item:hover {
@@ -541,6 +548,7 @@ body::after {
   letter-spacing: 1px;
   font-family: var(--font);
   background: var(--bg);
+  transition: background var(--transition), color var(--transition);
 }
 
 .example:hover {
@@ -550,7 +558,7 @@ body::after {
 
 /* ===== CHAT BUBBLES — terminal style ===== */
 .msg {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   max-width: 80%;
   font-size: 13px;
 }
@@ -851,7 +859,7 @@ select:focus {
 
 /* ===== SCROLLBAR ===== */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -860,6 +868,7 @@ select:focus {
 
 ::-webkit-scrollbar-thumb {
   background: var(--muted);
+  border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -1055,6 +1064,8 @@ select:focus {
 .msg.assistant .bubble.markdown-body pre {
   background: #0d0d0d;
   border: 1px solid var(--muted);
+  border-top: 2px solid var(--accent);
+  border-radius: 0;
   padding: 10px 14px;
   margin: 8px 0;
   overflow-x: auto;
@@ -1227,6 +1238,7 @@ select:focus {
   padding: 6px 16px;
   font-size: 11px;
   letter-spacing: 0.5px;
+  transition: background var(--transition), color var(--transition);
 }
 
 .tool-name {
@@ -1357,4 +1369,16 @@ select:focus {
   color: var(--fg);
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* ===== MOBILE RESPONSIVENESS ===== */
+@media (max-width: 768px) {
+  .discover-layout { flex-direction: column; }
+  .discover-left { min-height: 200px; border-right: none; border-bottom: 3px solid var(--border); }
+  .chat-sidebar { display: none; }
+  .chat-layout { flex-direction: column; }
+  .brutus-sidebar { display: none; }
+  .brutus-layout { flex-direction: column; }
+  .tabs { flex-wrap: wrap; }
+  .tab { flex: 1 1 50%; border-bottom: 1px solid var(--muted); }
 }
