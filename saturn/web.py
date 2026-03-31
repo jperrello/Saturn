@@ -31,6 +31,7 @@ from .runner import (
     RUN_DIR,
 )
 from .discovery import discover, asdict as dc_asdict
+from .mcp_client import manager as mcp_manager
 
 logger = logging.getLogger("saturn.web")
 
@@ -354,6 +355,53 @@ async def chat(body: ChatRequest):
                         yield "\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# --- MCP API ---
+
+class MCPServerAdd(BaseModel):
+    url: str
+    name: str
+    auth_token: Optional[str] = None
+
+
+class MCPToolCall(BaseModel):
+    server: str
+    tool: str
+    arguments: dict = {}
+
+
+@app.get("/api/mcp/servers")
+async def mcp_servers():
+    return mcp_manager.configured()
+
+
+@app.post("/api/mcp/servers")
+async def mcp_add(body: MCPServerAdd):
+    mcp_manager.add(body.name, body.url, body.auth_token)
+    try:
+        await mcp_manager.refresh(body.name)
+    except Exception as e:
+        logger.warning(f"MCP refresh failed for {body.name}: {e}")
+        return {"added": True, "refreshed": False, "error": str(e)}
+    return {"added": True, "refreshed": True}
+
+
+@app.delete("/api/mcp/servers/{name}")
+async def mcp_remove(name: str):
+    if not mcp_manager.remove(name):
+        raise HTTPException(404, f"MCP server '{name}' not found")
+    return {"deleted": True, "name": name}
+
+
+@app.get("/api/mcp/tools")
+async def mcp_tools():
+    return mcp_manager.tools()
+
+
+@app.post("/api/mcp/tools/call")
+async def mcp_call(body: MCPToolCall):
+    return await mcp_manager.call(body.server, body.tool, body.arguments)
 
 
 # --- Static files ---
