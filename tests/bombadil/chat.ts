@@ -395,6 +395,58 @@ export const clickModelItems = actions(() => {
   }) as Action)
 })
 
+// --- MCP tools properties ---
+
+// when MCP servers are configured, the tools panel element should exist in the chat view
+const mcpToolsPanel = extract((state) => {
+  const panel = state.document.querySelector("#mcp-tools-panel, .mcp-tools-panel")
+  if (!panel) return null
+  const el = panel as HTMLElement
+  return {
+    visible: el.offsetParent !== null,
+    toolCount: el.querySelectorAll(".mcp-tool-item, .tool-item").length,
+  }
+})
+
+const mcpConfigured = extract((state) => {
+  // check if MCP config indicator exists (set by app.js when servers are configured)
+  const indicator = state.document.querySelector("[data-mcp-configured], .mcp-configured")
+  return indicator !== null
+})
+
+export const mcpToolsPanelVisible = always(() => {
+  if (activeTab.current !== "chat") return true
+  // only check when MCP servers are configured
+  if (!mcpConfigured.current) return true
+  const panel = mcpToolsPanel.current
+  return panel !== null && panel.visible
+})
+
+// when tool calls appear in assistant messages, inline badges should render
+const mcpToolBadges = extract((state) => {
+  const bubbles = state.document.querySelectorAll(".msg.assistant .bubble")
+  const result: { hasToolCall: boolean; hasBadge: boolean }[] = []
+  bubbles.forEach((b) => {
+    const el = b as HTMLElement
+    const toolCall = el.querySelector(".tool-call, .mcp-tool-call")
+    if (!toolCall) return
+    const badge = toolCall.querySelector(".tool-badge, .mcp-tool-badge")
+    result.push({
+      hasToolCall: true,
+      hasBadge: badge !== null,
+    })
+  })
+  return result
+})
+
+export const mcpToolBadgesRender = always(() => {
+  if (activeTab.current !== "chat") return true
+  const badges = mcpToolBadges.current
+  if (badges.length === 0) return true
+  // every tool call should have a badge
+  return badges.every((b: { hasToolCall: boolean; hasBadge: boolean }) => b.hasBadge)
+})
+
 // --- actions ---
 
 // navigate to chat tab
