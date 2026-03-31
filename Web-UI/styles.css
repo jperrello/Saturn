@@ -606,10 +606,42 @@ body::after {
   50% { opacity: 0; }
 }
 
+/* ===== FILE BADGE ===== */
+.file-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--accent);
+  font-family: var(--font);
+  font-size: 12px;
+}
+.file-badge-x {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 4px;
+  font-family: var(--font);
+}
+.file-badge-x:hover { color: var(--red, #ff4444); }
+
 /* ===== CHAT INPUT ===== */
 .chat-input-area {
   display: flex;
   border-top: 3px solid var(--border);
+}
+
+.file-btn {
+  border: none;
+  border-right: 1px solid var(--border);
+  padding: 14px 12px;
+  font-size: 16px;
+  cursor: pointer;
 }
 
 #chat-input {
@@ -626,6 +658,11 @@ body::after {
 #send-btn {
   border: none;
   border-left: 3px solid var(--border);
+}
+
+.chat-main.dragover {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
 }
 
 /* ===== FOCUS ===== */

@@ -769,7 +769,14 @@ async function send() {
     renderHistory()
   }
 
-  chat.messages.push({ role: 'user', text })
+  // prepend file context if attached
+  let fullText = text
+  if (attachedFile) {
+    fullText = `--- File: ${attachedFile.name} ---\n${attachedFile.content}\n---\n${text}`
+    clearAttachment()
+  }
+
+  chat.messages.push({ role: 'user', text: fullText })
   saveChats()
   welcome.classList.add('hidden')
 
@@ -911,6 +918,62 @@ document.querySelectorAll('.example').forEach(ex => {
 
 renderHistory()
 renderMessages()
+
+// ===== FILE CONTEXT INJECTION =====
+const ALLOWED_EXTS = ['.txt', '.md', '.py', '.js', '.ts', '.json', '.toml', '.yaml', '.yml', '.csv']
+const MAX_FILE_SIZE = 100 * 1024
+
+let attachedFile = null
+const fileInput = document.getElementById('file-input')
+const fileBtn = document.getElementById('file-upload-btn')
+const fileBadge = document.getElementById('file-badge')
+const fileBadgeName = document.getElementById('file-badge-name')
+const fileBadgeRemove = document.getElementById('file-badge-remove')
+const chatMain = document.querySelector('.chat-main')
+
+function clearAttachment() {
+  attachedFile = null
+  fileInput.value = ''
+  fileBadge.classList.add('hidden')
+}
+
+function attachFile(file) {
+  const ext = '.' + file.name.split('.').pop().toLowerCase()
+  if (!ALLOWED_EXTS.includes(ext)) {
+    toast('Unsupported file type. Use: ' + ALLOWED_EXTS.join(', '))
+    return
+  }
+  if (file.size > MAX_FILE_SIZE) {
+    toast('File too large (max 100KB)')
+    return
+  }
+  const reader = new FileReader()
+  reader.onload = () => {
+    attachedFile = { name: file.name, content: reader.result }
+    fileBadgeName.textContent = '📎 ' + file.name
+    fileBadge.classList.remove('hidden')
+  }
+  reader.onerror = () => toast('Failed to read file')
+  reader.readAsText(file)
+}
+
+fileBtn.addEventListener('click', () => fileInput.click())
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) attachFile(fileInput.files[0])
+})
+fileBadgeRemove.addEventListener('click', clearAttachment)
+
+// drag-and-drop
+chatMain.addEventListener('dragover', e => {
+  e.preventDefault()
+  chatMain.classList.add('dragover')
+})
+chatMain.addEventListener('dragleave', () => chatMain.classList.remove('dragover'))
+chatMain.addEventListener('drop', e => {
+  e.preventDefault()
+  chatMain.classList.remove('dragover')
+  if (e.dataTransfer.files[0]) attachFile(e.dataTransfer.files[0])
+})
 
 // ===== MCP TOOLS =====
 const toolsPanel = document.getElementById('tools-panel')

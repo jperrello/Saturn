@@ -218,7 +218,13 @@
               </div>
             </div>
           </div>
+          <div id="file-badge" class="file-badge hidden">
+            <span id="file-badge-name"></span>
+            <button id="file-badge-remove" class="file-badge-x">&times;</button>
+          </div>
           <div class="chat-input-area">
+            <input type="file" id="file-input" class="hidden" accept=".txt,.md,.py,.js,.ts,.json,.toml,.yaml,.yml,.csv">
+            <button id="file-upload-btn" class="btn file-btn" title="Attach file">&#128206;</button>
             <input type="text" id="chat-input" placeholder="&gt; ">
             <button id="send-btn" class="btn">Send</button>
           </div>
