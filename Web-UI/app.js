@@ -628,6 +628,62 @@ modelSelect.addEventListener('change', () => {
   savePrefs({ model: modelSelect.value })
 })
 
+// ===== MODEL AGGREGATION =====
+const modelsPanel = document.getElementById('models-panel')
+const modelList = document.getElementById('model-list')
+let allModels = []
+
+document.getElementById('models-toggle').addEventListener('click', () => {
+  modelsPanel.classList.toggle('hidden')
+  if (!modelsPanel.classList.contains('hidden')) refreshAllModels()
+})
+
+document.getElementById('models-refresh').addEventListener('click', refreshAllModels)
+
+async function refreshAllModels() {
+  modelList.innerHTML = '<div class="model-item"><span class="model-name" style="color:var(--muted)">Loading...</span></div>'
+  try {
+    const res = await fetch('/api/models/all')
+    allModels = await res.json()
+  } catch {
+    allModels = []
+  }
+  renderModelList()
+}
+
+function renderModelList() {
+  modelList.innerHTML = ''
+  if (allModels.length === 0) {
+    modelList.innerHTML = '<div class="model-item"><span class="model-name" style="color:var(--muted)">No models found — run Discover first</span></div>'
+    return
+  }
+  allModels.forEach(m => {
+    const div = document.createElement('div')
+    div.className = 'model-item'
+    div.dataset.model = m.id
+    div.dataset.service = m.service
+    div.innerHTML = `<span class="status-dot"></span><span class="model-name">${esc(m.id)}</span><span class="model-service">${esc(m.service)}</span>`
+    div.addEventListener('click', () => selectModel(m.service, m.id))
+    modelList.appendChild(div)
+  })
+}
+
+function selectModel(svc, mid) {
+  // set service dropdown
+  if ([...serviceSelect.options].some(o => o.value === svc)) {
+    serviceSelect.value = svc
+    savePrefs({ service: svc })
+  }
+  // load models for that service, then select the model
+  loadModels().then(() => {
+    if ([...modelSelect.options].some(o => o.value === mid)) {
+      modelSelect.value = mid
+      savePrefs({ model: mid })
+    }
+  })
+  modelsPanel.classList.add('hidden')
+}
+
 // auto-refresh models every 30s (same pattern as omlx-saturn chat.html)
 setInterval(() => {
   if (serviceSelect.value) loadModels()

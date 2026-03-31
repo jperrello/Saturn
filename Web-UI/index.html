@@ -174,12 +174,20 @@
                 </select>
               </label>
             </div>
+            <button id="models-toggle" class="btn btn-secondary models-toggle-btn" title="All Models">Models</button>
             <button class="chat-settings-btn" title="Settings">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <ellipse cx="12" cy="12" rx="5" ry="4"/>
                 <ellipse cx="12" cy="12" rx="11" ry="3" transform="rotate(-30 12 12)"/>
               </svg>
             </button>
+          </div>
+          <div id="models-panel" class="models-panel hidden">
+            <div class="models-panel-header">
+              <span>All Models</span>
+              <button id="models-refresh" class="btn btn-secondary">Refresh</button>
+            </div>
+            <div id="model-list" class="model-list"></div>
           </div>
           <div id="messages" class="messages">
             <div id="welcome" class="welcome">

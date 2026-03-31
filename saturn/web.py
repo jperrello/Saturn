@@ -264,6 +264,53 @@ class ChatRequest(BaseModel):
     messages: List[dict]
 
 
+@app.get("/api/models/all")
+async def models_all():
+    merged = []
+    seen = set()
+    sources = []
+    # discovered services
+    for name, d in _discovered.items():
+        sources.append((name, f"http://{d['host']}:{d['port']}/v1", {}))
+    # configured services
+    for sname, cfg, _ in list_service_configs():
+        if sname in _discovered:
+            continue
+        info = read_service_info(sname)
+        if info and _pid_alive(info.get("pid", 0)):
+            port = info.get("port")
+            if port:
+                sources.append((sname, f"http://127.0.0.1:{port}/v1", {}))
+                continue
+        if cfg.upstream.base_url:
+            headers = {}
+            if cfg.upstream.api_key_env:
+                key = os.environ.get(cfg.upstream.api_key_env, "")
+                if key:
+                    headers["Authorization"] = f"Bearer {key}"
+            sources.append((sname, cfg.upstream.base_url, headers))
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        for sname, base, headers in sources:
+            try:
+                r = await client.get(f"{base}/models", headers=headers)
+                r.raise_for_status()
+                data = r.json()
+                models_list = []
+                if isinstance(data, dict) and "data" in data:
+                    models_list = [m["id"] for m in data["data"]]
+                elif isinstance(data, list):
+                    models_list = [m.get("id", m.get("name", "?")) for m in data]
+                for mid in models_list:
+                    key = f"{sname}:{mid}"
+                    if key not in seen:
+                        seen.add(key)
+                        merged.append({"id": mid, "service": sname})
+            except Exception:
+                pass
+    return merged
+
+
 @app.get("/api/models")
 async def models(service: str = Query(...)):
     base, headers = _resolve(service)
