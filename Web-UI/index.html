@@ -175,6 +175,7 @@
               </label>
             </div>
             <button id="models-toggle" class="btn btn-secondary models-toggle-btn" title="All Models">Models</button>
+            <button id="tools-toggle" class="btn btn-secondary models-toggle-btn" title="MCP Tools">Tools</button>
             <button class="chat-settings-btn" title="Settings">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <ellipse cx="12" cy="12" rx="5" ry="4"/>
@@ -188,6 +189,24 @@
               <button id="models-refresh" class="btn btn-secondary">Refresh</button>
             </div>
             <div id="model-list" class="model-list"></div>
+          </div>
+          <div id="tools-panel" class="tools-panel hidden">
+            <div class="tools-panel-header">
+              <span>MCP Tools</span>
+              <button id="tools-refresh" class="btn btn-secondary">Refresh</button>
+              <button id="tools-manage" class="btn btn-secondary">Servers</button>
+            </div>
+            <div id="tools-list" class="tools-list"></div>
+            <div id="mcp-servers-config" class="mcp-servers-config hidden">
+              <div class="mcp-servers-header">MCP Servers</div>
+              <div id="mcp-servers-list" class="mcp-servers-list"></div>
+              <div class="mcp-add-form">
+                <input type="text" id="mcp-name" placeholder="Server name">
+                <input type="text" id="mcp-url" placeholder="http://localhost:8080/mcp">
+                <input type="text" id="mcp-token" placeholder="Auth token (optional)">
+                <button id="mcp-add-btn" class="btn">Add Server</button>
+              </div>
+            </div>
           </div>
           <div id="messages" class="messages">
             <div id="welcome" class="welcome">

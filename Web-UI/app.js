@@ -703,9 +703,18 @@ function renderMessages() {
       div.innerHTML = `<div class="prefix">&gt; you</div><div class="bubble">${esc(m.text)}</div>`
     } else {
       div.className = 'msg assistant'
+      let toolHTML = ''
+      if (m.toolCalls && m.toolCalls.length > 0) {
+        const badges = m.toolCalls.map(tc => {
+          let args = {}
+          try { args = JSON.parse(tc.arguments) } catch { args = {} }
+          return renderToolCallBadge(tc.name, args)
+        }).join(' ')
+        toolHTML = `<div class="tool-calls-row">${badges}</div>`
+      }
       div.innerHTML = `
         <div class="meta">${m.service || ''} // ${m.model || ''}</div>
-        <div class="bubble markdown-body">${renderWithThinking(m.text)}</div>
+        <div class="bubble markdown-body">${toolHTML}${renderWithThinking(m.text)}</div>
       `
     }
     messagesEl.appendChild(div)
@@ -787,6 +796,7 @@ async function send() {
 
   const bubble = aDiv.querySelector('.bubble')
   let full = ''
+  let toolCalls = []
   sending = true
   sendBtn.disabled = true
 
@@ -826,9 +836,9 @@ async function send() {
 
         try {
           const chunk = JSON.parse(data)
-          const delta = chunk.choices?.[0]?.delta?.content
-          if (delta) {
-            full += delta
+          const delta = chunk.choices?.[0]?.delta
+          if (delta?.content) {
+            full += delta.content
             const parts = splitThinking(full)
             if (parts.pending) {
               bubble.innerHTML = renderThinkingHTML(parts.thinking) + '<span class="cursor">▊</span>'
@@ -837,16 +847,38 @@ async function send() {
             }
             messagesEl.scrollTop = messagesEl.scrollHeight
           }
+          if (delta?.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              const idx = tc.index ?? toolCalls.length
+              if (!toolCalls[idx]) toolCalls[idx] = { name: '', arguments: '' }
+              if (tc.function?.name) toolCalls[idx].name = tc.function.name
+              if (tc.function?.arguments) toolCalls[idx].arguments += tc.function.arguments
+            }
+          }
         } catch {
           // skip malformed chunks
         }
       }
     }
 
+    // render tool call badges if present
+    let toolHTML = ''
+    if (toolCalls.length > 0) {
+      const badges = toolCalls.map(tc => {
+        let args = {}
+        try { args = JSON.parse(tc.arguments) } catch { /* partial args */ }
+        return renderToolCallBadge(tc.name, args)
+      }).join(' ')
+      toolHTML = `<div class="tool-calls-row">${badges}</div>`
+    }
+
     // remove cursor, finalize
-    bubble.innerHTML = renderWithThinking(full)
+    bubble.innerHTML = toolHTML + renderWithThinking(full)
     highlightCode(bubble)
-    chat.messages.push({ role: 'assistant', text: full || '[empty response]', service, model })
+    chat.messages.push({
+      role: 'assistant', text: full || '[empty response]', service, model,
+      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+    })
     saveChats()
   } catch (e) {
     full = `[error] ${e.message}`
@@ -879,6 +911,112 @@ document.querySelectorAll('.example').forEach(ex => {
 
 renderHistory()
 renderMessages()
+
+// ===== MCP TOOLS =====
+const toolsPanel = document.getElementById('tools-panel')
+const toolsList = document.getElementById('tools-list')
+const mcpServersConfig = document.getElementById('mcp-servers-config')
+const mcpServersList = document.getElementById('mcp-servers-list')
+let mcpTools = []
+
+document.getElementById('tools-toggle').addEventListener('click', () => {
+  toolsPanel.classList.toggle('hidden')
+  if (!toolsPanel.classList.contains('hidden')) refreshMCPTools()
+})
+
+document.getElementById('tools-refresh').addEventListener('click', refreshMCPTools)
+
+document.getElementById('tools-manage').addEventListener('click', () => {
+  mcpServersConfig.classList.toggle('hidden')
+  if (!mcpServersConfig.classList.contains('hidden')) refreshMCPServers()
+})
+
+async function refreshMCPTools() {
+  toolsList.innerHTML = '<div class="tool-item"><span style="color:var(--muted)">Loading...</span></div>'
+  try {
+    const res = await fetch('/api/mcp/tools')
+    mcpTools = await res.json()
+  } catch {
+    mcpTools = []
+  }
+  renderToolsList()
+}
+
+function renderToolsList() {
+  toolsList.innerHTML = ''
+  if (mcpTools.length === 0) {
+    toolsList.innerHTML = '<div class="tool-item"><span style="color:var(--muted)">No tools — add an MCP server first</span></div>'
+    return
+  }
+  mcpTools.forEach(t => {
+    const div = document.createElement('div')
+    div.className = 'tool-item'
+    div.innerHTML = `<span class="tool-name">${esc(t.name)}</span><span class="tool-desc">${esc(t.description)}</span><span class="tool-server">${esc(t.server)}</span>`
+    toolsList.appendChild(div)
+  })
+}
+
+async function refreshMCPServers() {
+  mcpServersList.innerHTML = '<div style="color:var(--muted);padding:6px 0">Loading...</div>'
+  try {
+    const res = await fetch('/api/mcp/servers')
+    const servers = await res.json()
+    mcpServersList.innerHTML = ''
+    if (servers.length === 0) {
+      mcpServersList.innerHTML = '<div style="color:var(--muted);padding:6px 0">No servers configured</div>'
+      return
+    }
+    servers.forEach(s => {
+      const div = document.createElement('div')
+      div.className = 'mcp-server-item'
+      div.innerHTML = `<span class="mcp-server-name">${esc(s.name)}</span><span class="mcp-server-url">${esc(s.url)}</span><button class="btn btn-secondary mcp-remove-btn" data-name="${esc(s.name)}">Remove</button>`
+      div.querySelector('.mcp-remove-btn').addEventListener('click', async () => {
+        await fetch(`/api/mcp/servers/${encodeURIComponent(s.name)}`, { method: 'DELETE' })
+        refreshMCPServers()
+        refreshMCPTools()
+      })
+      mcpServersList.appendChild(div)
+    })
+  } catch {
+    mcpServersList.innerHTML = '<div style="color:var(--red);padding:6px 0">Error loading servers</div>'
+  }
+}
+
+document.getElementById('mcp-add-btn').addEventListener('click', async () => {
+  const name = document.getElementById('mcp-name').value.trim()
+  const url = document.getElementById('mcp-url').value.trim()
+  const token = document.getElementById('mcp-token').value.trim()
+  if (!name || !url) { toast('Name and URL required'); return }
+  try {
+    const res = await fetch('/api/mcp/servers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, url, auth_token: token || null }),
+    })
+    const data = await res.json()
+    if (data.added) {
+      document.getElementById('mcp-name').value = ''
+      document.getElementById('mcp-url').value = ''
+      document.getElementById('mcp-token').value = ''
+      toast(data.refreshed ? `Added ${name} — tools loaded` : `Added ${name} — refresh failed: ${data.error}`)
+      refreshMCPServers()
+      refreshMCPTools()
+    }
+  } catch (e) {
+    toast(`Error: ${e.message}`)
+  }
+})
+
+function renderToolCallBadge(name, args) {
+  const argsStr = Object.keys(args || {}).length > 0 ? ` ${JSON.stringify(args)}` : ''
+  return `<span class="tool-call-badge">${esc(name)}${esc(argsStr)}</span>`
+}
+
+function renderToolResult(content) {
+  if (!content) return ''
+  const text = content.map(c => c.text || JSON.stringify(c)).join('\n')
+  return `<div class="tool-result-block"><div class="tool-result-label">Tool Result</div><pre class="tool-result-content">${esc(text)}</pre></div>`
+}
 
 // ===== BRUTUS =====
 const brutusGate = document.getElementById('brutus-gate')
