@@ -5,15 +5,15 @@
 }
 
 :root {
-  --bg: #000;
-  --fg: #ccc;
-  --bright: #fff;
-  --border: #fff;
-  --muted: #444;
-  --surface: #0a0a0a;
-  --accent: #f0c040;
-  --green: #0f0;
-  --red: #f00;
+  --bg: #0000AA;
+  --fg: #AAAAAA;
+  --bright: #FFFFFF;
+  --border: #FFFFFF;
+  --muted: #555599;
+  --surface: #000088;
+  --accent: #FFAA00;
+  --green: #55FF55;
+  --red: #FF5555;
   --font: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 }
 
@@ -25,24 +25,12 @@ body {
   overflow: hidden;
   font-size: 13px;
   line-height: 1.4;
+  text-shadow: 0 0 4px rgba(255,170,0,0.15);
 }
 
-/* CRT scanlines */
+/* CRT scanlines — disabled for BIOS variant */
 body::after {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    transparent 0px,
-    transparent 3px,
-    rgba(0, 0, 0, 0.08) 3px,
-    rgba(0, 0, 0, 0.08) 6px
-  );
-  z-index: 9999;
+  display: none;
 }
 
 .app {
@@ -55,7 +43,9 @@ body::after {
 .tabs {
   display: flex;
   align-items: stretch;
-  border-bottom: 3px solid var(--border);
+  border-bottom: 2px solid var(--border);
+  border-top: 2px solid var(--bright);
+  background: var(--surface);
 }
 
 .tab {
@@ -65,9 +55,9 @@ body::after {
   border-right: 1px solid var(--muted);
   color: var(--muted);
   font-family: var(--font);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 2px;
+  letter-spacing: 3px;
   text-transform: uppercase;
   padding: 14px 28px;
   cursor: pointer;
@@ -79,13 +69,13 @@ body::after {
 }
 
 .tab:hover {
-  background: var(--bright);
-  color: var(--bg);
+  background: #0000CC;
+  color: var(--bright);
 }
 
 .tab.active {
-  background: var(--bright);
-  color: var(--bg);
+  background: var(--accent);
+  color: #000;
 }
 
 /* ===== PAGES ===== */
@@ -111,7 +101,7 @@ body::after {
   display: flex;
   justify-content: center;
   align-items: center;
-  border-right: 3px solid var(--border);
+  border-right: 2px solid var(--border);
   position: relative;
   overflow: hidden;
   background: var(--bg);
@@ -193,21 +183,20 @@ body::after {
 
 /* ===== BUTTONS ===== */
 .btn {
-  background: var(--bright);
-  color: var(--bg);
-  border: 2px solid var(--border);
+  background: var(--accent);
+  color: #000;
+  border: 1px solid var(--bright);
   padding: 10px 28px;
   font-family: var(--font);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 2px;
-  text-transform: uppercase;
   cursor: pointer;
 }
 
 .btn:hover {
-  background: var(--bg);
-  color: var(--bright);
+  background: var(--bright);
+  color: #000;
 }
 
 .btn:disabled {
@@ -253,8 +242,8 @@ body::after {
 }
 
 .gate input {
-  background: var(--bg);
-  border: 2px solid var(--border);
+  background: var(--surface);
+  border: 1px solid var(--bright);
   color: var(--fg);
   padding: 12px 20px;
   font-family: var(--font);
@@ -273,8 +262,9 @@ body::after {
   font-size: 14px;
   letter-spacing: 4px;
   text-transform: uppercase;
-  color: var(--bright);
-  border-bottom: 3px solid var(--border);
+  color: var(--accent);
+  border-bottom: 2px solid var(--border);
+  border-bottom-style: double;
   padding-bottom: 10px;
   margin-bottom: 28px;
 }
@@ -292,8 +282,8 @@ body::after {
 
 .panel input[type="text"],
 .panel input[type="number"] {
-  background: var(--bg);
-  border: 2px solid var(--border);
+  background: var(--surface);
+  border: 1px solid var(--bright);
   color: var(--fg);
   padding: 10px 14px;
   font-family: var(--font);
@@ -320,7 +310,7 @@ body::after {
 
 .chat-sidebar {
   width: 200px;
-  border-right: 3px solid var(--border);
+  border-right: 2px solid var(--border);
   overflow-y: auto;
 }
 
@@ -374,7 +364,8 @@ body::after {
 .chat-topbar {
   display: flex;
   align-items: stretch;
-  border-bottom: 3px solid var(--border);
+  border-bottom: 2px solid var(--border);
+  border-bottom-style: double;
 }
 
 .chat-selectors {
@@ -560,7 +551,8 @@ body::after {
 }
 
 .msg.user .bubble {
-  border: 2px solid var(--border);
+  background: var(--surface);
+  border: 1px solid var(--bright);
   padding: 10px 14px;
 }
 
@@ -575,14 +567,15 @@ body::after {
 
 .msg.assistant .meta {
   font-size: 10px;
-  color: var(--muted);
+  color: var(--accent);
   text-transform: uppercase;
   letter-spacing: 2px;
   margin-bottom: 4px;
 }
 
 .msg.assistant .bubble {
-  border: 2px solid var(--muted);
+  background: #000066;
+  border: 1px solid var(--muted);
   padding: 10px 14px;
 }
 
@@ -633,7 +626,7 @@ body::after {
 /* ===== CHAT INPUT ===== */
 .chat-input-area {
   display: flex;
-  border-top: 3px solid var(--border);
+  border-top: 2px solid var(--border);
 }
 
 .file-btn {
@@ -657,7 +650,7 @@ body::after {
 
 #send-btn {
   border: none;
-  border-left: 3px solid var(--border);
+  border-left: 2px solid var(--border);
 }
 
 .chat-main.dragover {
@@ -668,8 +661,8 @@ body::after {
 /* ===== FOCUS ===== */
 input:focus,
 select:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
 
 /* ===== DISCOVERY ANIMATION ===== */
@@ -684,8 +677,8 @@ select:focus {
   left: 0;
   width: 100%;
   height: 2px;
-  background: var(--green);
-  box-shadow: 0 0 12px var(--green), 0 0 24px var(--green);
+  background: var(--accent);
+  box-shadow: 0 0 12px var(--accent), 0 0 24px var(--accent);
   animation: scan 1.5s linear infinite;
   z-index: 10;
 }
@@ -729,8 +722,8 @@ select:focus {
   font-size: 14px;
   letter-spacing: 4px;
   text-transform: uppercase;
-  color: var(--bright);
-  border-bottom: 3px solid var(--border);
+  color: var(--accent);
+  border-bottom: 2px solid var(--border);
   padding-bottom: 10px;
   margin-bottom: 28px;
 }
@@ -749,8 +742,8 @@ select:focus {
 .config-form input[type="text"],
 .config-form input[type="number"],
 .config-form input[type="password"] {
-  background: var(--bg);
-  border: 2px solid var(--border);
+  background: var(--surface);
+  border: 1px solid var(--bright);
   color: var(--fg);
   padding: 10px 14px;
   font-family: var(--font);
@@ -759,8 +752,8 @@ select:focus {
 }
 
 .config-form select {
-  background: var(--bg);
-  border: 2px solid var(--border);
+  background: var(--surface);
+  border: 1px solid var(--bright);
   color: var(--fg);
   padding: 10px 14px;
   font-family: var(--font);
@@ -855,11 +848,11 @@ select:focus {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg);
+  background: var(--surface);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--muted);
+  background: var(--accent);
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -892,7 +885,7 @@ select:focus {
   align-items: center;
   gap: 16px;
   padding: 12px 20px;
-  border-bottom: 3px solid var(--border);
+  border-bottom: 2px solid var(--border);
 }
 
 .brutus-title {
@@ -917,7 +910,7 @@ select:focus {
 
 .brutus-sidebar {
   width: 240px;
-  border-left: 3px solid var(--border);
+  border-left: 2px solid var(--border);
   overflow-y: auto;
 }
 
@@ -1045,16 +1038,16 @@ select:focus {
 }
 
 .msg.assistant .bubble.markdown-body code {
-  background: #1a1a1a;
+  background: #000066;
   padding: 1px 5px;
-  border: 1px solid var(--muted);
+  border: 1px solid var(--bright);
   font-family: var(--font);
   font-size: 12px;
 }
 
 .msg.assistant .bubble.markdown-body pre {
-  background: #0d0d0d;
-  border: 1px solid var(--muted);
+  background: #000066;
+  border: 1px solid var(--bright);
   padding: 10px 14px;
   margin: 8px 0;
   overflow-x: auto;
@@ -1110,7 +1103,7 @@ select:focus {
 }
 
 .msg.assistant .bubble.markdown-body th {
-  background: #1a1a1a;
+  background: #000066;
   color: var(--bright);
   font-weight: 700;
   text-transform: uppercase;
@@ -1150,7 +1143,7 @@ select:focus {
 
 /* ===== THINKING BLOCKS ===== */
 .thinking-block {
-  border-left: 3px solid var(--muted);
+  border-left: 3px solid var(--accent);
   margin: 0 0 10px;
   font-size: 12px;
   color: var(--muted);
@@ -1163,7 +1156,7 @@ select:focus {
   font-size: 11px;
   letter-spacing: 1px;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--accent);
   list-style: none;
   user-select: none;
 }
