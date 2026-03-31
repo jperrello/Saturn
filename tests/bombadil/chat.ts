@@ -332,6 +332,69 @@ export const clickThinkingToggle = actions(() => {
   }) as Action)
 })
 
+// --- model aggregation properties ---
+
+// when services are discovered, the model list should show entries with service names
+const modelListItems = extract((state) => {
+  const items = state.document.querySelectorAll("#model-list .model-item, #models-panel .model-item")
+  const result: { model: string; service: string; point: { x: number; y: number } }[] = []
+  items.forEach((item) => {
+    const el = item as HTMLElement
+    const model = el.querySelector(".model-name")?.textContent?.trim() ?? el.dataset.model ?? ""
+    const service = el.querySelector(".model-service")?.textContent?.trim() ?? el.dataset.service ?? ""
+    const r = el.getBoundingClientRect()
+    if (r.width === 0) return
+    result.push({
+      model,
+      service,
+      point: { x: r.left + r.width / 2, y: r.top + r.height / 2 },
+    })
+  })
+  return result
+})
+
+const discoveredServiceCount = extract((state) => {
+  const sel = state.document.getElementById("service-select") as HTMLSelectElement | null
+  if (!sel) return 0
+  // count non-placeholder options
+  return Array.from(sel.options).filter((o) => o.value && !o.disabled).length
+})
+
+// when services exist in the service dropdown, model list should be populated
+export const modelListPopulated = always(() => {
+  if (activeTab.current !== "chat") return true
+  // only check when we have discovered services
+  if (discoveredServiceCount.current === 0) return true
+  const items = modelListItems.current
+  if (items.length === 0) return true // model list panel may not be visible yet
+  // every model item must have a non-empty service name
+  return items.every((item: { model: string; service: string }) => item.service.length > 0)
+})
+
+// clicking a model item should update the chat service/model dropdowns
+export const modelSelectUpdatesChat = always(
+  now(() => {
+    if (activeTab.current !== "chat") return false
+    const items = modelListItems.current
+    return items.length > 0
+  }).implies(
+    eventually(() => {
+      // after model list is populated, the service and model selects should have values
+      const svc = serviceSelect.current
+      const mdl = modelSelect.current
+      if (!svc || !mdl) return false
+      return svc.value.length > 0 || mdl.value.length > 0
+    }).within(10, "seconds")
+  )
+)
+
+// action: click model items in the aggregation panel
+export const clickModelItems = actions(() => {
+  return modelListItems.current.map((item) => ({
+    Click: { name: `model-${item.model}`, point: item.point },
+  }) as Action)
+})
+
 // --- actions ---
 
 // navigate to chat tab
