@@ -554,6 +554,411 @@ function initSaturn() {
   window.saturnDiscover = (on) => { discovering = on }
 }
 
+// ===== BRUTUS 3D BUST =====
+function initBrutus() {
+  const container = document.getElementById('brutus-container')
+  if (!container) return
+  container.innerHTML = ''
+  const w = container.clientWidth, h = container.clientHeight
+  if (w === 0 || h === 0) return
+
+  const scene = new THREE.Scene()
+  const camera = new THREE.PerspectiveCamera(40, w / h, 0.1, 100)
+  camera.position.set(0, 0.3, 5.5)
+  camera.lookAt(0, 0.2, 0)
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+  renderer.setSize(w, h)
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  renderer.setClearColor(0x000000, 1)
+  renderer.toneMapping = THREE.ACESFilmicToneMapping
+  renderer.toneMappingExposure = 1.0
+  container.appendChild(renderer.domElement)
+
+  // post-processing — same chain as Saturn
+  const composer = new EffectComposer(renderer)
+  composer.addPass(new RenderPass(scene, camera))
+  const clampPass = new ShaderPass(BrightnessClampShader)
+  composer.addPass(clampPass)
+  const bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.8, 0.3, 0.85)
+  composer.addPass(bloom)
+  const chromaPass = new ShaderPass(ChromaticAberrationShader)
+  composer.addPass(chromaPass)
+  const filmPass = new ShaderPass(FilmGrainShader)
+  composer.addPass(filmPass)
+  composer.addPass(new OutputPass())
+
+  // pointer tracking
+  const mouse = new THREE.Vector2(9999, 9999)
+  container.style.touchAction = 'none'
+  container.addEventListener('pointermove', e => {
+    const rect = container.getBoundingClientRect()
+    mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+    mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+  })
+  container.addEventListener('pointerleave', () => { mouse.x = 9999; mouse.y = 9999 })
+
+  // --- bust geometry from radial profile slices ---
+  // Each slice: [y, frontRadius, backRadius, xOffset]
+  // y goes from bottom (-1.8) to top (1.8)
+  // radii define the bust cross-section at that height
+  const profile = [
+    // base / pedestal
+    [-1.80, 0.90, 0.50, 0.00],
+    [-1.70, 0.88, 0.48, 0.00],
+    [-1.60, 0.85, 0.46, 0.00],
+    [-1.50, 0.80, 0.44, 0.00],
+    // chest / shoulders
+    [-1.30, 0.78, 0.50, 0.00],
+    [-1.10, 0.82, 0.55, 0.00],
+    [-0.90, 0.90, 0.58, 0.00],
+    [-0.70, 0.95, 0.60, 0.00],
+    [-0.50, 0.92, 0.58, 0.00],
+    [-0.30, 0.80, 0.52, 0.00],
+    // neck
+    [-0.10, 0.38, 0.35, 0.00],
+    [ 0.00, 0.35, 0.33, 0.00],
+    [ 0.10, 0.33, 0.32, 0.00],
+    // chin / jaw
+    [ 0.20, 0.36, 0.34, 0.02],
+    [ 0.30, 0.42, 0.38, 0.03],
+    [ 0.40, 0.48, 0.42, 0.04],
+    // face
+    [ 0.50, 0.52, 0.46, 0.04],
+    [ 0.60, 0.54, 0.50, 0.03],
+    [ 0.70, 0.55, 0.52, 0.02],
+    [ 0.80, 0.54, 0.54, 0.01],
+    [ 0.90, 0.52, 0.54, 0.00],
+    // brow / forehead
+    [ 1.00, 0.50, 0.52, -0.02],
+    [ 1.10, 0.48, 0.50, -0.03],
+    [ 1.20, 0.46, 0.50, -0.04],
+    // top of head
+    [ 1.30, 0.44, 0.48, -0.04],
+    [ 1.40, 0.40, 0.44, -0.03],
+    [ 1.50, 0.34, 0.38, -0.02],
+    [ 1.60, 0.26, 0.30, -0.01],
+    [ 1.70, 0.16, 0.20, 0.00],
+    [ 1.80, 0.06, 0.08, 0.00],
+  ]
+
+  // nose ridge — extra points protruding forward
+  const noseProfile = [
+    [0.35, 0.18], // [y, protrusion from front]
+    [0.45, 0.22],
+    [0.55, 0.25],
+    [0.65, 0.26],
+    [0.75, 0.24],
+    [0.85, 0.20],
+    [0.95, 0.12],
+  ]
+
+  // eye sockets — indentations
+  const eyeY = 0.75, eyeSpread = 0.22, eyeDepth = 0.06
+
+  const bustCount = 10000
+  const bustPos = new Float32Array(bustCount * 3)
+  const bustBase = new Float32Array(bustCount * 3)
+  const bustPhase = new Float32Array(bustCount)
+  const bustNormals = new Float32Array(bustCount * 3)
+  let idx = 0
+
+  // helper: interpolate profile at arbitrary y
+  function sampleProfile(y) {
+    if (y <= profile[0][0]) return profile[0]
+    if (y >= profile[profile.length - 1][0]) return profile[profile.length - 1]
+    for (let i = 0; i < profile.length - 1; i++) {
+      if (y >= profile[i][0] && y <= profile[i + 1][0]) {
+        const t = (y - profile[i][0]) / (profile[i + 1][0] - profile[i][0])
+        return [
+          y,
+          profile[i][1] + (profile[i + 1][1] - profile[i][1]) * t,
+          profile[i][2] + (profile[i + 1][2] - profile[i][2]) * t,
+          profile[i][3] + (profile[i + 1][3] - profile[i][3]) * t,
+        ]
+      }
+    }
+    return profile[0]
+  }
+
+  // helper: nose protrusion at y
+  function noseBump(y) {
+    if (y < noseProfile[0][0] || y > noseProfile[noseProfile.length - 1][0]) return 0
+    for (let i = 0; i < noseProfile.length - 1; i++) {
+      if (y >= noseProfile[i][0] && y <= noseProfile[i + 1][0]) {
+        const t = (y - noseProfile[i][0]) / (noseProfile[i + 1][0] - noseProfile[i][0])
+        return noseProfile[i][1] + (noseProfile[i + 1][1] - noseProfile[i][1]) * t
+      }
+    }
+    return 0
+  }
+
+  // distribute particles across bust surface
+  for (let i = 0; i < bustCount; i++) {
+    const y = -1.80 + Math.random() * 3.60
+    const [, frontR, backR, xOff] = sampleProfile(y)
+
+    // angle around the vertical axis
+    const theta = Math.random() * Math.PI * 2
+
+    // radius varies front-to-back
+    const isFront = Math.cos(theta) > 0
+    const baseR = isFront ? frontR : backR
+
+    // add some surface noise
+    const noise = 1.0 + (Math.random() - 0.5) * 0.08
+    let r = baseR * noise
+
+    // nose protrusion (only for forward-facing particles near center)
+    const noseR = noseBump(y)
+    if (noseR > 0 && Math.abs(theta) < 0.4 && isFront) {
+      r += noseR * Math.cos(theta) * (1.0 - Math.abs(theta) / 0.4) * 0.5
+    }
+
+    // eye socket indentation
+    if (Math.abs(y - eyeY) < 0.08 && isFront) {
+      const xPos = Math.sin(theta) * r
+      if (Math.abs(Math.abs(xPos) - eyeSpread) < 0.08) {
+        r -= eyeDepth
+      }
+    }
+
+    const x = Math.sin(theta) * r + xOff
+    const z = Math.cos(theta) * r
+
+    bustPos[idx * 3] = x
+    bustPos[idx * 3 + 1] = y
+    bustPos[idx * 3 + 2] = z
+    bustBase[idx * 3] = x
+    bustBase[idx * 3 + 1] = y
+    bustBase[idx * 3 + 2] = z
+    bustPhase[idx] = Math.random() * Math.PI * 2
+
+    // approximate normal (radial outward)
+    const nx = Math.sin(theta)
+    const nz = Math.cos(theta)
+    const len = Math.sqrt(nx * nx + nz * nz) || 1
+    bustNormals[idx * 3] = nx / len
+    bustNormals[idx * 3 + 1] = 0
+    bustNormals[idx * 3 + 2] = nz / len
+
+    idx++
+  }
+
+  const bustGeo = new THREE.BufferGeometry()
+  bustGeo.setAttribute('position', new THREE.BufferAttribute(bustPos, 3))
+  bustGeo.setAttribute('aBase', new THREE.BufferAttribute(bustBase, 3))
+  bustGeo.setAttribute('aPhase', new THREE.BufferAttribute(bustPhase, 1))
+  bustGeo.setAttribute('aNormal', new THREE.BufferAttribute(bustNormals, 3))
+
+  const bustMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uMouse: { value: new THREE.Vector3(9999, 9999, 9999) },
+      uActive: { value: 0 },
+    },
+    vertexShader: `
+      attribute vec3 aBase;
+      attribute float aPhase;
+      attribute vec3 aNormal;
+      uniform float uTime;
+      uniform vec3 uMouse;
+      uniform float uActive;
+      varying float vLight;
+      varying float vFresnel;
+      varying float vY;
+
+      void main() {
+        // slow breathing
+        float breathe = 1.0 + 0.004 * sin(uTime * 1.5 + aPhase);
+        vec3 pos = aBase * breathe;
+
+        // mouse repulsion
+        vec3 dir = pos - uMouse;
+        float dist = length(dir);
+        float force = smoothstep(0.6, 0.0, dist) * 0.2;
+        pos += normalize(dir + 0.001) * force;
+
+        vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
+        gl_Position = projectionMatrix * mvPos;
+
+        // size — slightly larger than Saturn particles
+        gl_PointSize = (2.5 + uActive * 0.5) * (300.0 / -mvPos.z);
+
+        // wrap lighting (light from upper-right-front)
+        vec3 lightDir = normalize(vec3(0.5, 0.8, 1.0));
+        float wrap = 0.4;
+        float NdL = dot(aNormal, lightDir);
+        vLight = (NdL + wrap) / (1.0 + wrap);
+        vLight = clamp(vLight, 0.15, 1.0);
+
+        // Fresnel rim
+        vec3 viewDir = normalize(-mvPos.xyz);
+        vFresnel = pow(1.0 - max(dot(aNormal, viewDir), 0.0), 3.0);
+
+        vY = aBase.y;
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uActive;
+      varying float vLight;
+      varying float vFresnel;
+      varying float vY;
+
+      void main() {
+        // circular point
+        vec2 c = gl_PointCoord - 0.5;
+        if (dot(c, c) > 0.25) discard;
+
+        // marble-white base with warm shadows
+        vec3 baseColor = vec3(0.85, 0.82, 0.78);
+        vec3 shadowColor = vec3(0.3, 0.28, 0.25);
+        vec3 color = mix(shadowColor, baseColor, vLight);
+
+        // Fresnel rim — cool blue-white edge glow
+        vec3 rimColor = vec3(0.6, 0.7, 0.9);
+        color += rimColor * vFresnel * 0.4;
+
+        // active state — subtle warm glow (when Brutus is routing)
+        vec3 activeColor = vec3(1.0, 0.85, 0.5);
+        color = mix(color, activeColor, uActive * 0.3 * (0.5 + 0.5 * vFresnel));
+
+        // soft alpha for depth
+        float alpha = 0.55 + 0.25 * vLight;
+
+        gl_FragColor = vec4(color, alpha);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.NormalBlending,
+  })
+
+  const bust = new THREE.Points(bustGeo, bustMat)
+  bust.rotation.x = -0.1
+  scene.add(bust)
+
+  // background stars (fewer than Saturn)
+  const starCount = 300
+  const starPos = new Float32Array(starCount * 3)
+  const starPhase = new Float32Array(starCount)
+  for (let i = 0; i < starCount; i++) {
+    starPos[i * 3] = (Math.random() - 0.5) * 30
+    starPos[i * 3 + 1] = (Math.random() - 0.5) * 30
+    starPos[i * 3 + 2] = -(10 + Math.random() * 20)
+    starPhase[i] = Math.random() * Math.PI * 2
+  }
+  const starGeo = new THREE.BufferGeometry()
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3))
+  starGeo.setAttribute('aPhase', new THREE.BufferAttribute(starPhase, 1))
+
+  const starMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `
+      attribute float aPhase;
+      uniform float uTime;
+      varying float vTwinkle;
+      void main() {
+        vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mvPos;
+        gl_PointSize = 1.5 * (300.0 / -mvPos.z);
+        vTwinkle = 0.5 + 0.5 * sin(uTime * 2.0 + aPhase);
+      }
+    `,
+    fragmentShader: `
+      varying float vTwinkle;
+      void main() {
+        vec2 c = gl_PointCoord - 0.5;
+        if (dot(c, c) > 0.25) discard;
+        gl_FragColor = vec4(vec3(0.6, 0.6, 0.7) * vTwinkle, vTwinkle * 0.6);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  })
+  scene.add(new THREE.Points(starGeo, starMat))
+
+  // label
+  const label = document.createElement('div')
+  label.textContent = 'B R U T U S'
+  label.style.cssText = 'position:absolute;bottom:8%;left:0;right:0;text-align:center;color:#d4c9b8;font:1.2em monospace;letter-spacing:0.4em;pointer-events:none;text-shadow:0 0 10px rgba(180,160,120,0.5)'
+  container.appendChild(label)
+
+  let active = false
+  let activeLerp = 0
+  const clock = new THREE.Clock()
+  const raycaster = new THREE.Raycaster()
+
+  function animate() {
+    const t = clock.getElapsedTime()
+
+    activeLerp += ((active ? 1 : 0) - activeLerp) * 0.04
+
+    // slow rotation
+    bust.rotation.y = Math.sin(t * 0.15) * 0.25
+
+    // project mouse into world space
+    raycaster.setFromCamera(mouse, camera)
+    const mouseWorld = new THREE.Vector3()
+    raycaster.ray.at(camera.position.z, mouseWorld)
+    bustMat.uniforms.uMouse.value.copy(mouseWorld)
+
+    // breathing update
+    const bPos = bustGeo.attributes.position.array
+    for (let i = 0; i < bustCount; i++) {
+      const i3 = i * 3
+      const breathe = 1 + 0.004 * Math.sin(t * 1.5 + bustPhase[i])
+      bPos[i3] = bustBase[i3] * breathe
+      bPos[i3 + 1] = bustBase[i3 + 1] * breathe
+      bPos[i3 + 2] = bustBase[i3 + 2] * breathe
+    }
+    bustGeo.attributes.position.needsUpdate = true
+
+    bustMat.uniforms.uTime.value = t
+    bustMat.uniforms.uActive.value = activeLerp
+    starMat.uniforms.uTime.value = t
+    filmPass.uniforms.uTime.value = t
+
+    // label glow in active mode
+    if (activeLerp > 0.01) {
+      const g = Math.round(160 + 95 * activeLerp)
+      label.style.color = `rgb(255,${g},${Math.round(80 + 100 * (1 - activeLerp))})`
+      label.style.textShadow = `0 0 12px rgba(255,200,80,${activeLerp * 0.6})`
+    } else {
+      label.style.color = '#d4c9b8'
+      label.style.textShadow = '0 0 8px rgba(180,160,120,0.4)'
+    }
+
+    composer.render()
+    requestAnimationFrame(animate)
+  }
+
+  animate()
+
+  const ro = new ResizeObserver(() => {
+    const w = container.clientWidth, h = container.clientHeight
+    if (w === 0 || h === 0) return
+    camera.aspect = w / h
+    camera.updateProjectionMatrix()
+    renderer.setSize(w, h)
+    composer.setSize(w, h)
+  })
+  ro.observe(container)
+
+  window.brutusActive = (on) => { active = on }
+}
+
+let _brutusInited = false
+function ensureBrutus() {
+  if (_brutusInited) return
+  const c = document.getElementById('brutus-container')
+  if (!c || c.clientWidth === 0) return
+  _brutusInited = true
+  initBrutus()
+}
+
 window.addEventListener('load', () => {
   setTimeout(initSaturn, 100)
 })
@@ -936,6 +1341,33 @@ const chats = loadChats()
 let activeChat = chats.length > 0 ? 0 : null
 let sending = false
 
+const TOKEN_BUDGET = 100000
+function estimate(text) {
+  return Math.ceil((text || '').length / 4)
+}
+
+function compact(msgs) {
+  const total = msgs.reduce((s, m) => s + estimate(m.content), 0)
+  if (total <= TOKEN_BUDGET) return msgs
+  const keep = 4
+  const head = msgs[0]?.role === 'system' ? [msgs[0]] : []
+  const tail = msgs.slice(-keep)
+  let rest = msgs.slice(head.length, -keep)
+  // drop oldest until under budget or rest is empty
+  while (rest.length > 0) {
+    const cur = head.reduce((s, m) => s + estimate(m.content), 0)
+      + estimate('[Earlier messages trimmed to fit context window]')
+      + rest.reduce((s, m) => s + estimate(m.content), 0)
+      + tail.reduce((s, m) => s + estimate(m.content), 0)
+    if (cur <= TOKEN_BUDGET) break
+    rest.shift()
+  }
+  const trimmed = msgs.length - head.length - rest.length - keep
+  if (trimmed <= 0) return msgs
+  toast(`Trimmed ${trimmed} old messages to fit context`)
+  return [...head, { role: 'system', content: '[Earlier messages trimmed to fit context window]' }, ...rest, ...tail]
+}
+
 function esc(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
@@ -1134,15 +1566,7 @@ function renderMessages() {
       div.innerHTML = `<div class="prefix">&gt; you</div><div class="bubble">${esc(m.text)}</div>`
     } else {
       div.className = 'msg assistant'
-      let toolHTML = ''
-      if (m.toolCalls && m.toolCalls.length > 0) {
-        const badges = m.toolCalls.map(tc => {
-          let args = {}
-          try { args = JSON.parse(tc.arguments) } catch { args = {} }
-          return renderToolCallBadge(tc.name, args)
-        }).join(' ')
-        toolHTML = `<div class="tool-calls-row">${badges}</div>`
-      }
+      const toolHTML = renderToolsInline(m.toolCalls, m.toolResults)
       const metaLabel = m.routedBy === 'brutus'
         ? `brutus → ${m.service || ''} // ${m.model || ''}`
         : `${m.service || ''} // ${m.model || ''}`
@@ -1228,6 +1652,7 @@ async function send() {
       .filter(m => m.role === 'user' || m.role === 'assistant')
       .map(m => ({ role: m.role, content: m.text }))
   ]
+  const compacted = compact(apiMessages)
 
   const isBrutus = service === '__brutus__'
 
@@ -1252,8 +1677,8 @@ async function send() {
   try {
     const endpoint = isBrutus ? '/api/brutus/chat' : '/api/chat'
     const payload = isBrutus
-      ? { messages: apiMessages }
-      : { service, model, messages: apiMessages, ...getActiveParams() }
+      ? { messages: compacted }
+      : { service, model, messages: compacted, ...getActiveParams() }
 
     const res = await fetch(endpoint, {
       method: 'POST',
@@ -1263,7 +1688,23 @@ async function send() {
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
-      full = `[error] ${err.error || res.statusText}`
+      const code = res.status
+      if (code === 401 || code === 403) {
+        full = `[error] Authentication failed — check API key`
+        bubble.classList.add('error-permanent')
+      } else if (code === 404) {
+        full = `[error] Service not found — run Discover`
+        bubble.classList.add('error-permanent')
+      } else if (code === 429) {
+        full = `[error] Rate limited — try again in a moment`
+        bubble.classList.add('error-retryable')
+      } else if (code >= 500) {
+        full = `[error] Server error — the backend may be down`
+        bubble.classList.add('error-retryable')
+      } else {
+        full = `[error] ${err.error || res.statusText}`
+        bubble.classList.add('error-permanent')
+      }
       bubble.innerHTML = esc(full)
       chat.messages.push({ role: 'assistant', text: full, service: actualService, model: actualModel })
       saveChats()
@@ -1290,6 +1731,8 @@ async function send() {
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
+    let stamp = 0
+    const THROTTLE = 80
 
     while (true) {
       const { done, value } = await reader.read()
@@ -1309,6 +1752,9 @@ async function send() {
           const delta = chunk.choices?.[0]?.delta
           if (delta?.content) {
             full += delta.content
+            const now = Date.now()
+            if (now - stamp < THROTTLE) continue
+            stamp = now
             const parts = splitThinking(full)
             if (parts.pending) {
               bubble.innerHTML = renderThinkingHTML(parts.thinking) + '<span class="cursor">▊</span>'
@@ -1324,6 +1770,15 @@ async function send() {
               if (tc.function?.name) toolCalls[idx].name = tc.function.name
               if (tc.function?.arguments) toolCalls[idx].arguments += tc.function.arguments
             }
+            const live = toolCalls.map(tc => {
+              let args = {}
+              try { args = JSON.parse(tc.arguments) } catch { /* partial */ }
+              return renderToolCallInline(tc.name, args, true)
+            }).join('')
+            const parts = splitThinking(full)
+            const body = parts.pending ? '' : renderMarkdown(parts.body)
+            bubble.innerHTML = live + renderThinkingHTML(parts.thinking) + body + '<span class="cursor">▊</span>'
+            messagesEl.scrollTop = messagesEl.scrollHeight
           }
         } catch {
           // skip malformed chunks
@@ -1331,15 +1786,17 @@ async function send() {
       }
     }
 
-    // render tool call badges if present
+    // execute tool calls with permission gating
     let toolHTML = ''
+    let toolResults = []
     if (toolCalls.length > 0) {
-      const badges = toolCalls.map(tc => {
-        let args = {}
-        try { args = JSON.parse(tc.arguments) } catch { /* partial args */ }
-        return renderToolCallBadge(tc.name, args)
-      }).join(' ')
-      toolHTML = `<div class="tool-calls-row">${badges}</div>`
+      // show pending badges while awaiting permission
+      toolHTML = renderToolsInline(toolCalls)
+      bubble.innerHTML = toolHTML + renderWithThinking(full)
+      messagesEl.scrollTop = messagesEl.scrollHeight
+
+      toolResults = await executeToolCalls(toolCalls, bubble)
+      toolHTML = `<div class="tool-calls-row">${renderPermissionBadges(toolCalls, toolResults)}</div>`
     }
 
     // remove cursor, finalize
@@ -1350,10 +1807,20 @@ async function send() {
       service: actualService, model: actualModel,
       routedBy: isBrutus ? 'brutus' : undefined,
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+      toolResults: toolResults.length > 0 ? toolResults : undefined,
     })
     saveChats()
   } catch (e) {
-    full = `[error] ${e.message}`
+    if (e.name === 'AbortError') {
+      full = `[error] Request cancelled`
+      bubble.classList.add('error-network')
+    } else if (e instanceof TypeError) {
+      full = `[error] Network error — check your connection`
+      bubble.classList.add('error-network')
+    } else {
+      full = `[error] ${e.message}`
+      bubble.classList.add('error-retryable')
+    }
     bubble.innerHTML = esc(full)
     chat.messages.push({ role: 'assistant', text: full, service: actualService, model: actualModel })
     saveChats()
@@ -1447,6 +1914,82 @@ const mcpServersConfig = document.getElementById('mcp-servers-config')
 const mcpServersList = document.getElementById('mcp-servers-list')
 let mcpTools = []
 
+// ===== TOOL PERMISSIONS =====
+const ALLOWED_KEY = 'saturn-allowed-tools'
+const allowed = new Set(JSON.parse(localStorage.getItem(ALLOWED_KEY) || '[]'))
+
+function saveAllowed() {
+  localStorage.setItem(ALLOWED_KEY, JSON.stringify([...allowed]))
+}
+
+const permDialog = document.getElementById('tool-permission')
+const permName = document.getElementById('permission-tool-name')
+const permArgs = document.getElementById('permission-tool-args')
+const permAllow = document.getElementById('perm-allow')
+const permAlways = document.getElementById('perm-always')
+const permDeny = document.getElementById('perm-deny')
+
+function checkPermission(name, args) {
+  if (allowed.has(name)) return Promise.resolve('allow')
+  permName.textContent = name
+  permArgs.textContent = Object.keys(args || {}).length > 0 ? JSON.stringify(args, null, 2) : '(no arguments)'
+  permDialog.classList.remove('hidden')
+  return new Promise(resolve => {
+    function cleanup() {
+      permAllow.removeEventListener('click', onAllow)
+      permAlways.removeEventListener('click', onAlways)
+      permDeny.removeEventListener('click', onDeny)
+      permDialog.classList.add('hidden')
+    }
+    function onAllow() { cleanup(); resolve('allow') }
+    function onAlways() { cleanup(); allowed.add(name); saveAllowed(); resolve('always') }
+    function onDeny() { cleanup(); resolve('deny') }
+    permAllow.addEventListener('click', onAllow)
+    permAlways.addEventListener('click', onAlways)
+    permDeny.addEventListener('click', onDeny)
+  })
+}
+
+async function executeToolCalls(calls, bubble) {
+  const results = []
+  for (const tc of calls) {
+    let args = {}
+    try { args = JSON.parse(tc.arguments) } catch { /* partial */ }
+    const decision = await checkPermission(tc.name, args)
+    if (decision === 'deny') {
+      results.push({ name: tc.name, denied: true })
+      continue
+    }
+    try {
+      const res = await fetch('/api/mcp/tools/call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: tc.name, arguments: args }),
+      })
+      const data = await res.json()
+      results.push({ name: tc.name, content: data.content || data })
+    } catch (e) {
+      results.push({ name: tc.name, error: e.message })
+    }
+  }
+  return results
+}
+
+function renderPermissionBadges(calls, results) {
+  return calls.map((tc, i) => {
+    const r = results[i]
+    if (!r) return renderToolCallBadge(tc.name, {})
+    if (r.denied) return `<span class="tool-call-badge denied">${esc(tc.name)} [denied]</span>`
+    let args = {}
+    try { args = JSON.parse(tc.arguments) } catch {}
+    const badge = `<span class="tool-call-badge approved">${esc(tc.name)}</span>`
+    const content = r.error
+      ? `<pre class="tool-result-content" style="color:var(--red)">${esc(r.error)}</pre>`
+      : renderToolResult(r.content ? (Array.isArray(r.content) ? r.content : [{ text: JSON.stringify(r.content) }]) : [])
+    return badge + content
+  }).join('')
+}
+
 document.getElementById('tools-toggle').addEventListener('click', () => {
   toolsPanel.classList.toggle('hidden')
   if (!toolsPanel.classList.contains('hidden')) refreshMCPTools()
@@ -1538,6 +2081,30 @@ document.getElementById('mcp-add-btn').addEventListener('click', async () => {
 function renderToolCallBadge(name, args) {
   const argsStr = Object.keys(args || {}).length > 0 ? ` ${JSON.stringify(args)}` : ''
   return `<span class="tool-call-badge">${esc(name)}${esc(argsStr)}</span>`
+}
+
+function renderToolCallInline(name, args, running) {
+  const formatted = Object.keys(args || {}).length > 0 ? JSON.stringify(args, null, 2) : ''
+  const status = running ? '<span class="tool-call-status running">running\u2026</span>' : ''
+  const body = formatted ? `<div class="tool-call-args">${esc(formatted)}</div>` : ''
+  return `<details class="tool-call-inline"><summary>${esc(name)} ${status}</summary>${body}</details>`
+}
+
+function renderToolResultInline(content) {
+  if (!content) return ''
+  const text = typeof content === 'string' ? content : content.map(c => c.text || JSON.stringify(c)).join('\n')
+  return `<details class="tool-result-inline"><summary>Result</summary><pre>${esc(text)}</pre></details>`
+}
+
+function renderToolsInline(calls, results) {
+  if (!calls || calls.length === 0) return ''
+  return calls.map((tc, i) => {
+    let args = {}
+    try { args = JSON.parse(tc.arguments) } catch { args = {} }
+    let html = renderToolCallInline(tc.name, args, false)
+    if (results && results[i]) html += renderToolResultInline(results[i])
+    return html
+  }).join('')
 }
 
 function renderToolResult(content) {
@@ -1891,6 +2458,7 @@ document.getElementById('brutus-accept').addEventListener('click', () => {
   localStorage.setItem('brutus-accepted', '1')
   loadBrutusQR()
   loadBrutusStatus()
+  setTimeout(ensureBrutus, 100)
 })
 
 // restore gate state
@@ -2146,6 +2714,7 @@ document.querySelector('[data-tab="brutus"]').addEventListener('click', () => {
   if (!brutusMain.classList.contains('hidden')) {
     loadBrutusQR()
     loadBrutusStatus()
+    setTimeout(ensureBrutus, 100)
   }
 })
 
@@ -2153,6 +2722,7 @@ document.querySelector('[data-tab="brutus"]').addEventListener('click', () => {
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
     if (tab.dataset.tab === 'brutus') {
+      setTimeout(ensureBrutus, 100)
       if (!_brutusRefreshTimer) {
         _brutusRefreshTimer = setInterval(loadBrutusStatus, 5000)
       }

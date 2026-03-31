@@ -226,6 +226,7 @@
       </div>
 
       <div id="brutus-main" class="brutus-layout hidden">
+        <div class="brutus-viz-col" id="brutus-container"></div>
         <div class="brutus-dashboard-col">
           <div class="brutus-header">
             <span class="brutus-title">BRUTUS</span>
@@ -247,29 +248,35 @@
             </div>
           </div>
 
-          <div class="brutus-section">
-            <div class="brutus-section-title">How Brutus Works</div>
-            <p class="brutus-desc">
-              Brutus auto-routes your messages to the best available LLM backend.
-              Select <strong>Brutus (auto)</strong> in the Chat tab to use it.
-              Scan the QR code to chat from anywhere.
-            </p>
+          <div class="brutus-section brutus-about-section">
+            <div class="brutus-about-row">
+              <div class="brutus-about-text">
+                <div class="brutus-section-title">How Brutus Works</div>
+                <p class="brutus-desc">
+                  Brutus auto-routes your messages to the best available LLM backend.
+                  Select <strong>Brutus (auto)</strong> in the Chat tab to use it.
+                  Scan the QR code to chat from anywhere.
+                </p>
+                <div class="brutus-backends-inline">
+                  <div class="brutus-section-title" style="margin-top:16px">Backends</div>
+                  <div id="brutus-backends" class="brutus-backends"></div>
+                </div>
+              </div>
+              <div class="brutus-remote-panel">
+                <div class="brutus-section-title">Remote Access</div>
+                <p class="brutus-qr-label">Scan to chat from anywhere</p>
+                <div id="brutus-qr" class="brutus-qr"></div>
+                <div id="brutus-url" class="brutus-url-text">No tunnel active</div>
+                <div id="brutus-tunnel-status" class="brutus-tunnel-status">● stopped</div>
+                <div class="brutus-qr-config">
+                  <button id="brutus-tunnel-start" class="btn brutus-qr-btn brutus-tunnel-btn">Start Tunnel</button>
+                  <button id="brutus-tunnel-stop" class="btn btn-secondary brutus-qr-btn brutus-tunnel-btn hidden">Stop Tunnel</button>
+                  <button id="brutus-qr-refresh" class="btn btn-secondary brutus-qr-btn">LAN Only</button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-        <aside class="brutus-sidebar">
-          <h3>Remote Access</h3>
-          <p class="brutus-qr-label">Scan to chat from anywhere</p>
-          <div id="brutus-qr" class="brutus-qr"></div>
-          <div id="brutus-url" class="brutus-url-text">No tunnel active</div>
-          <div id="brutus-tunnel-status" class="brutus-tunnel-status">● stopped</div>
-          <div class="brutus-qr-config">
-            <button id="brutus-tunnel-start" class="btn brutus-qr-btn brutus-tunnel-btn">Start Tunnel</button>
-            <button id="brutus-tunnel-stop" class="btn btn-secondary brutus-qr-btn brutus-tunnel-btn hidden">Stop Tunnel</button>
-            <button id="brutus-qr-refresh" class="btn btn-secondary brutus-qr-btn">LAN Only</button>
-          </div>
-          <h3>Backends</h3>
-          <div id="brutus-backends" class="brutus-backends"></div>
-        </aside>
       </div>
     </section>
 
@@ -515,6 +522,20 @@
         <div class="settings-actions">
           <button id="config-reset" class="btn btn-secondary">Reset All</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOOL PERMISSION DIALOG -->
+  <div id="tool-permission" class="tool-permission hidden">
+    <div class="permission-dialog">
+      <div class="permission-title">Tool Call Request</div>
+      <div class="permission-tool" id="permission-tool-name"></div>
+      <pre class="permission-args" id="permission-tool-args"></pre>
+      <div class="permission-actions">
+        <button id="perm-allow" class="btn">Allow Once</button>
+        <button id="perm-always" class="btn btn-secondary">Always Allow</button>
+        <button id="perm-deny" class="btn btn-stop">Deny</button>
       </div>
     </div>
   </div>
