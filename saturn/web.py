@@ -1,10 +1,12 @@
 import os
 import sys
+import re
 import subprocess
 import signal
 import time
 import asyncio
 import logging
+import socket
 from pathlib import Path
 from typing import Optional, List
 from dataclasses import asdict
@@ -92,6 +94,54 @@ def _config_to_dict(name: str, config: ServiceConfig, builtin: bool) -> dict:
         "builtin": builtin,
         **status,
     }
+
+
+# --- Brutus state ---
+
+_breakers: dict[str, dict] = {}  # name -> {failures, opened_at}
+_health: dict[str, bool] = {}
+_tunnel_proc: Optional[subprocess.Popen] = None
+_tunnel_url: Optional[str] = None
+
+BREAKER_THRESHOLD = 3
+BREAKER_COOLDOWN = 30
+
+
+def _breaker(name: str) -> dict:
+    if name not in _breakers:
+        _breakers[name] = {"failures": 0, "opened_at": 0}
+    return _breakers[name]
+
+
+def _breaker_open(b: dict) -> bool:
+    if b["failures"] < BREAKER_THRESHOLD:
+        return False
+    if time.time() - b["opened_at"] > BREAKER_COOLDOWN:
+        b["failures"] = 0
+        return False
+    return True
+
+
+def _record_failure(name: str):
+    b = _breaker(name)
+    b["failures"] += 1
+    if b["failures"] >= BREAKER_THRESHOLD:
+        b["opened_at"] = time.time()
+
+
+def _record_success(name: str):
+    _breaker(name)["failures"] = 0
+
+
+def _lan_ip() -> Optional[str]:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return None
 
 
 # --- API Routes ---
@@ -355,6 +405,147 @@ async def chat(body: ChatRequest):
                         yield "\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# --- Brutus API ---
+
+class BrutusChat(BaseModel):
+    messages: List[dict]
+
+
+@app.post("/api/brutus/chat")
+async def brutus_chat(body: BrutusChat):
+    # gather candidates from discovered + running configured services
+    candidates = []
+    for name, d in _discovered.items():
+        if not _breaker_open(_breaker(name)):
+            candidates.append({"name": name, "host": d["host"], "port": d["port"], "priority": d.get("priority", 100), "models": d.get("models", [])})
+    for sname, cfg, _ in list_service_configs():
+        if sname in _discovered:
+            continue
+        info = read_service_info(sname)
+        if info and _pid_alive(info.get("pid", 0)):
+            port = info.get("port")
+            if port and not _breaker_open(_breaker(sname)):
+                candidates.append({"name": sname, "host": "127.0.0.1", "port": port, "priority": cfg.priority, "models": []})
+
+    candidates.sort(key=lambda c: c["priority"])
+
+    if not candidates:
+        raise HTTPException(502, "No healthy backends available. Run discovery first.")
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
+        for c in candidates:
+            base = f"http://{c['host']}:{c['port']}/v1"
+            model = c["models"][0] if c["models"] else None
+            if not model:
+                try:
+                    r = await client.get(f"{base}/models", timeout=5)
+                    data = r.json()
+                    if isinstance(data, dict) and "data" in data:
+                        model = data["data"][0]["id"] if data["data"] else None
+                    elif isinstance(data, list) and data:
+                        model = data[0].get("id", data[0].get("name"))
+                except Exception:
+                    pass
+            if not model:
+                continue
+
+            try:
+                payload = {"model": model, "messages": body.messages, "stream": True}
+
+                async def generate(base_url=base, pay=payload, hdrs={}, svc_name=c["name"], mdl=model):
+                    async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as c2:
+                        async with c2.stream("POST", f"{base_url}/chat/completions", json=pay, headers=hdrs) as r:
+                            if r.status_code != 200:
+                                _record_failure(svc_name)
+                                err = await r.aread()
+                                yield f"data: {err.decode()}\n\n"
+                                return
+                            _record_success(svc_name)
+                            # emit metadata as first event
+                            yield f"data: {{}}\n\n"
+                            async for line in r.aiter_lines():
+                                if line:
+                                    yield line + "\n"
+                                else:
+                                    yield "\n"
+
+                return StreamingResponse(
+                    generate(),
+                    media_type="text/event-stream",
+                    headers={
+                        "X-Brutus-Service": c["name"],
+                        "X-Brutus-Model": model,
+                        "Access-Control-Expose-Headers": "X-Brutus-Service, X-Brutus-Model",
+                    },
+                )
+            except Exception:
+                _record_failure(c["name"])
+                continue
+
+    raise HTTPException(502, "All backends failed")
+
+
+@app.get("/api/brutus/url")
+async def brutus_url():
+    global _tunnel_url
+    if _tunnel_url:
+        return {"url": _tunnel_url, "mode": "tunnel"}
+    ip = _lan_ip()
+    # infer port from uvicorn — default 3000
+    return {"url": f"http://{ip}:3000" if ip else None, "mode": "lan"}
+
+
+@app.get("/api/brutus/tunnel/status")
+async def brutus_tunnel_status():
+    global _tunnel_proc, _tunnel_url
+    running = _tunnel_proc is not None and _tunnel_proc.poll() is None
+    return {"url": _tunnel_url, "status": "running" if running else "stopped"}
+
+
+@app.post("/api/brutus/tunnel/start")
+async def brutus_tunnel_start():
+    global _tunnel_proc, _tunnel_url
+    if _tunnel_proc and _tunnel_proc.poll() is None and _tunnel_url:
+        return {"url": _tunnel_url, "status": "running"}
+
+    try:
+        _tunnel_proc = subprocess.Popen(
+            ["cloudflared", "tunnel", "--url", "http://localhost:3000"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        raise HTTPException(500, "cloudflared not installed")
+
+    # read stderr until we find the URL (up to 30s)
+    deadline = time.time() + 30
+    buf = b""
+    while time.time() < deadline:
+        try:
+            chunk = _tunnel_proc.stderr.read(4096)
+            if not chunk:
+                break
+            buf += chunk
+            m = re.search(rb"https://[a-z0-9-]+\.trycloudflare\.com", buf)
+            if m:
+                _tunnel_url = m.group(0).decode()
+                return {"url": _tunnel_url, "status": "running"}
+        except Exception:
+            break
+
+    return {"error": "Tunnel failed to start", "log": buf.decode(errors="replace")}
+
+
+@app.post("/api/brutus/tunnel/stop")
+async def brutus_tunnel_stop():
+    global _tunnel_proc, _tunnel_url
+    if _tunnel_proc:
+        _tunnel_proc.terminate()
+        _tunnel_proc = None
+    _tunnel_url = None
+    return {"status": "stopped"}
 
 
 # --- MCP API ---

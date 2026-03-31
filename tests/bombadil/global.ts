@@ -41,11 +41,11 @@ const hasOverflowingContent = extract((state) => {
 
 // --- properties ---
 
-// exactly 3 tabs always exist
-export const threeTabsExist = always(() => tabCount.current === 3)
+// exactly 4 tabs always exist (discover, start, chat, brutus)
+export const fourTabsExist = always(() => tabCount.current === 4)
 
-// exactly 3 pages always exist
-export const threePagesExist = always(() => pageCount.current === 3)
+// exactly 4 pages always exist
+export const fourPagesExist = always(() => pageCount.current === 4)
 
 // active tab and active page always match
 export const tabMatchesPage = always(() => activeTab.current === activePage.current)
@@ -80,13 +80,22 @@ const tabChat = extract((state) => {
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
 })
 
+const tabBrutus = extract((state) => {
+  const btn = state.document.querySelector('.tab[data-tab="brutus"]') as HTMLElement | null
+  if (!btn) return null
+  const r = btn.getBoundingClientRect()
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+})
+
 export const tabNavigation = actions(() => {
   const result: Action[] = []
   const d = tabDiscover.current
   const s = tabStart.current
   const c = tabChat.current
+  const b = tabBrutus.current
   if (d) result.push({ Click: { name: "tab-discover", point: d } })
   if (s) result.push({ Click: { name: "tab-start", point: s } })
   if (c) result.push({ Click: { name: "tab-chat", point: c } })
+  if (b) result.push({ Click: { name: "tab-brutus", point: b } })
   return result
 })
