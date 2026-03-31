@@ -258,6 +258,80 @@ export const xssBlocked = always(() => {
   return !hasExecutableScript.current
 })
 
+// --- thinking block properties ---
+
+// when assistant messages contain <think> content, a collapsible thinking element
+// should exist and be collapsed by default
+const thinkingBlocks = extract((state) => {
+  const bubbles = state.document.querySelectorAll(".msg.assistant .bubble")
+  const result: { hasThinkEl: boolean; collapsed: boolean }[] = []
+  bubbles.forEach((b) => {
+    const el = b as HTMLElement
+    const thinkEl = el.querySelector(".thinking-block")
+    if (!thinkEl) return
+    const details = thinkEl.closest("details") ?? thinkEl
+    const isCollapsed = details.tagName === "DETAILS"
+      ? !(details as HTMLDetailsElement).open
+      : thinkEl.classList.contains("collapsed")
+    result.push({ hasThinkEl: true, collapsed: isCollapsed })
+  })
+  return result
+})
+
+export const thinkingBlockCollapsed = always(() => {
+  if (activeTab.current !== "chat") return true
+  const blocks = thinkingBlocks.current
+  if (blocks.length === 0) return true
+  // all thinking blocks should be collapsed by default
+  return blocks.every((b: { hasThinkEl: boolean; collapsed: boolean }) => b.collapsed)
+})
+
+// clicking a collapsed thinking block reveals the reasoning text
+const thinkingBlockContent = extract((state) => {
+  const bubbles = state.document.querySelectorAll(".msg.assistant .bubble")
+  const result: { point: { x: number; y: number }; hasContent: boolean; expanded: boolean }[] = []
+  bubbles.forEach((b) => {
+    const el = b as HTMLElement
+    const thinkEl = el.querySelector(".thinking-block")
+    if (!thinkEl) return
+    const toggle = thinkEl.querySelector("summary") ?? thinkEl.querySelector(".thinking-toggle") ?? thinkEl
+    const r = (toggle as HTMLElement).getBoundingClientRect()
+    if (r.width === 0) return
+    const details = thinkEl.closest("details") ?? thinkEl
+    const expanded = details.tagName === "DETAILS"
+      ? (details as HTMLDetailsElement).open
+      : !thinkEl.classList.contains("collapsed")
+    const content = thinkEl.querySelector(".thinking-content")
+    result.push({
+      point: { x: r.left + r.width / 2, y: r.top + r.height / 2 },
+      hasContent: content ? (content.textContent?.trim().length ?? 0) > 0 : false,
+      expanded,
+    })
+  })
+  return result
+})
+
+export const thinkingBlockExpands = always(
+  now(() => {
+    if (activeTab.current !== "chat") return false
+    const blocks = thinkingBlockContent.current
+    return blocks.some((b: { expanded: boolean; hasContent: boolean }) => b.expanded)
+  }).implies(
+    eventually(() => {
+      const blocks = thinkingBlockContent.current
+      return blocks.some((b: { expanded: boolean; hasContent: boolean }) => b.expanded && b.hasContent)
+    }).within(5, "seconds")
+  )
+)
+
+// action: click thinking block toggle to expand/collapse
+export const clickThinkingToggle = actions(() => {
+  const blocks = thinkingBlockContent.current
+  return blocks.map((b) => ({
+    Click: { name: "thinking-toggle", point: b.point },
+  }) as Action)
+})
+
 // --- actions ---
 
 // navigate to chat tab
