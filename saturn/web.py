@@ -8,6 +8,7 @@ import asyncio
 import logging
 import socket
 from collections import deque
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional, List
 from dataclasses import asdict
@@ -40,7 +41,32 @@ logger = logging.getLogger("saturn.web")
 
 WEB_DIR = Path(__file__).parent.parent / "Web-UI"
 
-app = FastAPI(title="Saturn Web UI")
+
+@asynccontextmanager
+async def lifespan(app):
+    yield
+    # kill child services started by this server instance
+    for pid in list(_started_pids):
+        if _pid_alive(pid):
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError:
+                pass
+    # give children a moment to exit, then force-kill stragglers
+    time.sleep(1)
+    for pid in list(_started_pids):
+        if _pid_alive(pid):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+    _started_pids.clear()
+    # kill tunnel if running
+    if _tunnel_proc and _tunnel_proc.returncode is None:
+        _tunnel_proc.terminate()
+
+
+app = FastAPI(title="Saturn Web UI", lifespan=lifespan)
 
 
 # --- API Models ---
@@ -101,9 +127,10 @@ def _config_to_dict(name: str, config: ServiceConfig, builtin: bool) -> dict:
 
 _breakers: dict[str, dict] = {}  # name -> {failures, opened_at}
 _health: dict[str, bool] = {}
-_tunnel_proc: Optional[subprocess.Popen] = None
+_tunnel_proc: Optional[asyncio.subprocess.Process] = None
 _tunnel_url: Optional[str] = None
 _routing_log: deque = deque(maxlen=50)
+_started_pids: set[int] = set()  # PIDs of services started by this server instance
 
 BREAKER_THRESHOLD = 3
 BREAKER_COOLDOWN = 30
@@ -221,11 +248,15 @@ async def start(name: str, body: ServiceStart = None):
         start_new_session=True,
     )
 
+    _started_pids.add(proc.pid)
+
     # wait briefly for service info file to appear
     for _ in range(20):
         time.sleep(0.25)
         info = read_service_info(name)
         if info and _pid_alive(info.get("pid", 0)):
+            _started_pids.discard(proc.pid)
+            _started_pids.add(info["pid"])
             return {"started": True, "pid": info["pid"], "port": info.get("port")}
 
     return {"started": True, "pid": proc.pid, "port": None}
@@ -253,6 +284,7 @@ async def stop(name: str):
             break
 
     remove_service_info(name)
+    _started_pids.discard(pid)
     return {"stopped": True, "name": name}
 
 
@@ -323,6 +355,42 @@ def _resolve(name: str) -> tuple[str, dict[str, str]]:
         if key:
             headers["Authorization"] = f"Bearer {key}"
     return config.upstream.base_url, headers
+
+
+OPENAI_PARAMS = {"temperature", "max_tokens", "top_p", "top_k", "frequency_penalty",
+                  "presence_penalty", "seed", "stop"}
+OLLAMA_PARAMS = {"temperature", "max_tokens", "top_p", "top_k", "frequency_penalty",
+                 "presence_penalty", "repeat_penalty", "repeat_last_n", "min_p",
+                 "seed", "stop", "mirostat", "mirostat_tau", "mirostat_eta",
+                 "num_ctx", "num_batch", "keep_alive"}
+ANTHROPIC_PARAMS = {"temperature", "max_tokens", "top_p", "top_k", "stop"}
+
+PARAMS_BY_TYPE = {"openai": OPENAI_PARAMS, "ollama": OLLAMA_PARAMS, "anthropic": ANTHROPIC_PARAMS}
+
+
+def _api_type(name: str) -> str:
+    if name in _discovered:
+        return _discovered[name].get("api_type", "openai")
+    config = load_service_config(name)
+    if config:
+        return config.api_type
+    return "openai"
+
+
+def _adapt(messages: list[dict], params: dict, api_type: str) -> dict:
+    allowed = PARAMS_BY_TYPE.get(api_type, OPENAI_PARAMS)
+    payload = {k: v for k, v in params.items() if k in allowed}
+
+    if api_type == "anthropic":
+        system_parts = [m["content"] for m in messages if m.get("role") == "system"]
+        chat_msgs = [m for m in messages if m.get("role") != "system"]
+        if system_parts:
+            payload["system"] = "\n\n".join(system_parts)
+        payload["messages"] = chat_msgs
+    else:
+        payload["messages"] = messages
+
+    return payload
 
 
 class ChatRequest(BaseModel):
@@ -418,18 +486,17 @@ async def chat(body: ChatRequest):
     base, headers = _resolve(body.service)
     headers["Content-Type"] = "application/json"
 
-    payload = {
-        "model": body.model,
-        "messages": body.messages,
-        "stream": True,
-    }
+    raw_params = {}
     for key in ("temperature", "max_tokens", "top_p", "top_k", "frequency_penalty",
                 "presence_penalty", "repeat_penalty", "repeat_last_n", "min_p",
                 "seed", "stop", "mirostat", "mirostat_tau", "mirostat_eta",
                 "num_ctx", "num_batch", "keep_alive"):
         val = getattr(body, key, None)
         if val is not None:
-            payload[key] = val
+            raw_params[key] = val
+
+    at = _api_type(body.service)
+    payload = {"model": body.model, "stream": True, **_adapt(body.messages, raw_params, at)}
 
     async def generate():
         async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
@@ -451,6 +518,23 @@ async def chat(body: ChatRequest):
 
 class BrutusChat(BaseModel):
     messages: List[dict]
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    frequency_penalty: Optional[float] = None
+    presence_penalty: Optional[float] = None
+    repeat_penalty: Optional[float] = None
+    repeat_last_n: Optional[int] = None
+    min_p: Optional[float] = None
+    seed: Optional[int] = None
+    stop: Optional[List[str]] = None
+    mirostat: Optional[int] = None
+    mirostat_tau: Optional[float] = None
+    mirostat_eta: Optional[float] = None
+    num_ctx: Optional[int] = None
+    num_batch: Optional[int] = None
+    keep_alive: Optional[str] = None
 
 
 @app.post("/api/brutus/chat")
@@ -504,7 +588,17 @@ async def brutus_chat(body: BrutusChat):
 
             try:
                 latency = round((time.time() - t0) * 1000)
-                payload = {"model": model, "messages": body.messages, "stream": True}
+                raw_params = {}
+                for key in ("temperature", "max_tokens", "top_p", "top_k", "frequency_penalty",
+                            "presence_penalty", "repeat_penalty", "repeat_last_n", "min_p",
+                            "seed", "stop", "mirostat", "mirostat_tau", "mirostat_eta",
+                            "num_ctx", "num_batch", "keep_alive"):
+                    val = getattr(body, key, None)
+                    if val is not None:
+                        raw_params[key] = val
+
+                at = _api_type(c["name"])
+                payload = {"model": model, "stream": True, **_adapt(body.messages, raw_params, at)}
 
                 _routing_log.append({
                     "ts": time.time(),
@@ -594,7 +688,7 @@ async def brutus_status():
         })
     backends.sort(key=lambda b: b["priority"])
 
-    running = _tunnel_proc is not None and _tunnel_proc.poll() is None
+    running = _tunnel_proc is not None and _tunnel_proc.returncode is None
     return {
         "backends": backends,
         "tunnel": {"status": "running" if running else "stopped", "url": _tunnel_url if running else None},
@@ -615,51 +709,98 @@ async def brutus_url():
 @app.get("/api/brutus/tunnel/status")
 async def brutus_tunnel_status():
     global _tunnel_proc, _tunnel_url
-    running = _tunnel_proc is not None and _tunnel_proc.poll() is None
+    running = _tunnel_proc is not None and _tunnel_proc.returncode is None
     return {"url": _tunnel_url, "status": "running" if running else "stopped"}
+
+
+async def _drain(stream):
+    try:
+        while await stream.readline():
+            pass
+    except Exception:
+        pass
+
+
+async def _kill_tunnel():
+    global _tunnel_proc, _tunnel_url
+    if _tunnel_proc:
+        _tunnel_proc.terminate()
+        try:
+            await asyncio.wait_for(_tunnel_proc.wait(), timeout=5)
+        except asyncio.TimeoutError:
+            _tunnel_proc.kill()
+            await _tunnel_proc.wait()
+        _tunnel_proc = None
+    _tunnel_url = None
 
 
 @app.post("/api/brutus/tunnel/start")
 async def brutus_tunnel_start():
     global _tunnel_proc, _tunnel_url
-    if _tunnel_proc and _tunnel_proc.poll() is None and _tunnel_url:
+    if _tunnel_proc and _tunnel_proc.returncode is None and _tunnel_url:
         return {"url": _tunnel_url, "status": "running"}
 
+    # clean up any stale process before spawning
+    await _kill_tunnel()
+
     try:
-        _tunnel_proc = subprocess.Popen(
-            ["cloudflared", "tunnel", "--url", "http://localhost:3000"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+        _tunnel_proc = await asyncio.create_subprocess_exec(
+            "cloudflared", "tunnel", "--url", "http://localhost:3000",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
         )
     except FileNotFoundError:
         raise HTTPException(500, "cloudflared not installed")
 
-    # read stderr until we find the URL (up to 30s)
-    deadline = time.time() + 30
+    # read stderr until the tunnel is actually connected (not just URL assigned)
     buf = b""
-    while time.time() < deadline:
-        try:
-            chunk = _tunnel_proc.stderr.read(4096)
-            if not chunk:
-                break
-            buf += chunk
-            m = re.search(rb"https://[a-z0-9-]+\.trycloudflare\.com", buf)
-            if m:
-                _tunnel_url = m.group(0).decode()
-                return {"url": _tunnel_url, "status": "running"}
-        except Exception:
-            break
+    url = None
+    try:
+        async with asyncio.timeout(30):
+            while True:
+                line = await _tunnel_proc.stderr.readline()
+                if not line:
+                    break
+                buf += line
+                if not url:
+                    m = re.search(rb"https://[a-z0-9-]+\.trycloudflare\.com", line)
+                    if m:
+                        url = m.group(0).decode()
+                if url and b"Registered tunnel connection" in line:
+                    break
+    except (asyncio.TimeoutError, Exception):
+        pass
 
-    return {"error": "Tunnel failed to start", "log": buf.decode(errors="replace")}
+    if not url:
+        return {"error": "Tunnel failed to start", "log": buf.decode(errors="replace")}
+
+    # drain remaining stderr in background to prevent pipe buffer deadlock
+    asyncio.create_task(_drain(_tunnel_proc.stderr))
+
+    # wait for Cloudflare DNS to propagate the new subdomain.
+    # system resolver caches NXDOMAIN aggressively, so query authoritative DNS
+    # directly via dig to avoid poisoning the local cache.
+    host = url.replace("https://", "")
+    for _ in range(15):
+        try:
+            probe = await asyncio.create_subprocess_exec(
+                "dig", "+short", host, "@1.1.1.1",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+            )
+            out, _ = await asyncio.wait_for(probe.communicate(), timeout=3)
+            if out.strip():
+                break
+        except Exception:
+            pass
+        await asyncio.sleep(1)
+
+    _tunnel_url = url
+    return {"url": _tunnel_url, "status": "running"}
 
 
 @app.post("/api/brutus/tunnel/stop")
 async def brutus_tunnel_stop():
-    global _tunnel_proc, _tunnel_url
-    if _tunnel_proc:
-        _tunnel_proc.terminate()
-        _tunnel_proc = None
-    _tunnel_url = None
+    await _kill_tunnel()
     return {"status": "stopped"}
 
 
