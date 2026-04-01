@@ -358,11 +358,11 @@ def _resolve(name: str) -> tuple[str, dict[str, str]]:
 
 
 OPENAI_PARAMS = {"temperature", "max_tokens", "top_p", "top_k", "frequency_penalty",
-                  "presence_penalty", "seed", "stop"}
+                  "presence_penalty", "seed", "stop", "response_format"}
 OLLAMA_PARAMS = {"temperature", "max_tokens", "top_p", "top_k", "frequency_penalty",
                  "presence_penalty", "repeat_penalty", "repeat_last_n", "min_p",
                  "seed", "stop", "mirostat", "mirostat_tau", "mirostat_eta",
-                 "num_ctx", "num_batch", "keep_alive"}
+                 "num_ctx", "num_batch", "keep_alive", "tfs_z", "typical_p"}
 ANTHROPIC_PARAMS = {"temperature", "max_tokens", "top_p", "top_k", "stop"}
 
 PARAMS_BY_TYPE = {"openai": OPENAI_PARAMS, "ollama": OLLAMA_PARAMS, "anthropic": ANTHROPIC_PARAMS}
@@ -414,6 +414,9 @@ class ChatRequest(BaseModel):
     num_ctx: Optional[int] = None
     num_batch: Optional[int] = None
     keep_alive: Optional[str] = None
+    tfs_z: Optional[float] = None
+    typical_p: Optional[float] = None
+    response_format: Optional[dict] = None
 
 
 @app.get("/api/models/all")
@@ -490,7 +493,8 @@ async def chat(body: ChatRequest):
     for key in ("temperature", "max_tokens", "top_p", "top_k", "frequency_penalty",
                 "presence_penalty", "repeat_penalty", "repeat_last_n", "min_p",
                 "seed", "stop", "mirostat", "mirostat_tau", "mirostat_eta",
-                "num_ctx", "num_batch", "keep_alive"):
+                "num_ctx", "num_batch", "keep_alive", "tfs_z", "typical_p",
+                "response_format"):
         val = getattr(body, key, None)
         if val is not None:
             raw_params[key] = val
@@ -535,6 +539,9 @@ class BrutusChat(BaseModel):
     num_ctx: Optional[int] = None
     num_batch: Optional[int] = None
     keep_alive: Optional[str] = None
+    tfs_z: Optional[float] = None
+    typical_p: Optional[float] = None
+    response_format: Optional[dict] = None
 
 
 @app.post("/api/brutus/chat")
@@ -550,12 +557,16 @@ async def brutus_chat(body: BrutusChat):
             skipped.append({"name": name, "reason": "circuit_breaker"})
             continue
         candidates.append({"name": name, "host": d["host"], "port": d["port"], "priority": d.get("priority", 100), "models": d.get("models", [])})
+    disc_ports = {d["port"] for d in _discovered.values()}
+    disc_bases = {n.split("-")[0] for n in _discovered}
     for sname, cfg, _ in list_service_configs():
-        if sname in _discovered:
+        if sname in _discovered or sname in disc_bases:
             continue
         info = read_service_info(sname)
         if info and _pid_alive(info.get("pid", 0)):
             port = info.get("port")
+            if port in disc_ports:
+                continue
             b = _breaker(sname)
             if port and not _breaker_open(b):
                 candidates.append({"name": sname, "host": "127.0.0.1", "port": port, "priority": cfg.priority, "models": []})
@@ -664,12 +675,17 @@ async def brutus_status():
             "healthy": not is_open,
             "breaker": {"failures": b["failures"], "open": is_open, "cooldown": round(cooldown)},
         })
+    discovered_ports = {d["port"] for d in _discovered.values()}
+    discovered_bases = {n.split("-")[0] for n in _discovered}
     for sname, cfg, _ in list_service_configs():
         if sname in _discovered:
             continue
         info = read_service_info(sname)
         running = info and _pid_alive(info.get("pid", 0))
         if not running:
+            continue
+        # skip if this service's port or base name matches a discovered entry
+        if info.get("port") in discovered_ports or sname in discovered_bases:
             continue
         b = _breaker(sname)
         is_open = _breaker_open(b)
@@ -755,6 +771,7 @@ async def brutus_tunnel_start():
     # read stderr until the tunnel is actually connected (not just URL assigned)
     buf = b""
     url = None
+    timed_out = False
     try:
         async with asyncio.timeout(30):
             while True:
@@ -768,10 +785,18 @@ async def brutus_tunnel_start():
                         url = m.group(0).decode()
                 if url and b"Registered tunnel connection" in line:
                     break
-    except (asyncio.TimeoutError, Exception):
-        pass
+    except asyncio.TimeoutError:
+        timed_out = True
+    except Exception:
+        await _kill_tunnel()
+        return {"error": "Tunnel failed to start", "log": buf.decode(errors="replace")}
+
+    if timed_out and not url:
+        await _kill_tunnel()
+        return {"error": "Tunnel timed out — is cloudflared installed?"}
 
     if not url:
+        await _kill_tunnel()
         return {"error": "Tunnel failed to start", "log": buf.decode(errors="replace")}
 
     # drain remaining stderr in background to prevent pipe buffer deadlock

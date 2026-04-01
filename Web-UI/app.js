@@ -236,44 +236,6 @@ function initWelcomeSaturn() {
   return () => { cancelAnimationFrame(raf); renderer.dispose() }
 }
 
-// Brutus matrix rain background
-function initBrutusRain(container) {
-  if (container.querySelector('canvas.bg-rain')) return
-  const canvas = document.createElement('canvas')
-  canvas.className = 'bg-rain'
-  canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;opacity:0.07'
-  container.style.position = 'relative'
-  container.insertBefore(canvas, container.firstChild)
-  const ctx = canvas.getContext('2d')
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%^&*'
-  let columns = []
-  function resize() {
-    canvas.width = container.clientWidth
-    canvas.height = container.clientHeight
-    const colW = 14
-    const count = Math.ceil(canvas.width / colW)
-    columns = Array.from({length: count}, (_, i) => ({
-      x: i * colW,
-      y: Math.random() * canvas.height,
-      speed: 1 + Math.random() * 3
-    }))
-  }
-  resize()
-  window.addEventListener('resize', resize)
-  setInterval(() => {
-    if (!document.getElementById('brutus')?.classList.contains('active')) return
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.1)'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
-    ctx.fillStyle = '#4ade80'
-    ctx.font = '12px monospace'
-    for (const col of columns) {
-      ctx.fillText(chars[Math.floor(Math.random() * chars.length)], col.x, col.y)
-      col.y += col.speed * 12
-      if (col.y > canvas.height) col.y = 0
-    }
-  }, 66)
-}
-
 // Code block copy buttons
 function addCopyButtons(container) {
   container.querySelectorAll('pre').forEach(pre => {
@@ -319,15 +281,17 @@ document.querySelectorAll('.tab').forEach(tab => {
     tab.classList.add('active')
     document.getElementById(tab.dataset.tab).classList.add('active')
     updateIndicator()
+    // close ephemeral panels on tab switch
+    document.getElementById('tools-panel')?.classList.add('hidden')
+    document.getElementById('config-overlay')?.classList.add('hidden')
     // init canvas backgrounds on tab switch
     if (tab.dataset.tab === 'chat') {
       const msgs = document.querySelector('.messages')
       if (msgs) initChatStars(msgs)
       initWelcomeSaturn()
     }
-    if (tab.dataset.tab === 'brutus') {
-      const dash = document.querySelector('.brutus-dashboard-col')
-      if (dash) initBrutusRain(dash)
+    if (tab.dataset.tab === 'system') {
+      loadSystemStatus()
     }
   })
 })
@@ -864,410 +828,7 @@ function initSaturn() {
   window.saturnDiscover = (on) => { discovering = on }
 }
 
-// ===== BRUTUS 3D BUST =====
-function initBrutus() {
-  const container = document.getElementById('brutus-container')
-  if (!container) return
-  container.innerHTML = ''
-  const w = container.clientWidth, h = container.clientHeight
-  if (w === 0 || h === 0) return
-
-  const scene = new THREE.Scene()
-  const camera = new THREE.PerspectiveCamera(40, w / h, 0.1, 100)
-  camera.position.set(0, 0.3, 5.5)
-  camera.lookAt(0, 0.2, 0)
-
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
-  renderer.setSize(w, h)
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-  renderer.setClearColor(0x000000, 1)
-  renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.toneMappingExposure = 1.0
-  container.appendChild(renderer.domElement)
-
-  // post-processing — same chain as Saturn
-  const composer = new EffectComposer(renderer)
-  composer.addPass(new RenderPass(scene, camera))
-  const clampPass = new ShaderPass(BrightnessClampShader)
-  composer.addPass(clampPass)
-  const bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.8, 0.3, 0.85)
-  composer.addPass(bloom)
-  const chromaPass = new ShaderPass(ChromaticAberrationShader)
-  composer.addPass(chromaPass)
-  const filmPass = new ShaderPass(FilmGrainShader)
-  composer.addPass(filmPass)
-  composer.addPass(new OutputPass())
-
-  // pointer tracking
-  const mouse = new THREE.Vector2(9999, 9999)
-  container.style.touchAction = 'none'
-  container.addEventListener('pointermove', e => {
-    const rect = container.getBoundingClientRect()
-    mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
-    mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
-  })
-  container.addEventListener('pointerleave', () => { mouse.x = 9999; mouse.y = 9999 })
-
-  // --- bust geometry from radial profile slices ---
-  // Each slice: [y, frontRadius, backRadius, xOffset]
-  // y goes from bottom (-1.8) to top (1.8)
-  // radii define the bust cross-section at that height
-  const profile = [
-    // base / pedestal
-    [-1.80, 0.90, 0.50, 0.00],
-    [-1.70, 0.88, 0.48, 0.00],
-    [-1.60, 0.85, 0.46, 0.00],
-    [-1.50, 0.80, 0.44, 0.00],
-    // chest / shoulders
-    [-1.30, 0.78, 0.50, 0.00],
-    [-1.10, 0.82, 0.55, 0.00],
-    [-0.90, 0.90, 0.58, 0.00],
-    [-0.70, 0.95, 0.60, 0.00],
-    [-0.50, 0.92, 0.58, 0.00],
-    [-0.30, 0.80, 0.52, 0.00],
-    // neck
-    [-0.10, 0.38, 0.35, 0.00],
-    [ 0.00, 0.35, 0.33, 0.00],
-    [ 0.10, 0.33, 0.32, 0.00],
-    // chin / jaw
-    [ 0.20, 0.36, 0.34, 0.02],
-    [ 0.30, 0.42, 0.38, 0.03],
-    [ 0.40, 0.48, 0.42, 0.04],
-    // face
-    [ 0.50, 0.52, 0.46, 0.04],
-    [ 0.60, 0.54, 0.50, 0.03],
-    [ 0.70, 0.55, 0.52, 0.02],
-    [ 0.80, 0.54, 0.54, 0.01],
-    [ 0.90, 0.52, 0.54, 0.00],
-    // brow / forehead
-    [ 1.00, 0.50, 0.52, -0.02],
-    [ 1.10, 0.48, 0.50, -0.03],
-    [ 1.20, 0.46, 0.50, -0.04],
-    // top of head
-    [ 1.30, 0.44, 0.48, -0.04],
-    [ 1.40, 0.40, 0.44, -0.03],
-    [ 1.50, 0.34, 0.38, -0.02],
-    [ 1.60, 0.26, 0.30, -0.01],
-    [ 1.70, 0.16, 0.20, 0.00],
-    [ 1.80, 0.06, 0.08, 0.00],
-  ]
-
-  // nose ridge — extra points protruding forward
-  const noseProfile = [
-    [0.35, 0.18], // [y, protrusion from front]
-    [0.45, 0.22],
-    [0.55, 0.25],
-    [0.65, 0.26],
-    [0.75, 0.24],
-    [0.85, 0.20],
-    [0.95, 0.12],
-  ]
-
-  // eye sockets — indentations
-  const eyeY = 0.75, eyeSpread = 0.22, eyeDepth = 0.06
-
-  const bustCount = 10000
-  const bustPos = new Float32Array(bustCount * 3)
-  const bustBase = new Float32Array(bustCount * 3)
-  const bustPhase = new Float32Array(bustCount)
-  const bustNormals = new Float32Array(bustCount * 3)
-  let idx = 0
-
-  // helper: interpolate profile at arbitrary y
-  function sampleProfile(y) {
-    if (y <= profile[0][0]) return profile[0]
-    if (y >= profile[profile.length - 1][0]) return profile[profile.length - 1]
-    for (let i = 0; i < profile.length - 1; i++) {
-      if (y >= profile[i][0] && y <= profile[i + 1][0]) {
-        const t = (y - profile[i][0]) / (profile[i + 1][0] - profile[i][0])
-        return [
-          y,
-          profile[i][1] + (profile[i + 1][1] - profile[i][1]) * t,
-          profile[i][2] + (profile[i + 1][2] - profile[i][2]) * t,
-          profile[i][3] + (profile[i + 1][3] - profile[i][3]) * t,
-        ]
-      }
-    }
-    return profile[0]
-  }
-
-  // helper: nose protrusion at y
-  function noseBump(y) {
-    if (y < noseProfile[0][0] || y > noseProfile[noseProfile.length - 1][0]) return 0
-    for (let i = 0; i < noseProfile.length - 1; i++) {
-      if (y >= noseProfile[i][0] && y <= noseProfile[i + 1][0]) {
-        const t = (y - noseProfile[i][0]) / (noseProfile[i + 1][0] - noseProfile[i][0])
-        return noseProfile[i][1] + (noseProfile[i + 1][1] - noseProfile[i][1]) * t
-      }
-    }
-    return 0
-  }
-
-  // distribute particles across bust surface
-  for (let i = 0; i < bustCount; i++) {
-    const y = -1.80 + Math.random() * 3.60
-    const [, frontR, backR, xOff] = sampleProfile(y)
-
-    // angle around the vertical axis
-    const theta = Math.random() * Math.PI * 2
-
-    // radius varies front-to-back
-    const isFront = Math.cos(theta) > 0
-    const baseR = isFront ? frontR : backR
-
-    // add some surface noise
-    const noise = 1.0 + (Math.random() - 0.5) * 0.08
-    let r = baseR * noise
-
-    // nose protrusion (only for forward-facing particles near center)
-    const noseR = noseBump(y)
-    if (noseR > 0 && Math.abs(theta) < 0.4 && isFront) {
-      r += noseR * Math.cos(theta) * (1.0 - Math.abs(theta) / 0.4) * 0.5
-    }
-
-    // eye socket indentation
-    if (Math.abs(y - eyeY) < 0.08 && isFront) {
-      const xPos = Math.sin(theta) * r
-      if (Math.abs(Math.abs(xPos) - eyeSpread) < 0.08) {
-        r -= eyeDepth
-      }
-    }
-
-    const x = Math.sin(theta) * r + xOff
-    const z = Math.cos(theta) * r
-
-    bustPos[idx * 3] = x
-    bustPos[idx * 3 + 1] = y
-    bustPos[idx * 3 + 2] = z
-    bustBase[idx * 3] = x
-    bustBase[idx * 3 + 1] = y
-    bustBase[idx * 3 + 2] = z
-    bustPhase[idx] = Math.random() * Math.PI * 2
-
-    // approximate normal (radial outward)
-    const nx = Math.sin(theta)
-    const nz = Math.cos(theta)
-    const len = Math.sqrt(nx * nx + nz * nz) || 1
-    bustNormals[idx * 3] = nx / len
-    bustNormals[idx * 3 + 1] = 0
-    bustNormals[idx * 3 + 2] = nz / len
-
-    idx++
-  }
-
-  const bustGeo = new THREE.BufferGeometry()
-  bustGeo.setAttribute('position', new THREE.BufferAttribute(bustPos, 3))
-  bustGeo.setAttribute('aBase', new THREE.BufferAttribute(bustBase, 3))
-  bustGeo.setAttribute('aPhase', new THREE.BufferAttribute(bustPhase, 1))
-  bustGeo.setAttribute('aNormal', new THREE.BufferAttribute(bustNormals, 3))
-
-  const bustMat = new THREE.ShaderMaterial({
-    uniforms: {
-      uTime: { value: 0 },
-      uMouse: { value: new THREE.Vector3(9999, 9999, 9999) },
-      uActive: { value: 0 },
-    },
-    vertexShader: `
-      attribute vec3 aBase;
-      attribute float aPhase;
-      attribute vec3 aNormal;
-      uniform float uTime;
-      uniform vec3 uMouse;
-      uniform float uActive;
-      varying float vLight;
-      varying float vFresnel;
-      varying float vY;
-
-      void main() {
-        // slow breathing
-        float breathe = 1.0 + 0.004 * sin(uTime * 1.5 + aPhase);
-        vec3 pos = aBase * breathe;
-
-        // mouse repulsion
-        vec3 dir = pos - uMouse;
-        float dist = length(dir);
-        float force = smoothstep(0.6, 0.0, dist) * 0.2;
-        pos += normalize(dir + 0.001) * force;
-
-        vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
-        gl_Position = projectionMatrix * mvPos;
-
-        // size — slightly larger than Saturn particles
-        gl_PointSize = (2.5 + uActive * 0.5) * (300.0 / -mvPos.z);
-
-        // wrap lighting (light from upper-right-front)
-        vec3 lightDir = normalize(vec3(0.5, 0.8, 1.0));
-        float wrap = 0.4;
-        float NdL = dot(aNormal, lightDir);
-        vLight = (NdL + wrap) / (1.0 + wrap);
-        vLight = clamp(vLight, 0.15, 1.0);
-
-        // Fresnel rim
-        vec3 viewDir = normalize(-mvPos.xyz);
-        vFresnel = pow(1.0 - max(dot(aNormal, viewDir), 0.0), 3.0);
-
-        vY = aBase.y;
-      }
-    `,
-    fragmentShader: `
-      uniform float uTime;
-      uniform float uActive;
-      varying float vLight;
-      varying float vFresnel;
-      varying float vY;
-
-      void main() {
-        // circular point
-        vec2 c = gl_PointCoord - 0.5;
-        if (dot(c, c) > 0.25) discard;
-
-        // marble-white base with warm shadows
-        vec3 baseColor = vec3(0.85, 0.82, 0.78);
-        vec3 shadowColor = vec3(0.3, 0.28, 0.25);
-        vec3 color = mix(shadowColor, baseColor, vLight);
-
-        // Fresnel rim — cool blue-white edge glow
-        vec3 rimColor = vec3(0.6, 0.7, 0.9);
-        color += rimColor * vFresnel * 0.4;
-
-        // active state — subtle warm glow (when Brutus is routing)
-        vec3 activeColor = vec3(1.0, 0.85, 0.5);
-        color = mix(color, activeColor, uActive * 0.3 * (0.5 + 0.5 * vFresnel));
-
-        // soft alpha for depth
-        float alpha = 0.55 + 0.25 * vLight;
-
-        gl_FragColor = vec4(color, alpha);
-      }
-    `,
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.NormalBlending,
-  })
-
-  const bust = new THREE.Points(bustGeo, bustMat)
-  bust.rotation.x = -0.1
-  scene.add(bust)
-
-  // background stars (fewer than Saturn)
-  const starCount = 300
-  const starPos = new Float32Array(starCount * 3)
-  const starPhase = new Float32Array(starCount)
-  for (let i = 0; i < starCount; i++) {
-    starPos[i * 3] = (Math.random() - 0.5) * 30
-    starPos[i * 3 + 1] = (Math.random() - 0.5) * 30
-    starPos[i * 3 + 2] = -(10 + Math.random() * 20)
-    starPhase[i] = Math.random() * Math.PI * 2
-  }
-  const starGeo = new THREE.BufferGeometry()
-  starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3))
-  starGeo.setAttribute('aPhase', new THREE.BufferAttribute(starPhase, 1))
-
-  const starMat = new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 } },
-    vertexShader: `
-      attribute float aPhase;
-      uniform float uTime;
-      varying float vTwinkle;
-      void main() {
-        vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
-        gl_Position = projectionMatrix * mvPos;
-        gl_PointSize = 1.5 * (300.0 / -mvPos.z);
-        vTwinkle = 0.5 + 0.5 * sin(uTime * 2.0 + aPhase);
-      }
-    `,
-    fragmentShader: `
-      varying float vTwinkle;
-      void main() {
-        vec2 c = gl_PointCoord - 0.5;
-        if (dot(c, c) > 0.25) discard;
-        gl_FragColor = vec4(vec3(0.6, 0.6, 0.7) * vTwinkle, vTwinkle * 0.6);
-      }
-    `,
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  })
-  scene.add(new THREE.Points(starGeo, starMat))
-
-  // label
-  const label = document.createElement('div')
-  label.textContent = 'B R U T U S'
-  label.style.cssText = 'position:absolute;bottom:8%;left:0;right:0;text-align:center;color:#d4c9b8;font:1.2em monospace;letter-spacing:0.4em;pointer-events:none;text-shadow:0 0 10px rgba(180,160,120,0.5)'
-  container.appendChild(label)
-
-  let active = false
-  let activeLerp = 0
-  const clock = new THREE.Clock()
-  const raycaster = new THREE.Raycaster()
-
-  function animate() {
-    const t = clock.getElapsedTime()
-
-    activeLerp += ((active ? 1 : 0) - activeLerp) * 0.04
-
-    // slow rotation
-    bust.rotation.y = Math.sin(t * 0.15) * 0.25
-
-    // project mouse into world space
-    raycaster.setFromCamera(mouse, camera)
-    const mouseWorld = new THREE.Vector3()
-    raycaster.ray.at(camera.position.z, mouseWorld)
-    bustMat.uniforms.uMouse.value.copy(mouseWorld)
-
-    // breathing update
-    const bPos = bustGeo.attributes.position.array
-    for (let i = 0; i < bustCount; i++) {
-      const i3 = i * 3
-      const breathe = 1 + 0.004 * Math.sin(t * 1.5 + bustPhase[i])
-      bPos[i3] = bustBase[i3] * breathe
-      bPos[i3 + 1] = bustBase[i3 + 1] * breathe
-      bPos[i3 + 2] = bustBase[i3 + 2] * breathe
-    }
-    bustGeo.attributes.position.needsUpdate = true
-
-    bustMat.uniforms.uTime.value = t
-    bustMat.uniforms.uActive.value = activeLerp
-    starMat.uniforms.uTime.value = t
-    filmPass.uniforms.uTime.value = t
-
-    // label glow in active mode
-    if (activeLerp > 0.01) {
-      const g = Math.round(160 + 95 * activeLerp)
-      label.style.color = `rgb(255,${g},${Math.round(80 + 100 * (1 - activeLerp))})`
-      label.style.textShadow = `0 0 12px rgba(255,200,80,${activeLerp * 0.6})`
-    } else {
-      label.style.color = '#d4c9b8'
-      label.style.textShadow = '0 0 8px rgba(180,160,120,0.4)'
-    }
-
-    composer.render()
-    requestAnimationFrame(animate)
-  }
-
-  animate()
-
-  const ro = new ResizeObserver(() => {
-    const w = container.clientWidth, h = container.clientHeight
-    if (w === 0 || h === 0) return
-    camera.aspect = w / h
-    camera.updateProjectionMatrix()
-    renderer.setSize(w, h)
-    composer.setSize(w, h)
-  })
-  ro.observe(container)
-
-  window.brutusActive = (on) => { active = on }
-}
-
-let _brutusInited = false
-function ensureBrutus() {
-  if (_brutusInited) return
-  const c = document.getElementById('brutus-container')
-  if (!c || c.clientWidth === 0) return
-  _brutusInited = true
-  initBrutus()
-}
+// (3D bust removed — System page uses dashboard-only layout)
 
 window.addEventListener('load', () => {
   setTimeout(initSaturn, 100)
@@ -1284,8 +845,10 @@ function render(list, items, type) {
     div.className = 'checklist-item'
     div.style.setProperty('--i', i)
     const statusClass = s.status === 'online' ? 'status-online' : 'status-offline'
+    const moon = window.saturnMoons?.find(m => m.name === s.name)
+    const isChecked = moon ? moon.selected : false
     div.innerHTML = `
-      <input type="checkbox" id="${type}-${i}">
+      <input type="checkbox" id="${type}-${i}" ${isChecked ? 'checked' : ''}>
       <span class="name">${s.name}</span>
       ${s.status ? `<span class="status ${statusClass}">${s.status}</span>` : ''}
     `
@@ -1294,6 +857,7 @@ function render(list, items, type) {
     cb.addEventListener('change', () => {
       const moon = window.saturnMoons.find(m => m.name === s.name)
       if (moon) moon.selected = cb.checked
+      syncServices()
     })
     list.appendChild(div)
   })
@@ -1311,6 +875,7 @@ discoverBtn.addEventListener('click', async () => {
   if (window.saturnDiscover) window.saturnDiscover(true)
 
   try {
+    Object.keys(_modelCache).forEach(k => delete _modelCache[k])
     const res = await fetch('/api/discover')
     discoveredServices = await res.json()
   } catch (e) {
@@ -1318,9 +883,25 @@ discoverBtn.addEventListener('click', async () => {
     console.error('Discovery failed:', e)
   }
 
+  // probe each service to check reachability
+  await Promise.all(discoveredServices.map(async s => {
+    try {
+      const r = await fetch(`/api/models?service=${encodeURIComponent(s.name)}`)
+      s.reachable = r.ok
+    } catch {
+      s.reachable = false
+    }
+    s.status = s.reachable ? 'online' : 'unreachable'
+  }))
+
   window.saturnMoons = discoveredServices
     .filter(s => s.status === 'online')
-    .map(s => ({ name: s.name, selected: false }))
+    .map(s => ({ name: s.name, selected: true }))
+
+  const unreachable = discoveredServices.filter(s => !s.reachable)
+  if (unreachable.length > 0) {
+    toast(`${unreachable.length} service${unreachable.length > 1 ? 's' : ''} unreachable: ${unreachable.map(s => s.name).join(', ')}`, 5000)
+  }
 
   render(servicesList, discoveredServices, 'svc')
   syncServices()
@@ -1662,6 +1243,30 @@ function savePrefs(updates) {
   try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)) } catch { /* ignore */ }
 }
 
+// ===== MODEL FAVORITES (SAT-sgr.6) =====
+const FAVORITES_KEY = 'saturn-favorites'
+
+function loadFavorites() {
+  try {
+    const raw = localStorage.getItem(FAVORITES_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch { /* ignore */ }
+  return []
+}
+
+function saveFavorites(favs) {
+  try { localStorage.setItem(FAVORITES_KEY, JSON.stringify(favs)) } catch { /* ignore */ }
+}
+
+function toggleFavorite(modelId) {
+  const favs = loadFavorites()
+  const idx = favs.indexOf(modelId)
+  if (idx >= 0) favs.splice(idx, 1)
+  else favs.push(modelId)
+  saveFavorites(favs)
+  return idx < 0
+}
+
 const chats = loadChats()
 let activeChat = chats.length > 0 ? 0 : null
 let sending = false
@@ -1768,72 +1373,155 @@ function renderWithThinking(text) {
 function syncServices() {
   const prev = serviceSelect.value
   serviceSelect.innerHTML = ''
-  if (discoveredServices.length === 0) {
+  // only include services whose Discover checkbox is checked
+  const checked = discoveredServices.filter(s => {
+    const moon = window.saturnMoons?.find(m => m.name === s.name)
+    return moon ? moon.selected : false
+  })
+  if (checked.length === 0 && discoveredServices.length === 0) {
     serviceSelect.innerHTML = '<option value="" disabled selected>-- discover first --</option>'
     return
   }
-  discoveredServices.forEach(s => {
+  if (checked.length === 0) {
+    serviceSelect.innerHTML = '<option value="" disabled selected>-- select services in Discover --</option>'
+    syncSendBtn()
+    return
+  }
+  checked.forEach(s => {
     const opt = document.createElement('option')
     opt.value = s.name
     opt.textContent = `⊙ ${s.name}`
     serviceSelect.appendChild(opt)
   })
-  // Brutus auto-routing option
+  // Auto-route option
   const sep = document.createElement('option')
   sep.disabled = true
   sep.textContent = '────────────'
   serviceSelect.appendChild(sep)
-  const brutusOpt = document.createElement('option')
-  brutusOpt.value = '__brutus__'
-  brutusOpt.textContent = '⊛ Brutus (auto)'
-  serviceSelect.appendChild(brutusOpt)
+  const autoOpt = document.createElement('option')
+  autoOpt.value = '__brutus__'
+  autoOpt.textContent = '⊛ Auto-route'
+  serviceSelect.appendChild(autoOpt)
   // restore previous selection or saved pref
   const saved = prev || loadPrefs().service
   if (saved && [...serviceSelect.options].some(o => o.value === saved)) {
     serviceSelect.value = saved
   }
-  // apply deferred brutus selection from hash deep-link
-  if (_pendingBrutus) {
+  // apply deferred auto-route selection from hash deep-link
+  if (_pendingAutoRoute) {
     serviceSelect.value = '__brutus__'
-    _pendingBrutus = false
+    _pendingAutoRoute = false
   }
   loadModels()
 }
-let _pendingBrutus = false
+let _pendingAutoRoute = false
+
+function syncSendBtn() {
+  const valid = modelSelect.value && !modelSelect.selectedOptions[0]?.disabled
+  sendBtn.disabled = sending ? false : !valid
+  sendBtn.title = valid ? '' : 'Select a valid model first'
+}
+
+const selDot = document.querySelector('.sel-dot')
+function setDot(state) {
+  selDot.className = 'sel-dot' + (state ? ` ${state}` : '')
+}
 
 // fetch models from selected service
+const _modelCache = {}
+let _modelController = null
+
 async function loadModels() {
   const name = serviceSelect.value
+  const errorHint = document.getElementById('model-error')
+  errorHint.hidden = true
+  errorHint.textContent = ''
+  if (_modelController) _modelController.abort()
   if (!name) {
     modelSelect.innerHTML = '<option value="" disabled selected>-- select service --</option>'
+    setDot('idle')
+    syncSendBtn()
     return
   }
   if (name === '__brutus__') {
     modelSelect.innerHTML = '<option value="auto" selected>auto (best available)</option>'
+    setDot('')
+    syncSendBtn()
+    return
+  }
+  // use cache if available
+  if (_modelCache[name]) {
+    applyModels(_modelCache[name])
     return
   }
   modelSelect.innerHTML = '<option value="" disabled selected>loading...</option>'
+  setDot('loading')
+  syncSendBtn()
+  const ctrl = _modelController = new AbortController()
   try {
-    const res = await fetch(`/api/models?service=${encodeURIComponent(name)}`)
+    const res = await fetch(`/api/models?service=${encodeURIComponent(name)}`, { signal: ctrl.signal })
+    if (ctrl !== _modelController) return
+    if (!res.ok) {
+      const body = await res.text()
+      throw new Error(body.includes('Failed to fetch') ? 'Service unreachable' : `HTTP ${res.status}`)
+    }
     const list = await res.json()
-    modelSelect.innerHTML = ''
-    if (list.length === 0) {
-      modelSelect.innerHTML = '<option value="" disabled selected>-- no models --</option>'
-      return
-    }
-    list.forEach(m => {
-      const opt = document.createElement('option')
-      opt.value = m.id
-      opt.textContent = m.id
-      modelSelect.appendChild(opt)
-    })
-    const savedModel = loadPrefs().model
-    if (savedModel && [...modelSelect.options].some(o => o.value === savedModel)) {
-      modelSelect.value = savedModel
-    }
-  } catch {
-    modelSelect.innerHTML = '<option value="" disabled selected>-- error --</option>'
+    _modelCache[name] = { ok: true, models: list }
+    applyModels(_modelCache[name])
+  } catch (e) {
+    if (e.name === 'AbortError') return
+    _modelCache[name] = { ok: false, error: e.message }
+    applyModels(_modelCache[name])
   }
+}
+
+function applyModels(cached) {
+  const errorHint = document.getElementById('model-error')
+  errorHint.hidden = true
+  errorHint.textContent = ''
+  if (!cached.ok) {
+    modelSelect.innerHTML = '<option value="" disabled selected>-- error --</option>'
+    errorHint.textContent = cached.error === 'Service unreachable' ? 'Service unreachable' : 'Could not load models'
+    errorHint.hidden = false
+    setDot('error')
+    syncSendBtn()
+    return
+  }
+  modelSelect.innerHTML = ''
+  if (cached.models.length === 0) {
+    modelSelect.innerHTML = '<option value="" disabled selected>-- no models --</option>'
+    setDot('error')
+    syncSendBtn()
+    return
+  }
+  // sort favorites to top (SAT-sgr.6)
+  const favs = loadFavorites()
+  const sorted = [...cached.models].sort((a, b) => {
+    const af = favs.includes(a.id) ? 0 : 1
+    const bf = favs.includes(b.id) ? 0 : 1
+    return af - bf
+  })
+  let addedDivider = false
+  sorted.forEach(m => {
+    const isFav = favs.includes(m.id)
+    if (!isFav && !addedDivider && favs.length > 0 && sorted.some(x => favs.includes(x.id))) {
+      const divOpt = document.createElement('option')
+      divOpt.disabled = true
+      divOpt.textContent = '────────'
+      modelSelect.appendChild(divOpt)
+      addedDivider = true
+    }
+    const opt = document.createElement('option')
+    opt.value = m.id
+    opt.textContent = isFav ? `\u2605 ${m.id}` : m.id
+    modelSelect.appendChild(opt)
+  })
+  const savedModel = loadPrefs().model
+  if (savedModel && [...modelSelect.options].some(o => o.value === savedModel)) {
+    modelSelect.value = savedModel
+  }
+  setDot('')
+  syncSendBtn()
 }
 
 serviceSelect.addEventListener('change', () => {
@@ -1842,6 +1530,7 @@ serviceSelect.addEventListener('change', () => {
 })
 modelSelect.addEventListener('change', () => {
   savePrefs({ model: modelSelect.value })
+  syncSendBtn()
 })
 
 // ===== MODEL AGGREGATION =====
@@ -1870,12 +1559,49 @@ function renderModelList() {
     modelList.innerHTML = '<div class="model-item"><span class="model-name" style="color:var(--muted)">No models found — run Discover first</span></div>'
     return
   }
-  allModels.forEach(m => {
+  const favs = loadFavorites()
+  const sorted = [...allModels].sort((a, b) => {
+    const af = favs.includes(a.id) ? 0 : 1
+    const bf = favs.includes(b.id) ? 0 : 1
+    return af - bf
+  })
+  let addedDivider = false
+  sorted.forEach(m => {
+    const isFav = favs.includes(m.id)
+    if (!isFav && !addedDivider && sorted.some(x => favs.includes(x.id))) {
+      const hr = document.createElement('hr')
+      hr.className = 'model-divider'
+      modelList.appendChild(hr)
+      addedDivider = true
+    }
     const div = document.createElement('div')
     div.className = 'model-item'
     div.dataset.model = m.id
     div.dataset.service = m.service
-    div.innerHTML = `<span class="status-dot"></span><span class="model-name">${esc(m.id)}</span><span class="model-service">${esc(m.service)}</span>`
+    const star = document.createElement('button')
+    star.className = 'model-star' + (isFav ? ' starred' : '')
+    star.textContent = isFav ? '\u2605' : '\u2606'
+    star.title = 'Toggle favorite'
+    star.addEventListener('click', (e) => {
+      e.stopPropagation()
+      toggleFavorite(m.id)
+      renderModelList()
+      // re-render model selector dropdown too
+      const svc = serviceSelect.value
+      if (svc && _modelCache[svc]) applyModels(_modelCache[svc])
+    })
+    div.appendChild(star)
+    const dot = document.createElement('span')
+    dot.className = 'status-dot'
+    div.appendChild(dot)
+    const name = document.createElement('span')
+    name.className = 'model-name'
+    name.textContent = m.id
+    div.appendChild(name)
+    const svcSpan = document.createElement('span')
+    svcSpan.className = 'model-service'
+    svcSpan.textContent = m.service
+    div.appendChild(svcSpan)
     div.addEventListener('click', () => selectModel(m.service, m.id))
     modelList.appendChild(div)
   })
@@ -1921,7 +1647,7 @@ function renderMessages() {
       div.className = 'msg assistant'
       const toolHTML = renderToolsInline(m.toolCalls, m.toolResults)
       const metaLabel = m.routedBy === 'brutus'
-        ? `brutus → ${m.service || ''} // ${m.model || ''}`
+        ? `auto → ${m.service || ''} // ${m.model || ''}`
         : `${m.service || ''} // ${m.model || ''}`
       div.innerHTML = `
         <div class="meta">${metaLabel}</div>
@@ -1994,8 +1720,6 @@ function newChat() {
 async function send() {
   const text = input.value.trim()
   if (!text || sending) return
-  input.value = ''
-  input.style.height = 'auto'
 
   const service = serviceSelect.value
   const model = modelSelect.value
@@ -2003,6 +1727,8 @@ async function send() {
     toast('Select a service and model first (run Discover)')
     return
   }
+  input.value = ''
+  input.style.height = 'auto'
 
   if (activeChat === null) newChat()
   const chat = chats[activeChat]
@@ -2045,7 +1771,7 @@ async function send() {
   const aDiv = document.createElement('div')
   aDiv.className = 'msg assistant'
   aDiv.innerHTML = `
-    <div class="meta">${isBrutus ? 'brutus // routing...' : `${esc(service)} // ${esc(model)}`}</div>
+    <div class="meta">${isBrutus ? 'auto-route // routing...' : `${esc(service)} // ${esc(model)}`}</div>
     <div class="bubble markdown-body"><span class="cursor">▊</span></div>
   `
   messagesEl.appendChild(aDiv)
@@ -2137,7 +1863,7 @@ async function send() {
         const skipped = res.headers.get('X-Brutus-Skipped')
         const latency = res.headers.get('X-Brutus-Latency')
         const meta = aDiv.querySelector('.meta')
-        meta.textContent = `brutus → ${actualService} // ${actualModel}${latency ? ` · ${latency}ms` : ''}`
+        meta.textContent = `auto → ${actualService} // ${actualModel}${latency ? ` · ${latency}ms` : ''}`
         if (skipped) {
           const notice = document.createElement('div')
           notice.className = 'msg system-notice'
@@ -2286,7 +2012,7 @@ async function send() {
       sending = false
       sendBtn.textContent = 'Send'
       sendBtn.classList.remove('btn-stop')
-      sendBtn.disabled = false
+      syncSendBtn()
     }
   }
   activeController = null
@@ -2294,12 +2020,13 @@ async function send() {
   sending = false
   sendBtn.textContent = 'Send'
   sendBtn.classList.remove('btn-stop')
-  sendBtn.disabled = false
+  syncSendBtn()
   updateContextIndicator()
 }
 
 document.getElementById('new-chat-btn').addEventListener('click', newChat)
 document.getElementById('clear-chats-btn').addEventListener('click', () => {
+  if (!confirm('Delete all conversations? This cannot be undone.')) return
   chats.length = 0
   activeChat = null
   saveChats()
@@ -2330,6 +2057,8 @@ document.querySelectorAll('.example').forEach(ex => {
 
 renderHistory()
 renderMessages()
+setDot('idle')
+syncSendBtn()
 
 // History drawer toggle
 const chatDrawer = document.getElementById('chat-drawer')
@@ -2608,6 +2337,14 @@ function renderToolResult(content) {
   return `<div class="tool-result-block"><div class="tool-result-label">Tool Result</div><pre class="tool-result-content">${esc(text)}</pre></div>`
 }
 
+// ===== STYLE PREFIXES (SAT-sgr.3) =====
+const STYLE_PREFIXES = {
+  '': '',
+  concise: 'Be concise. Give short, direct answers. Avoid unnecessary elaboration.',
+  detailed: 'Be thorough and detailed. Explain your reasoning step by step. Provide comprehensive answers.',
+  code: 'Respond with code only. No explanations unless asked. Use comments for clarity.',
+}
+
 // ===== SERVICE CONFIGURATION =====
 const configOverlay = document.getElementById('config-overlay')
 const PARAMS_KEY = 'saturn-model-params'
@@ -2660,6 +2397,21 @@ function saveCurrentParams(params) {
 }
 
 // merge: per-service overrides global; null values inherit from global
+// per-provider param allowlists (SAT-sgr.8)
+const OPENAI_ALLOWED = new Set(['temperature', 'max_tokens', 'top_p', 'frequency_penalty',
+  'presence_penalty', 'seed', 'stop', 'response_format'])
+const OLLAMA_ALLOWED = new Set(['temperature', 'max_tokens', 'top_p', 'top_k', 'frequency_penalty',
+  'presence_penalty', 'repeat_penalty', 'repeat_last_n', 'min_p', 'seed', 'stop',
+  'mirostat', 'mirostat_tau', 'mirostat_eta', 'num_ctx', 'num_batch', 'keep_alive',
+  'tfs_z', 'typical_p'])
+const ANTHROPIC_ALLOWED = new Set(['temperature', 'max_tokens', 'top_p', 'top_k', 'stop'])
+const PARAM_ALLOWLISTS = { openai: OPENAI_ALLOWED, ollama: OLLAMA_ALLOWED, anthropic: ANTHROPIC_ALLOWED }
+
+function getServiceApiType(name) {
+  const svc = discoveredServices.find(s => s.name === name)
+  return svc?.api_type || 'openai'
+}
+
 function getActiveParams() {
   const cfg = loadAllConfig()
   const service = document.getElementById('service-select').value
@@ -2673,14 +2425,32 @@ function getActiveParams() {
   for (const [k, v] of Object.entries(merged)) {
     if (v !== null && v !== undefined && k !== 'system_prompt') out[k] = v
   }
+  // per-provider param filtering (SAT-sgr.8)
+  if (service && service !== '__brutus__') {
+    const apiType = getServiceApiType(service)
+    const allowed = PARAM_ALLOWLISTS[apiType]
+    if (allowed) {
+      for (const k of Object.keys(out)) {
+        if (!allowed.has(k)) delete out[k]
+      }
+    }
+  }
   return out
 }
 
 function getSystemPrompt() {
   const cfg = loadAllConfig()
   const service = document.getElementById('service-select').value
-  if (service && cfg.services[service] && cfg.services[service].system_prompt) return cfg.services[service].system_prompt
-  return cfg.global.system_prompt || null
+  let prompt = null
+  if (service && cfg.services[service] && cfg.services[service].system_prompt) prompt = cfg.services[service].system_prompt
+  else prompt = cfg.global.system_prompt || null
+
+  // inject style prefix (SAT-sgr.3)
+  const style = document.getElementById('style-select')?.value || ''
+  const prefix = STYLE_PREFIXES[style] || ''
+  if (!prefix) return prompt
+  if (!prompt) return prefix
+  return prefix + '\n\n' + prompt
 }
 
 // populate the config service selector from available services
@@ -2717,6 +2487,32 @@ function applyParamsToUI(params) {
     const num = controls.querySelector('input[type="number"]')
     const text = controls.querySelector('input[type="text"]')
     const textarea = controls.querySelector('textarea')
+
+    // response_format uses a select + textarea (SAT-sgr.5)
+    if (key === 'response_format') {
+      const sel = document.getElementById('response-format-type')
+      const schema = document.getElementById('response-format-schema')
+      if (params[key]) {
+        toggle.dataset.default = 'false'
+        toggle.textContent = 'Custom'
+        toggle.classList.add('active')
+        controls.classList.remove('hidden')
+        sel.value = params[key].type || 'text'
+        schema.classList.toggle('hidden', sel.value !== 'json_schema')
+        if (sel.value === 'json_schema' && params[key].json_schema?.schema) {
+          schema.value = JSON.stringify(params[key].json_schema.schema, null, 2)
+        }
+      } else {
+        toggle.dataset.default = 'true'
+        toggle.textContent = 'Default'
+        toggle.classList.remove('active')
+        controls.classList.add('hidden')
+        sel.value = 'text'
+        schema.classList.add('hidden')
+        schema.value = ''
+      }
+      return
+    }
 
     if (params[key] !== undefined) {
       toggle.dataset.default = 'false'
@@ -2832,6 +2628,14 @@ function initConfig() {
     }
   })
 
+  function syncOllama() {
+    const section = document.getElementById('ollama-section')
+    if (!section) return
+    if (configScope === 'global') { section.classList.remove('hidden'); return }
+    const svc = discoveredServices.find(s => s.name === configService)
+    section.classList.toggle('hidden', svc ? svc.api_type !== 'ollama' : true)
+  }
+
   // scope buttons
   document.getElementById('scope-global').addEventListener('click', () => {
     configScope = 'global'
@@ -2839,6 +2643,7 @@ function initConfig() {
     document.getElementById('scope-global').classList.add('active')
     document.getElementById('scope-service').classList.remove('active')
     document.getElementById('config-service-select').classList.add('hidden')
+    syncOllama()
     applyParamsToUI(currentParams())
   })
 
@@ -2849,17 +2654,14 @@ function initConfig() {
     const sel = document.getElementById('config-service-select')
     sel.classList.remove('hidden')
     populateConfigServices()
-    // pre-select current chat service
-    const chatService = document.getElementById('service-select').value
-    if (chatService) {
-      sel.value = chatService
-      configService = chatService
-    }
+    configService = ''
+    syncOllama()
     applyParamsToUI(currentParams())
   })
 
   document.getElementById('config-service-select').addEventListener('change', (e) => {
     configService = e.target.value
+    syncOllama()
     applyParamsToUI(currentParams())
   })
 
@@ -2940,42 +2742,196 @@ document.getElementById('config-reset').addEventListener('click', () => {
 
 initConfig()
 
-// ===== BRUTUS =====
-const brutusGate = document.getElementById('brutus-gate')
-const brutusMain = document.getElementById('brutus-main')
-const brutusStatus = document.getElementById('brutus-status')
-let _brutusRefreshTimer = null
+// ===== NAMED PRESETS (SAT-sgr.2) =====
+const PRESETS_KEY = 'saturn-presets'
 
-// gate acceptance
-document.getElementById('brutus-accept').addEventListener('click', () => {
-  brutusGate.classList.add('hidden')
-  brutusMain.classList.remove('hidden')
-  localStorage.setItem('brutus-accepted', '1')
-  loadBrutusQR()
-  loadBrutusStatus()
-  setTimeout(ensureBrutus, 100)
-})
-
-// restore gate state
-if (localStorage.getItem('brutus-accepted') === '1') {
-  brutusGate.classList.add('hidden')
-  brutusMain.classList.remove('hidden')
+function loadPresets() {
+  try {
+    const raw = localStorage.getItem(PRESETS_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch { /* ignore */ }
+  return []
 }
 
-// "Chat with Brutus" button — switch to Chat tab with Brutus selected
-document.getElementById('brutus-use-btn').addEventListener('click', () => {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'))
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'))
-  document.querySelector('[data-tab="chat"]').classList.add('active')
-  document.getElementById('chat').classList.add('active')
-  serviceSelect.value = '__brutus__'
-  loadModels()
-  input.focus()
+function savePresets(presets) {
+  try { localStorage.setItem(PRESETS_KEY, JSON.stringify(presets)) } catch { /* ignore */ }
+}
+
+function refreshPresetSelect() {
+  const sel = document.getElementById('preset-select')
+  const prev = sel.value
+  sel.innerHTML = '<option value="" selected>-- no preset --</option>'
+  loadPresets().forEach((p, i) => {
+    const opt = document.createElement('option')
+    opt.value = i
+    opt.textContent = p.name
+    sel.appendChild(opt)
+  })
+  if (prev && sel.querySelector(`option[value="${prev}"]`)) sel.value = prev
+  document.getElementById('preset-delete').disabled = !sel.value
+}
+
+document.getElementById('preset-save').addEventListener('click', () => {
+  const name = prompt('Preset name:')
+  if (!name) return
+  const params = currentParams()
+  const model = modelSelect.value
+  const sys = params.system_prompt || null
+  const preset = { name, params: { ...params }, model, systemPrompt: sys }
+  const presets = loadPresets()
+  const existing = presets.findIndex(p => p.name === name)
+  if (existing >= 0) presets[existing] = preset
+  else presets.push(preset)
+  savePresets(presets)
+  refreshPresetSelect()
+  document.getElementById('preset-select').value = presets.length - 1
+  document.getElementById('preset-delete').disabled = false
+  toast(`Preset "${name}" saved`)
 })
 
-// hash-based deep link (for QR code scans) — land on Chat tab in Brutus mode
+document.getElementById('preset-delete').addEventListener('click', () => {
+  const sel = document.getElementById('preset-select')
+  const idx = parseInt(sel.value)
+  if (isNaN(idx)) return
+  const presets = loadPresets()
+  const name = presets[idx]?.name
+  presets.splice(idx, 1)
+  savePresets(presets)
+  refreshPresetSelect()
+  toast(`Preset "${name}" deleted`)
+})
+
+document.getElementById('preset-select').addEventListener('change', (e) => {
+  const idx = parseInt(e.target.value)
+  document.getElementById('preset-delete').disabled = isNaN(idx)
+  if (isNaN(idx)) return
+  const presets = loadPresets()
+  const preset = presets[idx]
+  if (!preset) return
+  saveCurrentParams(preset.params)
+  applyParamsToUI(preset.params)
+  if (preset.model && [...modelSelect.options].some(o => o.value === preset.model)) {
+    modelSelect.value = preset.model
+  }
+  toast(`Loaded preset "${preset.name}"`)
+})
+
+refreshPresetSelect()
+
+// ===== RESPONSE FORMAT (SAT-sgr.5) =====
+const responseFormatType = document.getElementById('response-format-type')
+const responseFormatSchema = document.getElementById('response-format-schema')
+
+if (responseFormatType) {
+  responseFormatType.addEventListener('change', () => {
+    responseFormatSchema.classList.toggle('hidden', responseFormatType.value !== 'json_schema')
+    const params = currentParams()
+    if (responseFormatType.value === 'text') {
+      delete params.response_format
+    } else if (responseFormatType.value === 'json_object') {
+      params.response_format = { type: 'json_object' }
+    } else {
+      let schema = {}
+      try { schema = JSON.parse(responseFormatSchema.value || '{}') } catch { /* ignore */ }
+      params.response_format = { type: 'json_schema', json_schema: { name: 'custom', strict: true, schema } }
+    }
+    saveCurrentParams(params)
+  })
+
+  responseFormatSchema.addEventListener('input', () => {
+    if (responseFormatType.value !== 'json_schema') return
+    const params = currentParams()
+    let schema = {}
+    try { schema = JSON.parse(responseFormatSchema.value || '{}') } catch { /* ignore */ }
+    params.response_format = { type: 'json_schema', json_schema: { name: 'custom', strict: true, schema } }
+    saveCurrentParams(params)
+  })
+}
+
+// ===== STYLE PRESETS (SAT-sgr.3) — constants defined earlier in file =====
+
+// ===== MODEL FAVORITES (SAT-sgr.6) — functions defined earlier in file =====
+
+// ===== CONVERSATION EXPORT (SAT-sgr.7) =====
+function download(filename, content, mime) {
+  const blob = new Blob([content], { type: mime })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
+document.getElementById('export-json').addEventListener('click', () => {
+  if (activeChat === null) { toast('No active conversation'); return }
+  const chat = chats[activeChat]
+  const data = chat.messages.map(m => ({ role: m.role, content: m.text }))
+  download(`saturn-${chat.name || 'chat'}.json`, JSON.stringify(data, null, 2), 'application/json')
+  toast('Exported JSON')
+})
+
+document.getElementById('export-md').addEventListener('click', () => {
+  if (activeChat === null) { toast('No active conversation'); return }
+  const chat = chats[activeChat]
+  const lines = [`# ${chat.name || 'Saturn Chat'}`, '']
+  for (const m of chat.messages) {
+    const label = m.role === 'user' ? '**You**' : m.role === 'assistant' ? '**Assistant**' : `**${m.role}**`
+    lines.push(`### ${label}`, '', m.text, '')
+  }
+  download(`saturn-${chat.name || 'chat'}.md`, lines.join('\n'), 'text/markdown')
+  toast('Exported Markdown')
+})
+
+// ===== SYSTEM =====
+const systemGate = document.getElementById('system-gate')
+const systemMain = document.getElementById('system-main')
+const systemStatus = document.getElementById('system-status')
+const remoteMain = document.getElementById('proxy-shell')
+const proxyEmpty = document.getElementById('proxy-empty')
+const proxyActive = document.getElementById('proxy-active')
+const proxyMode = document.getElementById('proxy-mode')
+let _systemRefreshTimer = null
+
+function remoteAccepted() {
+  return localStorage.getItem('brutus-accepted') === '1'
+}
+
+function syncSystemGate() {
+  const accepted = remoteAccepted()
+  systemGate.classList.toggle('hidden', accepted)
+  remoteMain.classList.toggle('hidden', !accepted)
+}
+
+function showSubtab(name) {
+  document.querySelectorAll('.subtab').forEach(btn => btn.classList.toggle('active', btn.dataset.subtab === name))
+  document.querySelectorAll('.subtab-page').forEach(page => page.classList.toggle('active', page.id === 'subtab-' + name))
+  if (name === 'status') {
+    loadSystemStatus()
+    return
+  }
+  if (name === 'remote') {
+    syncSystemGate()
+    if (remoteAccepted()) loadSystemQR()
+  }
+}
+
+document.querySelectorAll('.subtab').forEach(btn => {
+  btn.addEventListener('click', () => showSubtab(btn.dataset.subtab))
+})
+
+// gate acceptance
+document.getElementById('system-accept').addEventListener('click', () => {
+  localStorage.setItem('brutus-accepted', '1')
+  syncSystemGate()
+  loadSystemQR()
+  loadSystemStatus()
+})
+
+syncSystemGate()
+
+// hash-based deep link — #brutus backward compat, also support #system
 function checkHash() {
-  if (location.hash === '#brutus') {
+  if (location.hash === '#brutus' || location.hash === '#system') {
     if (localStorage.getItem('brutus-accepted') !== '1') {
       localStorage.setItem('brutus-accepted', '1')
     }
@@ -2983,12 +2939,11 @@ function checkHash() {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'))
     document.querySelector('[data-tab="chat"]').classList.add('active')
     document.getElementById('chat').classList.add('active')
-    // defer Brutus selection until syncServices populates the dropdown
     if ([...serviceSelect.options].some(o => o.value === '__brutus__')) {
       serviceSelect.value = '__brutus__'
       loadModels()
     } else {
-      _pendingBrutus = true
+      _pendingAutoRoute = true
     }
   }
 }
@@ -2996,18 +2951,20 @@ window.addEventListener('hashchange', checkHash)
 checkHash()
 
 // QR code
-const tunnelStatus = document.getElementById('brutus-tunnel-status')
-const tunnelStartBtn = document.getElementById('brutus-tunnel-start')
-const tunnelStopBtn = document.getElementById('brutus-tunnel-stop')
+const tunnelStatus = document.getElementById('proxy-tunnel-status')
+const tunnelStartBtn = document.getElementById('proxy-tunnel-start')
+const tunnelStopBtn = document.getElementById('proxy-tunnel-stop')
 
 function renderQR(url) {
-  const container = document.getElementById('brutus-qr')
-  const urlText = document.getElementById('brutus-url')
+  const container = document.getElementById('proxy-qr')
+  const urlText = document.getElementById('proxy-url')
   if (!url) {
     container.innerHTML = ''
+    container.classList.add('empty')
     urlText.textContent = 'No tunnel active'
     return
   }
+  container.classList.remove('empty')
   const target = url.replace(/\/$/, '') + '/#brutus'
   urlText.textContent = target
 
@@ -3029,22 +2986,25 @@ function renderQR(url) {
 }
 
 function setTunnelUI(status, url) {
-  if (status === 'running') {
+  const running = status === 'running'
+  proxyMode.textContent = running ? 'Mode: Tunnel Active' : 'Mode: LAN Only'
+  proxyMode.classList.toggle('active', running)
+  proxyEmpty.classList.toggle('hidden', running)
+  proxyActive.classList.toggle('hidden', !running)
+  if (running) {
     tunnelStatus.textContent = '● tunnel active'
     tunnelStatus.style.color = 'var(--green)'
-    tunnelStartBtn.classList.add('hidden')
     tunnelStopBtn.classList.remove('hidden')
     renderQR(url)
-  } else {
-    tunnelStatus.textContent = '● stopped'
-    tunnelStatus.style.color = 'var(--red)'
-    tunnelStartBtn.classList.remove('hidden')
-    tunnelStopBtn.classList.add('hidden')
-    renderQR(null)
+    return
   }
+  tunnelStatus.textContent = '● stopped'
+  tunnelStatus.style.color = 'var(--red)'
+  tunnelStopBtn.classList.add('hidden')
+  renderQR(null)
 }
 
-async function loadBrutusQR() {
+async function loadSystemQR() {
   try {
     const res = await fetch('/api/brutus/tunnel/status')
     const data = await res.json()
@@ -3056,6 +3016,12 @@ async function loadBrutusQR() {
   setTunnelUI('stopped')
 }
 
+function resetTunnelStart(msg) {
+  tunnelStartBtn.disabled = false
+  tunnelStartBtn.textContent = 'Start Tunnel'
+  if (msg) toast(msg)
+}
+
 // start tunnel
 tunnelStartBtn.addEventListener('click', async () => {
   tunnelStartBtn.disabled = true
@@ -3064,19 +3030,23 @@ tunnelStartBtn.addEventListener('click', async () => {
   tunnelStatus.style.color = 'var(--accent)'
   try {
     const res = await fetch('/api/brutus/tunnel/start', { method: 'POST' })
-    const data = await res.json()
-    if (data.url) {
-      setTunnelUI('running', data.url)
-    } else {
-      toast(data.error || 'Tunnel failed to start')
+    const data = await res.json().catch(() => ({}))
+    const error = data.error || data.detail
+    if (!res.ok || error) {
       setTunnelUI('stopped')
+      resetTunnelStart(error || 'Tunnel failed to start')
+      return
     }
+    if (!data.url) {
+      setTunnelUI('stopped')
+      resetTunnelStart('Tunnel failed to start')
+      return
+    }
+    setTunnelUI('running', data.url)
+    resetTunnelStart()
   } catch (e) {
-    toast('Failed to start tunnel: ' + e.message)
     setTunnelUI('stopped')
-  } finally {
-    tunnelStartBtn.disabled = false
-    tunnelStartBtn.textContent = 'Start Tunnel'
+    resetTunnelStart('Failed to start tunnel: ' + e.message)
   }
 })
 
@@ -3092,49 +3062,48 @@ tunnelStopBtn.addEventListener('click', async () => {
   tunnelStopBtn.textContent = 'Stop Tunnel'
 })
 
-// refresh button — re-check tunnel status
-document.getElementById('brutus-qr-refresh').addEventListener('click', () => loadBrutusQR())
-
 // dashboard status display
-async function loadBrutusStatus() {
+async function loadSystemStatus() {
   try {
     const res = await fetch('/api/brutus/status')
     const data = await res.json()
     renderHealthGrid(data.backends)
     renderRoutingLog(data.routing_log)
-    renderBackendsSidebar(data.backends)
-    // update header status
     const healthy = data.backends.filter(b => b.healthy).length
     if (data.backends.length === 0) {
-      brutusStatus.textContent = '● no backends'
-      brutusStatus.style.color = 'var(--red)'
+      systemStatus.textContent = '● no backends'
+      systemStatus.style.color = 'var(--red)'
     } else if (healthy === data.backends.length) {
-      brutusStatus.textContent = `● ${healthy} backends`
-      brutusStatus.style.color = 'var(--green)'
+      systemStatus.textContent = `● ${healthy} backends`
+      systemStatus.style.color = 'var(--green)'
     } else {
-      brutusStatus.textContent = `● ${healthy}/${data.backends.length} healthy`
-      brutusStatus.style.color = 'var(--accent)'
+      systemStatus.textContent = `● ${healthy}/${data.backends.length} healthy`
+      systemStatus.style.color = 'var(--accent)'
     }
   } catch {
-    brutusStatus.textContent = '● offline'
-    brutusStatus.style.color = 'var(--red)'
+    systemStatus.textContent = '● offline'
+    systemStatus.style.color = 'var(--red)'
   }
 }
 
 function renderHealthGrid(backends) {
-  const grid = document.getElementById('brutus-health-grid')
+  const grid = document.getElementById('system-health-grid')
   if (backends.length === 0) {
-    grid.innerHTML = '<div class="brutus-log-empty">Run Discover to see backends</div>'
+    grid.innerHTML = '<div class="system-log-empty">Run Discover to see backends</div>'
     return
   }
   grid.innerHTML = ''
   backends.forEach(b => {
     const card = document.createElement('div')
-    card.className = 'brutus-health-card'
-    const dotColor = b.breaker.open ? 'var(--red)' : b.breaker.failures > 0 ? 'var(--accent)' : 'var(--green)'
-    const dot = b.healthy ? '●' : '○'
-    const state = b.breaker.open ? `OPEN (${b.breaker.cooldown}s)` : b.breaker.failures > 0 ? `${b.breaker.failures} failures` : 'healthy'
-    const models = b.models.length > 0 ? b.models[0] : '—'
+    card.className = 'system-health-card'
+    card.dataset.healthy = String(b.healthy === true)
+    const hasModels = b.models?.length > 0 && b.models[0]
+    const breaker = b.breaker || { open: false, failures: 0, cooldown: 0 }
+    const dot = b.healthy === true || b.healthy === false ? '●' : '○'
+    const dotColor = b.healthy === true ? 'var(--green)' : b.healthy === false ? 'var(--red)' : 'var(--fg-muted)'
+    const stateColor = breaker.open ? 'var(--red)' : breaker.failures > 0 ? 'var(--accent)' : b.healthy === true ? 'var(--green)' : 'var(--fg-muted)'
+    const state = breaker.open ? `OPEN (${breaker.cooldown}s)` : breaker.failures > 0 ? `${breaker.failures} failures` : hasModels ? 'ready' : 'reachable'
+    const models = hasModels ? b.models[0] : 'no model loaded'
     card.innerHTML = `
       <div class="health-card-header">
         <span style="color:${dotColor}">${dot}</span>
@@ -3142,23 +3111,25 @@ function renderHealthGrid(backends) {
         <span class="health-card-priority">p${b.priority}</span>
       </div>
       <div class="health-card-detail">${models}</div>
-      <div class="health-card-detail" style="color:${dotColor}">${state}</div>
+      <div class="health-card-detail" style="color:${stateColor}">${state}</div>
     `
     grid.appendChild(card)
   })
 }
 
 function renderRoutingLog(log) {
-  const container = document.getElementById('brutus-routing-log')
+  const container = document.getElementById('system-routing-log')
   if (!log || log.length === 0) {
-    container.innerHTML = '<div class="brutus-log-empty">No routing activity yet</div>'
+    container.innerHTML = `
+      <div class="system-log-empty">No routing activity yet</div>
+      <div class="system-log-empty-hint">Activity appears here when requests are routed through auto-route.</div>
+    `
     return
   }
   container.innerHTML = ''
-  // show most recent first
   log.slice().reverse().forEach(entry => {
     const div = document.createElement('div')
-    div.className = 'brutus-log-entry'
+    div.className = 'system-log-entry'
     const time = new Date(entry.ts * 1000).toLocaleTimeString()
     const skipped = entry.skipped.length > 0 ? ` (skipped: ${entry.skipped.join(', ')})` : ''
     div.innerHTML = `<span class="log-time">${time}</span> → <span class="log-service">${entry.service}</span> // ${entry.model} · ${entry.latency_ms}ms${skipped}`
@@ -3166,48 +3137,28 @@ function renderRoutingLog(log) {
   })
 }
 
-function renderBackendsSidebar(backends) {
-  const container = document.getElementById('brutus-backends')
-  if (backends.length === 0) {
-    container.innerHTML = '<div class="brutus-backend-item"><span class="name" style="color:var(--muted)">Run Discover first</span></div>'
-    return
-  }
-  container.innerHTML = ''
-  backends.forEach(b => {
-    const div = document.createElement('div')
-    div.className = 'brutus-backend-item'
-    const dot = b.healthy ? '●' : '○'
-    const color = b.breaker.open ? 'var(--red)' : b.breaker.failures > 0 ? 'var(--accent)' : 'var(--green)'
-    div.innerHTML = `<span style="color:${color}">${dot}</span> <span class="name">${b.name}</span> <span style="color:var(--muted)">p${b.priority}</span>`
-    container.appendChild(div)
-  })
-}
-
 // refresh when tab shown, auto-refresh every 5s while active
-document.querySelector('[data-tab="brutus"]').addEventListener('click', () => {
-  if (!brutusMain.classList.contains('hidden')) {
-    loadBrutusQR()
-    loadBrutusStatus()
-    setTimeout(ensureBrutus, 100)
-  }
+document.querySelector('[data-tab="system"]').addEventListener('click', () => {
+  if (!systemMain) return
+  loadSystemStatus()
+  if (remoteAccepted()) loadSystemQR()
 })
 
 // start/stop auto-refresh based on tab visibility
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
-    if (tab.dataset.tab === 'brutus') {
-      setTimeout(ensureBrutus, 100)
-      if (!_brutusRefreshTimer) {
-        _brutusRefreshTimer = setInterval(loadBrutusStatus, 5000)
+    if (tab.dataset.tab === 'system') {
+      if (!_systemRefreshTimer) {
+        _systemRefreshTimer = setInterval(loadSystemStatus, 5000)
       }
-    } else if (_brutusRefreshTimer) {
-      clearInterval(_brutusRefreshTimer)
-      _brutusRefreshTimer = null
+    } else if (_systemRefreshTimer) {
+      clearInterval(_systemRefreshTimer)
+      _systemRefreshTimer = null
     }
   })
 })
 
-// ===== BRUTUS CONNECTOR =====
+// ===== CONNECTOR =====
 const connectorConfigs = {
   opencode: {
     name: 'OpenCode',
