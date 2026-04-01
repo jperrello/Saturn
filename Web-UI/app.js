@@ -2103,6 +2103,10 @@ async function send() {
       })
       saveChats()
       streamState = 'idle'
+      // report usage to backend for quota tracking (SAT-2n8.2)
+      if (usage) reportUsage(usage.prompt_tokens || 0, usage.completion_tokens || 0)
+      updateRateLimit()
+      checkContextForSummarize()
       break // success — exit retry loop
 
     } catch (e) {
@@ -3721,3 +3725,224 @@ document.getElementById('connector-test-btn').addEventListener('click', async ()
   btn.disabled = false
   btn.textContent = 'Test Connection'
 })
+
+// ===== RATE LIMIT UX (SAT-2n8.1) =====
+
+async function updateRateLimit() {
+  const bar = document.getElementById('rate-limit-bar')
+  const fill = document.getElementById('rate-limit-fill')
+  const label = document.getElementById('rate-limit-label')
+  const banner = document.getElementById('rate-limit-banner')
+  try {
+    const res = await fetch('/api/rate-limit/status')
+    if (!res.ok) return
+    const data = await res.json()
+    const used = data.rpm.limit - data.rpm.remaining
+    const pct = Math.min(100, (used / data.rpm.limit) * 100)
+    bar.classList.remove('hidden')
+    fill.style.width = pct + '%'
+    fill.className = 'rate-limit-fill' + (pct >= 100 ? ' critical' : pct >= 80 ? ' warn' : '')
+    label.textContent = `${data.rpm.remaining}/${data.rpm.limit} RPM`
+    if (pct >= 100) {
+      banner.className = 'rate-limit-banner critical'
+      banner.textContent = 'Rate limit reached. Requests will be throttled.'
+      banner.classList.remove('hidden')
+    } else if (pct >= 80) {
+      banner.className = 'rate-limit-banner warn'
+      banner.textContent = `Approaching rate limit (${Math.round(pct)}% used)`
+      banner.classList.remove('hidden')
+    } else {
+      banner.classList.add('hidden')
+    }
+  } catch { /* offline */ }
+}
+
+// ===== USAGE TRACKING (SAT-2n8.2) =====
+
+async function reportUsage(tokensIn, tokensOut) {
+  if (tokensIn <= 0 && tokensOut <= 0) return
+  try {
+    await fetch('/api/usage/report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tokens_in: tokensIn, tokens_out: tokensOut })
+    })
+  } catch { /* best-effort */ }
+}
+
+async function loadSystemUsage() {
+  const el = document.getElementById('system-usage')
+  if (!el) return
+  try {
+    const res = await fetch('/api/usage')
+    if (!res.ok) return
+    const data = await res.json()
+    el.innerHTML = `
+      <div class="usage-stat"><span class="usage-stat-label">Requests</span><span class="usage-stat-value">${data.requests}</span></div>
+      <div class="usage-stat"><span class="usage-stat-label">Tokens In</span><span class="usage-stat-value">${(data.tokens_in || 0).toLocaleString()}</span></div>
+      <div class="usage-stat"><span class="usage-stat-label">Tokens Out</span><span class="usage-stat-value">${(data.tokens_out || 0).toLocaleString()}</span></div>
+    `
+  } catch { /* offline */ }
+}
+
+// ===== MODEL FILTER ADMIN (SAT-2n8.3) =====
+
+async function loadModelFilter() {
+  const input = document.getElementById('model-filter-input')
+  if (!input) return
+  try {
+    const res = await fetch('/api/admin/config')
+    if (!res.ok) return
+    const cfg = await res.json()
+    if (cfg.model_filter) input.value = cfg.model_filter
+  } catch { /* ignore */ }
+}
+
+document.getElementById('model-filter-save')?.addEventListener('click', async () => {
+  const input = document.getElementById('model-filter-input')
+  try {
+    const res = await fetch('/api/admin/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_filter: input.value })
+    })
+    if (res.ok) toast('Model filter updated')
+  } catch (e) {
+    toast('Failed to save: ' + e.message)
+  }
+})
+
+// ===== AUTO-SUMMARIZATION (SAT-2n8.4) =====
+
+let summarizeDismissed = false
+
+function checkContextForSummarize() {
+  if (summarizeDismissed || activeChat === null) return
+  const chat = chats[activeChat]
+  if (!chat || chat.messages.length < 4) return
+  const budget = contextBudget()
+  const total = chat.messages.reduce((s, m) => s + estimate(m.text || ''), 0)
+  const pct = total / budget
+  const notice = document.getElementById('summarize-notice')
+  if (pct >= 0.8) {
+    notice.classList.remove('hidden')
+  } else {
+    notice.classList.add('hidden')
+  }
+}
+
+document.getElementById('summarize-btn')?.addEventListener('click', async () => {
+  if (activeChat === null) return
+  const chat = chats[activeChat]
+  if (!chat || chat.messages.length < 4) return
+
+  const service = serviceSelect.value
+  const model = modelSelect.value
+  if (!service || !model) {
+    toast('Select a service and model first')
+    return
+  }
+
+  const btn = document.getElementById('summarize-btn')
+  btn.disabled = true
+  btn.textContent = 'Summarizing...'
+
+  // take the older messages (all except last 4)
+  const older = chat.messages.slice(0, -4)
+  const recent = chat.messages.slice(-4)
+
+  const prompt = [
+    { role: 'system', content: 'Summarize the following conversation concisely, preserving key facts, decisions, and context. Output only the summary.' },
+    ...older.map(m => ({ role: m.role, content: m.text }))
+  ]
+
+  try {
+    const isBrutus = service === '__brutus__'
+    const isManual = service.startsWith('__manual__:')
+    const manualEp = isManual ? loadEndpoints().find(e => e.name === service.slice(11)) : null
+
+    let endpoint, payload
+    if (isManual && manualEp) {
+      endpoint = '/api/proxy/chat'
+      payload = { base_url: manualEp.url, model, messages: prompt, api_type: manualEp.api_type, max_tokens: 1024 }
+    } else if (isBrutus) {
+      endpoint = '/api/brutus/chat'
+      payload = { messages: prompt, max_tokens: 1024 }
+    } else {
+      endpoint = '/api/chat'
+      payload = { service, model, messages: prompt, max_tokens: 1024 }
+    }
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+
+    let summary = ''
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const chunk = decoder.decode(value, { stream: true })
+      for (const line of chunk.split('\n')) {
+        if (!line.startsWith('data: ')) continue
+        const raw = line.slice(6)
+        if (raw === '[DONE]') continue
+        try {
+          const obj = JSON.parse(raw)
+          const delta = obj.choices?.[0]?.delta?.content
+          if (delta) summary += delta
+        } catch { /* skip */ }
+      }
+    }
+
+    if (summary) {
+      chat.messages = [
+        { role: 'assistant', text: `[Summary of ${older.length} earlier messages]\n\n${summary}` },
+        ...recent
+      ]
+      saveChats()
+      renderMessages()
+      toast(`Summarized ${older.length} messages`)
+    }
+  } catch (e) {
+    toast('Summarization failed: ' + e.message)
+  }
+
+  btn.disabled = false
+  btn.textContent = 'Summarize older messages'
+  document.getElementById('summarize-notice').classList.add('hidden')
+})
+
+document.getElementById('summarize-dismiss')?.addEventListener('click', () => {
+  summarizeDismissed = true
+  document.getElementById('summarize-notice').classList.add('hidden')
+})
+
+// load rate limit + usage on system tab, periodically during chat
+function initPhase3() {
+  loadModelFilter()
+  updateRateLimit()
+  loadSystemUsage()
+}
+
+// refresh rate limit after each send
+const _origSendEndHook = () => {
+  updateRateLimit()
+  checkContextForSummarize()
+}
+
+// hook into system tab activation
+const _origLoadSystemStatus = typeof loadSystemStatus === 'function' ? loadSystemStatus : null
+if (_origLoadSystemStatus) {
+  const _wrapped = loadSystemStatus
+  window._loadSystemStatusWrapped = async function() {
+    await _wrapped()
+    await loadSystemUsage()
+  }
+}
+
+// run on init
+initPhase3()

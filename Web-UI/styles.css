@@ -2967,3 +2967,97 @@ input[type="range"]::-webkit-slider-runnable-track {
   margin: 2px 0;
   opacity: 0.5;
 }
+
+/* ===== RATE LIMIT BAR (SAT-2n8.1) ===== */
+.rate-limit-bar {
+  position: relative;
+  height: 14px;
+  background: var(--surface2);
+  border-radius: 3px;
+  margin: 0 16px 4px;
+  overflow: hidden;
+}
+.rate-limit-fill {
+  height: 100%;
+  background: var(--green);
+  border-radius: 3px;
+  transition: width 0.3s var(--ease-out), background 0.3s;
+}
+.rate-limit-fill.warn { background: #f59e0b; }
+.rate-limit-fill.critical { background: var(--red); }
+.rate-limit-label {
+  position: absolute;
+  top: 0;
+  right: 6px;
+  font-size: 9px;
+  line-height: 14px;
+  color: var(--fg-muted);
+}
+.rate-limit-banner {
+  margin: 0 16px 4px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 10px;
+  text-align: center;
+}
+.rate-limit-banner.warn {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+.rate-limit-banner.critical {
+  background: rgba(248, 113, 113, 0.15);
+  color: var(--red);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+}
+
+/* ===== AUTO-SUMMARIZE (SAT-2n8.4) ===== */
+.summarize-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 16px 4px;
+  padding: 6px 10px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 4px;
+  font-size: 11px;
+  color: #f59e0b;
+}
+.summarize-notice .btn {
+  padding: 2px 8px;
+  font-size: 9px;
+}
+.summarize-x {
+  background: none;
+  border: none;
+  color: #f59e0b;
+  cursor: pointer;
+  font-size: 14px;
+  margin-left: auto;
+  padding: 0 4px;
+}
+
+/* ===== SYSTEM USAGE (SAT-2n8.2) ===== */
+.system-usage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11px;
+}
+.usage-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.usage-stat-label {
+  color: var(--fg-muted);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.usage-stat-value {
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 500;
+}

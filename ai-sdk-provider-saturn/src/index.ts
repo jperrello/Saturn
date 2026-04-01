@@ -6,9 +6,9 @@
  */
 
 import {
-  LanguageModelV3,
+  LanguageModelV4,
   NoSuchModelError,
-  ProviderV3,
+  ProviderV4,
 } from '@ai-sdk/provider';
 import type { LogLevel, SaturnLogger } from './logger.js';
 import { createDefaultLogger, createNoOpLogger } from './logger.js';
@@ -16,6 +16,7 @@ import type { DiscoveredService, SaturnModelSettings } from './types.js';
 import { SaturnDiscovery } from './discovery.js';
 import { ServiceCircuitBreaker } from './retry.js';
 import { SaturnChatLanguageModel } from './model.js';
+import type { SaturnLanguageModelOptions } from './model.js';
 
 // Re-export everything consumers might need
 export type { LogLevel, SaturnLogger } from './logger.js';
@@ -25,6 +26,7 @@ export { endpoint, endpoint as getEffectiveEndpoint, extractProvider } from './h
 export { ServiceCircuitBreaker } from './retry.js';
 export { SaturnDiscovery } from './discovery.js';
 export { SaturnChatLanguageModel } from './model.js';
+export type { SaturnLanguageModelOptions } from './model.js';
 
 // ============================================================================
 // Provider Factory
@@ -49,8 +51,8 @@ export interface SaturnProviderSettings {
   serviceEphemeralKey?: string;
 }
 
-export interface SaturnProvider extends ProviderV3 {
-  (modelId: string): LanguageModelV3;
+export interface SaturnProvider extends ProviderV4 {
+  (modelId: string): LanguageModelV4;
   getDiscovery(): SaturnDiscovery;
   destroy(): void;
 }
@@ -106,17 +108,18 @@ export function createSaturn(options: SaturnProviderSettings = {}): SaturnProvid
     directEphemeralKey: options.serviceEphemeralKey,
   };
 
-  const createLanguageModel = (modelId: string): LanguageModelV3 => {
+  const createLanguageModel = (modelId: string): LanguageModelV4 => {
     return new SaturnChatLanguageModel(modelId, discovery, logger, circuitBreaker, modelSettings, waitForDiscovery);
   };
 
-  const provider = function (modelId: string): LanguageModelV3 {
+  const provider = function (modelId: string): LanguageModelV4 {
     if (new.target) {
       throw new Error('The Saturn provider function function cannot be called with the new keyword.');
     }
     return createLanguageModel(modelId);
   } as SaturnProvider;
 
+  (provider as any).specificationVersion = 'v4';
   provider.languageModel = createLanguageModel;
 
   provider.embeddingModel = (modelId: string) => {

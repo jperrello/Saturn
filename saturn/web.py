@@ -7,6 +7,8 @@ import time
 import asyncio
 import logging
 import socket
+import sqlite3
+import json
 from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -15,9 +17,9 @@ from dataclasses import asdict
 
 import httpx
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from pydantic import BaseModel
 
 from .config import (
@@ -171,6 +173,206 @@ def _lan_ip() -> Optional[str]:
         return ip
     except Exception:
         return None
+
+
+# --- Rate Limiting (SAT-2n8.1) ---
+
+class Bucket:
+    def __init__(self, capacity, rate):
+        self.capacity = capacity
+        self.tokens = float(capacity)
+        self.rate = rate  # tokens per second
+        self.last = time.monotonic()
+
+    def consume(self, n=1):
+        now = time.monotonic()
+        self.tokens = min(self.capacity, self.tokens + (now - self.last) * self.rate)
+        self.last = now
+        if self.tokens >= n:
+            self.tokens -= n
+            return True
+        return False
+
+    def remaining(self):
+        now = time.monotonic()
+        return min(self.capacity, self.tokens + (now - self.last) * self.rate)
+
+    def retry_after(self, n=1):
+        deficit = n - self.remaining()
+        if deficit <= 0:
+            return 0
+        return deficit / self.rate
+
+
+RATE_RPM = int(os.environ.get("SATURN_RATE_RPM", "30"))
+RATE_TPM = int(os.environ.get("SATURN_RATE_TPM", "100000"))
+RATE_CONCURRENT_PER_IP = int(os.environ.get("SATURN_RATE_CONCURRENT", "3"))
+RATE_CONCURRENT_GLOBAL = int(os.environ.get("SATURN_RATE_GLOBAL_CONCURRENT", "10"))
+
+_rpm_buckets: dict[str, Bucket] = {}
+_tpm_buckets: dict[str, Bucket] = {}
+_ip_semaphores: dict[str, asyncio.Semaphore] = {}
+_global_semaphore = asyncio.Semaphore(RATE_CONCURRENT_GLOBAL)
+_ip_active: dict[str, int] = {}  # track active requests per IP
+
+
+def _rpm_bucket(ip: str) -> Bucket:
+    if ip not in _rpm_buckets:
+        _rpm_buckets[ip] = Bucket(RATE_RPM, RATE_RPM / 60.0)
+    return _rpm_buckets[ip]
+
+
+def _tpm_bucket(ip: str) -> Bucket:
+    if ip not in _tpm_buckets:
+        _tpm_buckets[ip] = Bucket(RATE_TPM, RATE_TPM / 60.0)
+    return _tpm_buckets[ip]
+
+
+def _ip_sem(ip: str) -> asyncio.Semaphore:
+    if ip not in _ip_semaphores:
+        _ip_semaphores[ip] = asyncio.Semaphore(RATE_CONCURRENT_PER_IP)
+    return _ip_semaphores[ip]
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _check_rate(ip: str) -> Optional[JSONResponse]:
+    rpm = _rpm_bucket(ip)
+    if not rpm.consume():
+        retry = max(1, int(rpm.retry_after()))
+        return JSONResponse(
+            status_code=429,
+            content={"error": "Rate limit exceeded", "retry_after": retry},
+            headers={
+                "Retry-After": str(retry),
+                "X-Saturn-Tokens-Remaining": str(int(rpm.remaining())),
+            },
+        )
+    return None
+
+
+def _check_tpm(ip: str, tokens: int) -> Optional[JSONResponse]:
+    tpm = _tpm_bucket(ip)
+    if not tpm.consume(tokens):
+        retry = max(1, int(tpm.retry_after(tokens)))
+        return JSONResponse(
+            status_code=429,
+            content={"error": "Token rate limit exceeded", "retry_after": retry},
+            headers={
+                "Retry-After": str(retry),
+                "X-Saturn-Tokens-Remaining": str(int(tpm.remaining())),
+            },
+        )
+    return None
+
+
+# --- Token Quotas & SQLite (SAT-2n8.2) ---
+
+DB_PATH = Path(__file__).parent.parent / "data" / "saturn.db"
+
+
+def _db():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.execute("""CREATE TABLE IF NOT EXISTS usage (
+        user_id TEXT,
+        period TEXT,
+        tokens_in INTEGER DEFAULT 0,
+        tokens_out INTEGER DEFAULT 0,
+        requests INTEGER DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+    conn.execute("""CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_user_period
+        ON usage(user_id, period)""")
+    conn.commit()
+    return conn
+
+
+def _record_usage(ip: str, tokens_in: int, tokens_out: int):
+    period = time.strftime("%Y-%m-%d")
+    conn = _db()
+    conn.execute("""INSERT INTO usage (user_id, period, tokens_in, tokens_out, requests, updated_at)
+        VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_id, period) DO UPDATE SET
+            tokens_in = tokens_in + excluded.tokens_in,
+            tokens_out = tokens_out + excluded.tokens_out,
+            requests = requests + 1,
+            updated_at = CURRENT_TIMESTAMP""",
+        (ip, period, tokens_in, tokens_out))
+    conn.commit()
+    conn.close()
+
+
+# --- Model Allowlist/Blocklist (SAT-2n8.3) ---
+
+MODEL_FILTER = os.environ.get("SATURN_MODEL_FILTER", "")
+
+
+def _parse_filter(spec: str) -> tuple[set, set]:
+    allow = set()
+    block = set()
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if part.startswith("+"):
+            allow.add(part[1:].lower())
+        elif part.startswith("-"):
+            block.add(part[1:].lower())
+    return allow, block
+
+
+def _filter_models(models: list[dict], spec: str) -> list[dict]:
+    if not spec:
+        return models
+    allow, block = _parse_filter(spec)
+    if "all" in block:
+        return [m for m in models if m.get("id", "").lower() in allow]
+    if "all" in allow:
+        return [m for m in models if m.get("id", "").lower() not in block]
+    result = []
+    for m in models:
+        mid = m.get("id", "").lower()
+        if mid in block:
+            continue
+        if allow and mid not in allow:
+            continue
+        result.append(m)
+    return result
+
+
+# --- Admin settings (server-side config) ---
+
+_admin_config: dict = {}
+
+
+def _load_admin_config() -> dict:
+    global _admin_config
+    config_path = Path(__file__).parent.parent / "data" / "admin_config.json"
+    if config_path.exists():
+        try:
+            _admin_config = json.loads(config_path.read_text())
+        except Exception:
+            _admin_config = {}
+    return _admin_config
+
+
+def _save_admin_config(config: dict):
+    global _admin_config
+    _admin_config = config
+    config_path = Path(__file__).parent.parent / "data" / "admin_config.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(json.dumps(config, indent=2))
+
+
+def _model_filter() -> str:
+    cfg = _load_admin_config()
+    return cfg.get("model_filter", MODEL_FILTER)
 
 
 ADMIN_PASSWORD = os.environ.get("SATURN_ADMIN_PASSWORD", "saturn")
@@ -476,7 +678,7 @@ async def models_all():
                         merged.append({"id": mid, "service": sname})
             except Exception:
                 pass
-    return merged
+    return _filter_models(merged, _model_filter())
 
 
 @app.get("/api/proxy/models")
@@ -509,12 +711,13 @@ async def models(service: str = Query(...)):
         except httpx.HTTPError as e:
             raise HTTPException(502, f"Failed to fetch models: {e}")
     data = r.json()
-    # OpenAI format: { data: [{ id: ... }, ...] }
     if isinstance(data, dict) and "data" in data:
-        return [{"id": m["id"]} for m in data["data"]]
-    if isinstance(data, list):
-        return [{"id": m.get("id", m.get("name", "?"))} for m in data]
-    return []
+        result = [{"id": m["id"]} for m in data["data"]]
+    elif isinstance(data, list):
+        result = [{"id": m.get("id", m.get("name", "?"))} for m in data]
+    else:
+        result = []
+    return _filter_models(result, _model_filter())
 
 
 class ManualChatRequest(BaseModel):
@@ -535,7 +738,11 @@ class ManualChatRequest(BaseModel):
 
 
 @app.post("/api/proxy/chat")
-async def proxy_chat(body: ManualChatRequest):
+async def proxy_chat(body: ManualChatRequest, request: Request):
+    ip = _client_ip(request)
+    blocked = _check_rate(ip)
+    if blocked:
+        return blocked
     headers = {"Content-Type": "application/json"}
     if body.api_key:
         headers["Authorization"] = f"Bearer {body.api_key}"
@@ -570,7 +777,12 @@ async def proxy_chat(body: ManualChatRequest):
 
 
 @app.post("/api/chat")
-async def chat(body: ChatRequest):
+async def chat(body: ChatRequest, request: Request):
+    ip = _client_ip(request)
+    blocked = _check_rate(ip)
+    if blocked:
+        return blocked
+
     base, headers = _resolve(body.service)
     headers["Content-Type"] = "application/json"
 
@@ -588,20 +800,39 @@ async def chat(body: ChatRequest):
     payload = {"model": body.model, "stream": True, **_adapt(body.messages, raw_params, at, body.thinking)}
     payload["stream_options"] = {"include_usage": True}
 
-    async def generate():
-        async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
-            async with client.stream("POST", f"{base}/chat/completions", json=payload, headers=headers) as r:
-                if r.status_code != 200:
-                    err = await r.aread()
-                    yield f"data: {err.decode()}\n\n"
-                    return
-                async for line in r.aiter_lines():
-                    if line:
-                        yield line + "\n"
-                    else:
-                        yield "\n"
+    sem = _ip_sem(ip)
+    if sem.locked():
+        return JSONResponse(status_code=429, content={"error": "Too many concurrent requests"},
+                            headers={"Retry-After": "2"})
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    async def generate():
+        async with sem:
+            async with _global_semaphore:
+                _ip_active[ip] = _ip_active.get(ip, 0) + 1
+                try:
+                    async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
+                        async with client.stream("POST", f"{base}/chat/completions", json=payload, headers=headers) as r:
+                            if r.status_code != 200:
+                                err = await r.aread()
+                                yield f"data: {err.decode()}\n\n"
+                                return
+                            async for line in r.aiter_lines():
+                                if line:
+                                    yield line + "\n"
+                                else:
+                                    yield "\n"
+                finally:
+                    _ip_active[ip] = max(0, _ip_active.get(ip, 1) - 1)
+
+    rpm = _rpm_bucket(ip)
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "X-Saturn-Tokens-Remaining": str(int(rpm.remaining())),
+            "Access-Control-Expose-Headers": "X-Saturn-Tokens-Remaining",
+        },
+    )
 
 
 # --- Brutus API ---
@@ -632,7 +863,11 @@ class BrutusChat(BaseModel):
 
 
 @app.post("/api/brutus/chat")
-async def brutus_chat(body: BrutusChat):
+async def brutus_chat(body: BrutusChat, request: Request):
+    ip = _client_ip(request)
+    blocked = _check_rate(ip)
+    if blocked:
+        return blocked
     t0 = time.time()
     skipped = []
 
@@ -962,6 +1197,88 @@ async def mcp_tools():
 @app.post("/api/mcp/tools/call")
 async def mcp_call(body: MCPToolCall):
     return await mcp_manager.call(body.server, body.tool, body.arguments)
+
+
+# --- Rate Limit & Usage API (SAT-2n8.1, SAT-2n8.2) ---
+
+@app.get("/api/rate-limit/status")
+async def rate_limit_status(request: Request):
+    ip = _client_ip(request)
+    rpm = _rpm_bucket(ip)
+    tpm = _tpm_bucket(ip)
+    return {
+        "rpm": {"remaining": int(rpm.remaining()), "limit": RATE_RPM},
+        "tpm": {"remaining": int(tpm.remaining()), "limit": RATE_TPM},
+        "concurrent": {"active": _ip_active.get(ip, 0), "limit": RATE_CONCURRENT_PER_IP},
+        "global_concurrent": {"limit": RATE_CONCURRENT_GLOBAL},
+    }
+
+
+@app.get("/api/usage")
+async def usage(request: Request, user_id: str = Query(default="")):
+    ip = user_id or _client_ip(request)
+    period = time.strftime("%Y-%m-%d")
+    conn = _db()
+    row = conn.execute(
+        "SELECT tokens_in, tokens_out, requests FROM usage WHERE user_id=? AND period=?",
+        (ip, period)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return {"user_id": ip, "period": period, "tokens_in": 0, "tokens_out": 0, "requests": 0}
+    return {"user_id": ip, "period": period, "tokens_in": row[0], "tokens_out": row[1], "requests": row[2]}
+
+
+class UsageReport(BaseModel):
+    tokens_in: int = 0
+    tokens_out: int = 0
+
+
+@app.post("/api/usage/report")
+async def report_usage(body: UsageReport, request: Request):
+    ip = _client_ip(request)
+    if body.tokens_in > 0 or body.tokens_out > 0:
+        _record_usage(ip, body.tokens_in, body.tokens_out)
+        _tpm_bucket(ip).consume(body.tokens_in + body.tokens_out)
+    return {"ok": True}
+
+
+@app.get("/api/usage/history")
+async def usage_history(request: Request, user_id: str = Query(default=""), days: int = Query(default=7)):
+    ip = user_id or _client_ip(request)
+    conn = _db()
+    rows = conn.execute(
+        "SELECT period, tokens_in, tokens_out, requests FROM usage WHERE user_id=? ORDER BY period DESC LIMIT ?",
+        (ip, days)
+    ).fetchall()
+    conn.close()
+    return [{"period": r[0], "tokens_in": r[1], "tokens_out": r[2], "requests": r[3]} for r in rows]
+
+
+# --- Admin Config API ---
+
+class AdminConfig(BaseModel):
+    model_filter: Optional[str] = None
+    max_budget: Optional[float] = None
+    budget_duration: Optional[str] = None
+
+
+@app.get("/api/admin/config")
+async def get_admin_config():
+    return _load_admin_config()
+
+
+@app.post("/api/admin/config")
+async def set_admin_config(body: AdminConfig):
+    cfg = _load_admin_config()
+    if body.model_filter is not None:
+        cfg["model_filter"] = body.model_filter
+    if body.max_budget is not None:
+        cfg["max_budget"] = body.max_budget
+    if body.budget_duration is not None:
+        cfg["budget_duration"] = body.budget_duration
+    _save_admin_config(cfg)
+    return cfg
 
 
 # --- Static files ---

@@ -332,6 +332,19 @@
             <span id="file-badge-name"></span>
             <button id="file-badge-remove" class="file-badge-x">&times;</button>
           </div>
+          <!-- Rate limit usage bar (SAT-2n8.1) -->
+          <div id="rate-limit-bar" class="rate-limit-bar hidden">
+            <div class="rate-limit-fill" id="rate-limit-fill"></div>
+            <span class="rate-limit-label" id="rate-limit-label"></span>
+          </div>
+          <!-- Rate limit warning banner -->
+          <div id="rate-limit-banner" class="rate-limit-banner hidden"></div>
+          <!-- Auto-summarize notification (SAT-2n8.4) -->
+          <div id="summarize-notice" class="summarize-notice hidden">
+            <span>Context is filling up.</span>
+            <button id="summarize-btn" class="btn btn-secondary">Summarize older messages</button>
+            <button id="summarize-dismiss" class="summarize-x">&times;</button>
+          </div>
           <div id="context-indicator" class="context-indicator">
             <div class="context-bar"><div class="context-fill" id="context-fill"></div></div>
             <span class="context-label" id="context-label"></span>
@@ -375,6 +388,26 @@
               <div class="system-section-title">Routing Activity</div>
               <div id="system-routing-log" class="system-routing-log">
                 <div class="system-log-empty">No routing activity yet</div>
+              </div>
+            </div>
+
+            <!-- Server Usage (SAT-2n8.2) -->
+            <div class="system-section">
+              <div class="system-section-title">Usage Today</div>
+              <div id="system-usage" class="system-usage">
+                <span class="system-log-empty">No usage data</span>
+              </div>
+            </div>
+
+            <!-- Model Filter (SAT-2n8.3) -->
+            <div class="system-section" id="model-filter-section">
+              <div class="system-section-title">Model Filter</div>
+              <div class="system-section-hint" style="font-size:10px;color:var(--fg-muted);margin-bottom:8px">
+                LobeChat-style syntax: <code>-all,+gpt-4o,+llama3</code>
+              </div>
+              <div style="display:flex;gap:8px">
+                <input type="text" id="model-filter-input" placeholder="-all,+gpt-4o,+llama3" style="flex:1;background:var(--surface2);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-family:inherit;font-size:11px">
+                <button id="model-filter-save" class="btn btn-secondary" style="padding:4px 10px;font-size:10px">Apply</button>
               </div>
             </div>
 
