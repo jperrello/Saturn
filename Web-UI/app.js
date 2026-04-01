@@ -13,6 +13,304 @@ function toast(msg, ms = 3000) {
   setTimeout(() => el.classList.add('hidden'), ms)
 }
 
+// Chat star field background
+function initChatStars(container) {
+  if (container.querySelector('canvas.bg-stars')) return
+  const canvas = document.createElement('canvas')
+  canvas.className = 'bg-stars'
+  canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0'
+  container.style.position = 'relative'
+  container.insertBefore(canvas, container.firstChild)
+  const ctx = canvas.getContext('2d')
+  const stars = Array.from({length: 120}, () => ({
+    x: Math.random(), y: Math.random(),
+    r: 0.5 + Math.random() * 1.5,
+    dy: 0.00002 + Math.random() * 0.0001,
+    phase: Math.random() * Math.PI * 2
+  }))
+  let frame = 0
+  setInterval(() => {
+    if (!document.getElementById('chat')?.classList.contains('active')) return
+    canvas.width = container.clientWidth
+    canvas.height = container.clientHeight
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    frame++
+    for (const s of stars) {
+      s.y = (s.y + s.dy) % 1
+      const alpha = 0.3 + 0.3 * Math.sin(frame * 0.02 + s.phase)
+      ctx.fillStyle = `rgba(255,255,255,${alpha})`
+      ctx.beginPath()
+      ctx.arc(s.x * canvas.width, s.y * canvas.height, s.r, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }, 33)
+}
+
+// Mini Saturn for chat welcome
+function initWelcomeSaturn() {
+  const container = document.getElementById('welcome-saturn')
+  if (!container || container.querySelector('canvas')) return
+
+  const w = container.clientWidth || 240, h = container.clientHeight || 180
+  const scene = new THREE.Scene()
+  const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100)
+  camera.position.set(0, 0.4, 5.5)
+  camera.lookAt(0, -0.1, 0)
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+  renderer.setSize(w, h)
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  renderer.setClearColor(0x000000, 0)
+  container.appendChild(renderer.domElement)
+
+  // planet particles
+  const pCount = 5000
+  const pPos = new Float32Array(pCount * 3)
+  const golden = Math.PI * (3 - Math.sqrt(5))
+  for (let i = 0; i < pCount; i++) {
+    const y = 1 - (i / (pCount - 1)) * 2
+    const r = Math.sqrt(1 - y * y)
+    const theta = golden * i
+    pPos[i * 3] = Math.cos(theta) * r
+    pPos[i * 3 + 1] = y
+    pPos[i * 3 + 2] = Math.sin(theta) * r
+  }
+  const pGeo = new THREE.BufferGeometry()
+  pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3))
+  const pMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `
+      uniform float uTime;
+      varying float vBright;
+      varying float vFresnel;
+      void main() {
+        vec3 norm = normalize(position);
+        vec3 light = normalize(vec3(0.15, -0.3, 0.9));
+        float wrap = 0.3;
+        vBright = max(0.1, (dot(norm, light) + wrap) / (1.0 + wrap));
+        vBright *= 0.85 + 0.15 * sin(norm.y * 22.0 + uTime * 0.5);
+        vec3 viewDir = normalize(cameraPosition - (modelMatrix * vec4(position, 1.0)).xyz);
+        vec3 worldNorm = normalize((modelMatrix * vec4(norm, 0.0)).xyz);
+        vFresnel = pow(1.0 - max(dot(worldNorm, viewDir), 0.0), 3.0);
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = max(1.5, 4.5 * (1.0 / -mv.z));
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: `
+      varying float vBright;
+      varying float vFresnel;
+      void main() {
+        float d = length(gl_PointCoord - 0.5);
+        if (d > 0.5) discard;
+        float glow = 1.0 - d * 2.0;
+        glow = glow * glow;
+        vec3 col = vec3(0.94, 0.71, 0.16) * vBright;
+        col += vec3(0.7, 0.5, 0.15) * vFresnel * 0.6;
+        col += col * glow * 0.4;
+        gl_FragColor = vec4(col, 0.7 + glow * 0.3);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  })
+  const planet = new THREE.Points(pGeo, pMat)
+  planet.rotation.x = 0.35
+  scene.add(planet)
+
+  // ring particles
+  const rCount = 5000
+  const rPos = new Float32Array(rCount * 3)
+  for (let i = 0; i < rCount; i++) {
+    const angle = Math.random() * Math.PI * 2
+    const r = 1.4 + Math.random() * 0.9
+    if (Math.abs(r - 1.75) < 0.06) {
+      rPos[i * 3] = rPos[i * 3 + 1] = rPos[i * 3 + 2] = 0
+    } else {
+      rPos[i * 3] = Math.cos(angle) * r
+      rPos[i * 3 + 1] = (Math.random() - 0.5) * 0.03
+      rPos[i * 3 + 2] = Math.sin(angle) * r
+    }
+  }
+  const rGeo = new THREE.BufferGeometry()
+  rGeo.setAttribute('position', new THREE.BufferAttribute(rPos, 3))
+  const rMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `
+      uniform float uTime;
+      varying float vBright;
+      void main() {
+        float dist = length(position.xz);
+        float t = (dist - 1.4) / 0.9;
+        vBright = 0.3 + 0.7 * (1.0 - t);
+        vBright *= 0.88 + 0.12 * sin(dist * 14.0 + uTime * 0.3);
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = max(1.5, 4.5 * (1.0 / -mv.z));
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: `
+      varying float vBright;
+      void main() {
+        float d = length(gl_PointCoord - 0.5);
+        if (d > 0.5) discard;
+        float glow = 1.0 - d * 2.0;
+        glow = glow * glow;
+        vec3 col = vec3(0.92, 0.72, 0.28) * vBright;
+        col += col * glow * 0.5;
+        gl_FragColor = vec4(col, 0.75 + glow * 0.25);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  })
+  const rings = new THREE.Points(rGeo, rMat)
+  rings.rotation.x = 0.35
+  scene.add(rings)
+
+  // stars
+  const sCount = 200
+  const sPos = new Float32Array(sCount * 3)
+  const sPhase = new Float32Array(sCount)
+  for (let i = 0; i < sCount; i++) {
+    sPos[i * 3] = (Math.random() - 0.5) * 25
+    sPos[i * 3 + 1] = (Math.random() - 0.5) * 25
+    sPos[i * 3 + 2] = -10 - Math.random() * 15
+    sPhase[i] = Math.random() * Math.PI * 2
+  }
+  const sGeo = new THREE.BufferGeometry()
+  sGeo.setAttribute('position', new THREE.BufferAttribute(sPos, 3))
+  sGeo.setAttribute('aPhase', new THREE.BufferAttribute(sPhase, 1))
+  const sMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `
+      attribute float aPhase;
+      varying float vPhase;
+      void main() {
+        vPhase = aPhase;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = max(1.0, 2.0 * (1.0 / -mv.z));
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      varying float vPhase;
+      void main() {
+        float d = length(gl_PointCoord - 0.5);
+        if (d > 0.5) discard;
+        float twinkle = 0.3 + 0.7 * abs(sin(uTime * 0.5 + vPhase));
+        gl_FragColor = vec4(vec3(twinkle), 1.0);
+      }
+    `,
+    transparent: true,
+    depthWrite: false
+  })
+  scene.add(new THREE.Points(sGeo, sMat))
+
+  const clock = new THREE.Clock()
+  let raf
+  function animate() {
+    raf = requestAnimationFrame(animate)
+    const t = clock.getElapsedTime()
+    planet.rotation.y = t * 0.08
+    rings.rotation.y = t * 0.05
+    pMat.uniforms.uTime.value = t
+    rMat.uniforms.uTime.value = t
+    sMat.uniforms.uTime.value = t
+    renderer.render(scene, camera)
+  }
+  animate()
+
+  const ro = new ResizeObserver(() => {
+    const cw = container.clientWidth, ch = container.clientHeight
+    if (cw === 0 || ch === 0) return
+    camera.aspect = cw / ch
+    camera.updateProjectionMatrix()
+    renderer.setSize(cw, ch)
+  })
+  ro.observe(container)
+
+  return () => { cancelAnimationFrame(raf); renderer.dispose() }
+}
+
+// Brutus matrix rain background
+function initBrutusRain(container) {
+  if (container.querySelector('canvas.bg-rain')) return
+  const canvas = document.createElement('canvas')
+  canvas.className = 'bg-rain'
+  canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;opacity:0.07'
+  container.style.position = 'relative'
+  container.insertBefore(canvas, container.firstChild)
+  const ctx = canvas.getContext('2d')
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%^&*'
+  let columns = []
+  function resize() {
+    canvas.width = container.clientWidth
+    canvas.height = container.clientHeight
+    const colW = 14
+    const count = Math.ceil(canvas.width / colW)
+    columns = Array.from({length: count}, (_, i) => ({
+      x: i * colW,
+      y: Math.random() * canvas.height,
+      speed: 1 + Math.random() * 3
+    }))
+  }
+  resize()
+  window.addEventListener('resize', resize)
+  setInterval(() => {
+    if (!document.getElementById('brutus')?.classList.contains('active')) return
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.1)'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.fillStyle = '#4ade80'
+    ctx.font = '12px monospace'
+    for (const col of columns) {
+      ctx.fillText(chars[Math.floor(Math.random() * chars.length)], col.x, col.y)
+      col.y += col.speed * 12
+      if (col.y > canvas.height) col.y = 0
+    }
+  }, 66)
+}
+
+// Code block copy buttons
+function addCopyButtons(container) {
+  container.querySelectorAll('pre').forEach(pre => {
+    if (pre.querySelector('.code-copy')) return
+    const code = pre.querySelector('code')
+    if (code) {
+      const lang = [...code.classList].find(c => c.startsWith('language-'))
+      if (lang) pre.setAttribute('data-lang', lang.replace('language-', ''))
+    }
+    const btn = document.createElement('button')
+    btn.className = 'code-copy'
+    btn.textContent = '[COPY]'
+    btn.onclick = () => {
+      navigator.clipboard.writeText(pre.textContent)
+      btn.textContent = '[COPIED]'
+      setTimeout(() => btn.textContent = '[COPY]', 1500)
+    }
+    pre.style.position = 'relative'
+    pre.appendChild(btn)
+  })
+}
+
+// Tab indicator
+const tabIndicator = document.createElement('div')
+tabIndicator.className = 'tab-indicator'
+tabIndicator.style.cssText = 'position:absolute;bottom:0;height:3px;background:var(--accent);transition:left 0.3s cubic-bezier(0.4,0,0.2,1),width 0.3s cubic-bezier(0.4,0,0.2,1)'
+document.querySelector('.tabs').style.position = 'relative'
+document.querySelector('.tabs').appendChild(tabIndicator)
+
+function updateIndicator() {
+  const active = document.querySelector('.tab.active')
+  if (active) {
+    tabIndicator.style.left = active.offsetLeft + 'px'
+    tabIndicator.style.width = active.offsetWidth + 'px'
+  }
+}
+
 // Tab switching
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
@@ -20,8 +318,20 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'))
     tab.classList.add('active')
     document.getElementById(tab.dataset.tab).classList.add('active')
+    updateIndicator()
+    // init canvas backgrounds on tab switch
+    if (tab.dataset.tab === 'chat') {
+      const msgs = document.querySelector('.messages')
+      if (msgs) initChatStars(msgs)
+      initWelcomeSaturn()
+    }
+    if (tab.dataset.tab === 'brutus') {
+      const dash = document.querySelector('.brutus-dashboard-col')
+      if (dash) initBrutusRain(dash)
+    }
   })
 })
+updateIndicator()
 
 // ===== CHROMATIC ABERRATION SHADER =====
 const ChromaticAberrationShader = {
@@ -961,6 +1271,7 @@ function ensureBrutus() {
 
 window.addEventListener('load', () => {
   setTimeout(initSaturn, 100)
+  setTimeout(initWelcomeSaturn, 200)
 })
 
 // ===== DISCOVER =====
@@ -971,6 +1282,7 @@ function render(list, items, type) {
   items.forEach((s, i) => {
     const div = document.createElement('div')
     div.className = 'checklist-item'
+    div.style.setProperty('--i', i)
     const statusClass = s.status === 'online' ? 'status-online' : 'status-offline'
     div.innerHTML = `
       <input type="checkbox" id="${type}-${i}">
@@ -1051,9 +1363,10 @@ function renderServers() {
     list.innerHTML = '<div class="checklist-item"><span class="name" style="color:var(--muted)">No services configured</span></div>'
     return
   }
-  services.forEach(s => {
+  services.forEach((s, i) => {
     const div = document.createElement('div')
     div.className = 'checklist-item'
+    div.style.setProperty('--i', i)
     const tag = s.builtin ? '<span class="status-badge status-unknown">BUILT-IN</span>' : ''
     const info = s.port && s.running ? `<span class="status-badge" style="color:var(--muted)">:${s.port}</span>` : ''
     div.innerHTML = `
@@ -1078,6 +1391,7 @@ function renderServers() {
         e.stopPropagation()
         btn.disabled = true
         btn.textContent = s.running ? 'Stopping...' : 'Starting...'
+        const starting = !s.running
         try {
           const endpoint = s.running ? `/api/services/${s.name}/stop` : `/api/services/${s.name}/start`
           const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
@@ -1089,6 +1403,7 @@ function renderServers() {
           console.error(e)
         }
         await loadServices()
+        if (starting) discoverBtn.click()
       })
     }
     list.appendChild(div)
@@ -1102,16 +1417,9 @@ let adminUnlocked = sessionStorage.getItem('saturn-admin') === '1'
 
 function showAdminState() {
   document.getElementById('admin-gate').classList.toggle('hidden', adminUnlocked)
-  document.getElementById('admin-prompt').classList.add('hidden')
-  document.getElementById('config-btn').classList.toggle('hidden', !adminUnlocked)
+  document.getElementById('admin-section').classList.toggle('hidden', !adminUnlocked)
 }
 showAdminState()
-
-document.getElementById('admin-unlock').addEventListener('click', () => {
-  document.getElementById('admin-gate').classList.add('hidden')
-  document.getElementById('admin-prompt').classList.remove('hidden')
-  document.getElementById('admin-pw').focus()
-})
 
 async function tryAdminAuth() {
   const pw = document.getElementById('admin-pw').value
@@ -1282,6 +1590,23 @@ function initConfigStars() {
       ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2)
       ctx.fill()
     })
+    // constellation lines
+    const linkDist = 100
+    for (let i = 0; i < stars.length; i++) {
+      for (let j = i + 1; j < stars.length; j++) {
+        const dx = stars[i].x - stars[j].x
+        const dy = stars[i].y - stars[j].y
+        const d = Math.sqrt(dx * dx + dy * dy)
+        if (d < linkDist) {
+          ctx.strokeStyle = `rgba(255,255,255,${(1 - d / linkDist) * 0.15})`
+          ctx.lineWidth = 0.5
+          ctx.beginPath()
+          ctx.moveTo(stars[i].x, stars[i].y)
+          ctx.lineTo(stars[j].x, stars[j].y)
+          ctx.stroke()
+        }
+      }
+    }
     frame++
     configAnimId = requestAnimationFrame(draw)
   }
@@ -1340,6 +1665,8 @@ function savePrefs(updates) {
 const chats = loadChats()
 let activeChat = chats.length > 0 ? 0 : null
 let sending = false
+let streamState = 'idle'
+let activeController = null
 
 const TOKEN_BUDGET = 100000
 function estimate(text) {
@@ -1365,7 +1692,30 @@ function compact(msgs) {
   const trimmed = msgs.length - head.length - rest.length - keep
   if (trimmed <= 0) return msgs
   toast(`Trimmed ${trimmed} old messages to fit context`)
+  // insert inline notification in chat thread
+  if (activeChat !== null) {
+    const notice = document.createElement('div')
+    notice.className = 'msg system-notice'
+    notice.textContent = `⚠ Trimmed ${trimmed} earlier messages to fit context window`
+    messagesEl.appendChild(notice)
+    messagesEl.scrollTop = messagesEl.scrollHeight
+  }
   return [...head, { role: 'system', content: '[Earlier messages trimmed to fit context window]' }, ...rest, ...tail]
+}
+
+function updateContextIndicator() {
+  const el = document.getElementById('context-indicator')
+  if (activeChat === null || chats[activeChat].messages.length === 0) {
+    el.classList.remove('visible', 'warn', 'critical')
+    return
+  }
+  const total = chats[activeChat].messages.reduce((s, m) => s + estimate(m.text), 0)
+  const k = (total / 1000).toFixed(total < 1000 ? 1 : 0)
+  const budgetK = (TOKEN_BUDGET / 1000).toFixed(0)
+  el.textContent = `~${k}K / ${budgetK}K tokens`
+  el.classList.add('visible')
+  el.classList.toggle('warn', total > TOKEN_BUDGET * 0.7)
+  el.classList.toggle('critical', total > TOKEN_BUDGET * 0.9)
 }
 
 function esc(s) {
@@ -1554,12 +1904,15 @@ setInterval(() => {
 
 function renderMessages() {
   messagesEl.querySelectorAll('.msg').forEach(m => m.remove())
+  messagesEl.querySelectorAll('.regen-row').forEach(m => m.remove())
   if (activeChat === null || chats[activeChat].messages.length === 0) {
     welcome.classList.remove('hidden')
+    updateContextIndicator()
     return
   }
   welcome.classList.add('hidden')
-  chats[activeChat].messages.forEach(m => {
+  const msgs = chats[activeChat].messages
+  msgs.forEach((m, i) => {
     const div = document.createElement('div')
     if (m.role === 'user') {
       div.className = 'msg user'
@@ -1576,9 +1929,20 @@ function renderMessages() {
       `
     }
     messagesEl.appendChild(div)
+
+    // regenerate button on last assistant message
+    if (m.role === 'assistant' && i === msgs.length - 1 && !sending) {
+      const row = document.createElement('div')
+      row.className = 'regen-row'
+      row.innerHTML = '<button class="btn btn-secondary regen-btn">↻ Regenerate</button>'
+      row.querySelector('.regen-btn').addEventListener('click', regenerate)
+      messagesEl.appendChild(row)
+    }
   })
   highlightCode(messagesEl)
+  addCopyButtons(messagesEl)
   messagesEl.scrollTop = messagesEl.scrollHeight
+  updateContextIndicator()
 }
 
 function renderHistory() {
@@ -1599,6 +1963,26 @@ function loadChat(idx) {
   renderMessages()
 }
 
+function regenerate() {
+  if (sending || activeChat === null) return
+  const chat = chats[activeChat]
+  if (chat.messages.length < 2) return
+  // find last user message
+  let lastUserIdx = -1
+  for (let i = chat.messages.length - 1; i >= 0; i--) {
+    if (chat.messages[i].role === 'user') { lastUserIdx = i; break }
+  }
+  if (lastUserIdx === -1) return
+  const userText = chat.messages[lastUserIdx].text
+  // remove everything after (and including) the last assistant response
+  chat.messages.splice(lastUserIdx + 1)
+  saveChats()
+  renderMessages()
+  // re-send
+  input.value = userText
+  send()
+}
+
 function newChat() {
   chats.unshift({ name: 'New Chat', messages: [] })
   if (chats.length > MAX_CHATS) chats.length = MAX_CHATS
@@ -1611,6 +1995,7 @@ async function send() {
   const text = input.value.trim()
   if (!text || sending) return
   input.value = ''
+  input.style.height = 'auto'
 
   const service = serviceSelect.value
   const model = modelSelect.value
@@ -1670,164 +2055,247 @@ async function send() {
   let full = ''
   let toolCalls = []
   sending = true
-  sendBtn.disabled = true
+  sendBtn.textContent = 'Stop'
+  sendBtn.classList.add('btn-stop')
+  sendBtn.disabled = false
 
   let actualService = service, actualModel = model
 
-  try {
-    const endpoint = isBrutus ? '/api/brutus/chat' : '/api/chat'
-    const payload = isBrutus
-      ? { messages: compacted }
-      : { service, model, messages: compacted, ...getActiveParams() }
+  const endpoint = isBrutus ? '/api/brutus/chat' : '/api/chat'
+  const payload = isBrutus
+    ? { messages: compacted, ...getActiveParams() }
+    : { service, model, messages: compacted, ...getActiveParams() }
 
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
+  const RETRIES = 3
+  const KEEPALIVE = 30000
+  let userStopped = false
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
-      const code = res.status
-      if (code === 401 || code === 403) {
-        full = `[error] Authentication failed — check API key`
-        bubble.classList.add('error-permanent')
-      } else if (code === 404) {
-        full = `[error] Service not found — run Discover`
-        bubble.classList.add('error-permanent')
-      } else if (code === 429) {
-        full = `[error] Rate limited — try again in a moment`
-        bubble.classList.add('error-retryable')
-      } else if (code >= 500) {
-        full = `[error] Server error — the backend may be down`
-        bubble.classList.add('error-retryable')
+  for (let attempt = 0; attempt <= RETRIES; attempt++) {
+    let controller = new AbortController()
+    activeController = controller
+    let timer = null
+
+    const resetKeepAlive = () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        toast('Connection stalled — aborting')
+        controller.abort()
+      }, KEEPALIVE)
+    }
+
+    try {
+      if (attempt > 0) {
+        streamState = 'reconnecting'
+        toast(`Reconnecting (attempt ${attempt}/${RETRIES})...`)
+        const base = 1000 * Math.pow(2, attempt - 1)
+        await new Promise(r => setTimeout(r, base * (0.75 + Math.random() * 0.5)))
+      }
+
+      streamState = 'streaming'
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      })
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+        const code = res.status
+
+        // retryable HTTP errors — retry if attempts remain
+        if ((code === 429 || code >= 500) && attempt < RETRIES) continue
+
+        if (code === 401 || code === 403) {
+          full = `[error] Authentication failed — check API key`
+          bubble.classList.add('error-permanent')
+        } else if (code === 404) {
+          full = `[error] Service not found — run Discover`
+          bubble.classList.add('error-permanent')
+        } else if (code === 429) {
+          full = `[error] Rate limited — try again in a moment`
+          bubble.classList.add('error-retryable')
+        } else if (code >= 500) {
+          full = `[error] Server error — the backend may be down`
+          bubble.classList.add('error-retryable')
+        } else {
+          full = `[error] ${err.error || res.statusText}`
+          bubble.classList.add('error-permanent')
+        }
+        bubble.innerHTML = esc(full)
+        chat.messages.push({ role: 'assistant', text: full, service: actualService, model: actualModel })
+        saveChats()
+        streamState = 'error'
+        return
+      }
+
+      // read Brutus routing metadata from headers
+      if (isBrutus) {
+        actualService = res.headers.get('X-Brutus-Service') || 'unknown'
+        actualModel = res.headers.get('X-Brutus-Model') || 'auto'
+        const skipped = res.headers.get('X-Brutus-Skipped')
+        const latency = res.headers.get('X-Brutus-Latency')
+        const meta = aDiv.querySelector('.meta')
+        meta.textContent = `brutus → ${actualService} // ${actualModel}${latency ? ` · ${latency}ms` : ''}`
+        if (skipped) {
+          const notice = document.createElement('div')
+          notice.className = 'msg system-notice'
+          notice.textContent = `⚠ skipped: ${skipped} → routed to ${actualService}`
+          messagesEl.insertBefore(notice, aDiv)
+        }
+      }
+
+      // parse SSE stream — same text/event-stream format as omlx
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let stamp = 0
+      const THROTTLE = 80
+
+      resetKeepAlive()
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        resetKeepAlive()
+        buffer += decoder.decode(value, { stream: true })
+
+        const lines = buffer.split('\n')
+        buffer = lines.pop() // keep incomplete line
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const data = line.slice(6)
+          if (data === '[DONE]') break
+
+          try {
+            const chunk = JSON.parse(data)
+            const delta = chunk.choices?.[0]?.delta
+            if (delta?.content) {
+              full += delta.content
+              const now = Date.now()
+              if (now - stamp < THROTTLE) continue
+              stamp = now
+              requestAnimationFrame(() => {
+                const parts = splitThinking(full)
+                if (parts.pending) {
+                  bubble.innerHTML = renderThinkingHTML(parts.thinking) + '<span class="cursor">▊</span>'
+                } else {
+                  bubble.innerHTML = renderThinkingHTML(parts.thinking) + renderMarkdown(parts.body) + '<span class="cursor">▊</span>'
+                }
+                // phosphor glow on newest content
+                const last = bubble.querySelector('p:last-of-type, li:last-of-type, code:last-of-type')
+                if (last && !last.classList.contains('token-new')) {
+                  last.classList.add('token-new')
+                  setTimeout(() => last.classList.remove('token-new'), 600)
+                }
+                messagesEl.scrollTop = messagesEl.scrollHeight
+              })
+            }
+            if (delta?.tool_calls) {
+              for (const tc of delta.tool_calls) {
+                const idx = tc.index ?? toolCalls.length
+                if (!toolCalls[idx]) toolCalls[idx] = { name: '', arguments: '' }
+                if (tc.function?.name) toolCalls[idx].name = tc.function.name
+                if (tc.function?.arguments) toolCalls[idx].arguments += tc.function.arguments
+              }
+              const live = toolCalls.map(tc => {
+                let args = {}
+                try { args = JSON.parse(tc.arguments) } catch { /* partial */ }
+                return renderToolCallInline(tc.name, args, true)
+              }).join('')
+              const parts = splitThinking(full)
+              const body = parts.pending ? '' : renderMarkdown(parts.body)
+              bubble.innerHTML = live + renderThinkingHTML(parts.thinking) + body + '<span class="cursor">▊</span>'
+              messagesEl.scrollTop = messagesEl.scrollHeight
+            }
+          } catch {
+            // skip malformed chunks
+          }
+        }
+      }
+
+      clearTimeout(timer)
+
+      // execute tool calls with permission gating
+      let toolHTML = ''
+      let toolResults = []
+      if (toolCalls.length > 0) {
+        // show pending badges while awaiting permission
+        toolHTML = renderToolsInline(toolCalls)
+        bubble.innerHTML = toolHTML + renderWithThinking(full)
+        messagesEl.scrollTop = messagesEl.scrollHeight
+
+        toolResults = await executeToolCalls(toolCalls, bubble)
+        toolHTML = `<div class="tool-calls-row">${renderPermissionBadges(toolCalls, toolResults)}</div>`
+      }
+
+      // remove cursor, finalize
+      bubble.innerHTML = toolHTML + renderWithThinking(full)
+      highlightCode(bubble)
+      addCopyButtons(bubble)
+      chat.messages.push({
+        role: 'assistant', text: full || '[empty response]',
+        service: actualService, model: actualModel,
+        routedBy: isBrutus ? 'brutus' : undefined,
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        toolResults: toolResults.length > 0 ? toolResults : undefined,
+      })
+      saveChats()
+      streamState = 'idle'
+      break // success — exit retry loop
+
+    } catch (e) {
+      clearTimeout(timer)
+
+      // user-initiated stop — finalize with whatever we have
+      if (e.name === 'AbortError' && controller._userStopped) {
+        bubble.innerHTML = renderWithThinking(full || '[stopped]')
+        highlightCode(bubble)
+        addCopyButtons(bubble)
+        chat.messages.push({
+          role: 'assistant', text: full || '[stopped]',
+          service: actualService, model: actualModel,
+          routedBy: isBrutus ? 'brutus' : undefined,
+        })
+        saveChats()
+        streamState = 'idle'
+        break
+      }
+
+      // keepalive abort or network error — retry if attempts remain
+      if ((e.name === 'AbortError' || e instanceof TypeError) && attempt < RETRIES) continue
+
+      if (e.name === 'AbortError') {
+        full = `[error] Request timed out — no data received for 30s`
+        bubble.classList.add('error-network')
+      } else if (e instanceof TypeError) {
+        full = `[error] Network error — check your connection`
+        bubble.classList.add('error-network')
       } else {
-        full = `[error] ${err.error || res.statusText}`
-        bubble.classList.add('error-permanent')
+        full = `[error] ${e.message}`
+        bubble.classList.add('error-retryable')
       }
       bubble.innerHTML = esc(full)
       chat.messages.push({ role: 'assistant', text: full, service: actualService, model: actualModel })
       saveChats()
-      return
+      streamState = 'error'
+    } finally {
+      activeController = null
+      sending = false
+      sendBtn.textContent = 'Send'
+      sendBtn.classList.remove('btn-stop')
+      sendBtn.disabled = false
     }
-
-    // read Brutus routing metadata from headers
-    if (isBrutus) {
-      actualService = res.headers.get('X-Brutus-Service') || 'unknown'
-      actualModel = res.headers.get('X-Brutus-Model') || 'auto'
-      const skipped = res.headers.get('X-Brutus-Skipped')
-      const latency = res.headers.get('X-Brutus-Latency')
-      const meta = aDiv.querySelector('.meta')
-      meta.textContent = `brutus → ${actualService} // ${actualModel}${latency ? ` · ${latency}ms` : ''}`
-      if (skipped) {
-        const notice = document.createElement('div')
-        notice.className = 'msg system-notice'
-        notice.textContent = `⚠ skipped: ${skipped} → routed to ${actualService}`
-        messagesEl.insertBefore(notice, aDiv)
-      }
-    }
-
-    // parse SSE stream — same text/event-stream format as omlx
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let stamp = 0
-    const THROTTLE = 80
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-
-      const lines = buffer.split('\n')
-      buffer = lines.pop() // keep incomplete line
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
-        const data = line.slice(6)
-        if (data === '[DONE]') break
-
-        try {
-          const chunk = JSON.parse(data)
-          const delta = chunk.choices?.[0]?.delta
-          if (delta?.content) {
-            full += delta.content
-            const now = Date.now()
-            if (now - stamp < THROTTLE) continue
-            stamp = now
-            const parts = splitThinking(full)
-            if (parts.pending) {
-              bubble.innerHTML = renderThinkingHTML(parts.thinking) + '<span class="cursor">▊</span>'
-            } else {
-              bubble.innerHTML = renderThinkingHTML(parts.thinking) + renderMarkdown(parts.body) + '<span class="cursor">▊</span>'
-            }
-            messagesEl.scrollTop = messagesEl.scrollHeight
-          }
-          if (delta?.tool_calls) {
-            for (const tc of delta.tool_calls) {
-              const idx = tc.index ?? toolCalls.length
-              if (!toolCalls[idx]) toolCalls[idx] = { name: '', arguments: '' }
-              if (tc.function?.name) toolCalls[idx].name = tc.function.name
-              if (tc.function?.arguments) toolCalls[idx].arguments += tc.function.arguments
-            }
-            const live = toolCalls.map(tc => {
-              let args = {}
-              try { args = JSON.parse(tc.arguments) } catch { /* partial */ }
-              return renderToolCallInline(tc.name, args, true)
-            }).join('')
-            const parts = splitThinking(full)
-            const body = parts.pending ? '' : renderMarkdown(parts.body)
-            bubble.innerHTML = live + renderThinkingHTML(parts.thinking) + body + '<span class="cursor">▊</span>'
-            messagesEl.scrollTop = messagesEl.scrollHeight
-          }
-        } catch {
-          // skip malformed chunks
-        }
-      }
-    }
-
-    // execute tool calls with permission gating
-    let toolHTML = ''
-    let toolResults = []
-    if (toolCalls.length > 0) {
-      // show pending badges while awaiting permission
-      toolHTML = renderToolsInline(toolCalls)
-      bubble.innerHTML = toolHTML + renderWithThinking(full)
-      messagesEl.scrollTop = messagesEl.scrollHeight
-
-      toolResults = await executeToolCalls(toolCalls, bubble)
-      toolHTML = `<div class="tool-calls-row">${renderPermissionBadges(toolCalls, toolResults)}</div>`
-    }
-
-    // remove cursor, finalize
-    bubble.innerHTML = toolHTML + renderWithThinking(full)
-    highlightCode(bubble)
-    chat.messages.push({
-      role: 'assistant', text: full || '[empty response]',
-      service: actualService, model: actualModel,
-      routedBy: isBrutus ? 'brutus' : undefined,
-      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-      toolResults: toolResults.length > 0 ? toolResults : undefined,
-    })
-    saveChats()
-  } catch (e) {
-    if (e.name === 'AbortError') {
-      full = `[error] Request cancelled`
-      bubble.classList.add('error-network')
-    } else if (e instanceof TypeError) {
-      full = `[error] Network error — check your connection`
-      bubble.classList.add('error-network')
-    } else {
-      full = `[error] ${e.message}`
-      bubble.classList.add('error-retryable')
-    }
-    bubble.innerHTML = esc(full)
-    chat.messages.push({ role: 'assistant', text: full, service: actualService, model: actualModel })
-    saveChats()
-  } finally {
-    sending = false
-    sendBtn.disabled = false
   }
+  activeController = null
+  streamState = streamState === 'streaming' ? 'idle' : streamState
+  sending = false
+  sendBtn.textContent = 'Send'
+  sendBtn.classList.remove('btn-stop')
+  sendBtn.disabled = false
+  updateContextIndicator()
 }
 
 document.getElementById('new-chat-btn').addEventListener('click', newChat)
@@ -1838,8 +2306,20 @@ document.getElementById('clear-chats-btn').addEventListener('click', () => {
   renderHistory()
   renderMessages()
 })
-sendBtn.addEventListener('click', send)
-input.addEventListener('keydown', e => { if (e.key === 'Enter') send() })
+sendBtn.addEventListener('click', () => {
+  if (sending && activeController) {
+    activeController._userStopped = true
+    activeController.abort()
+    return
+  }
+  send()
+})
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    send()
+  }
+})
 
 document.querySelectorAll('.example').forEach(ex => {
   ex.addEventListener('click', () => {
@@ -1850,6 +2330,21 @@ document.querySelectorAll('.example').forEach(ex => {
 
 renderHistory()
 renderMessages()
+
+// History drawer toggle
+const chatDrawer = document.getElementById('chat-drawer')
+const drawerBackdrop = document.getElementById('drawer-backdrop')
+function openDrawer() {
+  chatDrawer?.classList.add('open')
+  drawerBackdrop?.classList.add('open')
+}
+function closeDrawer() {
+  chatDrawer?.classList.remove('open')
+  drawerBackdrop?.classList.remove('open')
+}
+document.getElementById('drawer-toggle')?.addEventListener('click', openDrawer)
+document.getElementById('drawer-close')?.addEventListener('click', closeDrawer)
+drawerBackdrop?.addEventListener('click', closeDrawer)
 
 // ===== FILE CONTEXT INJECTION =====
 const ALLOWED_EXTS = ['.txt', '.md', '.py', '.js', '.ts', '.json', '.toml', '.yaml', '.yml', '.csv']
@@ -2558,16 +3053,7 @@ async function loadBrutusQR() {
       return
     }
   } catch { /* fall through */ }
-  // show LAN fallback QR
-  try {
-    const res = await fetch('/api/brutus/url')
-    const data = await res.json()
-    tunnelStatus.textContent = '● lan only'
-    tunnelStatus.style.color = 'var(--muted)'
-    renderQR(data.url)
-  } catch {
-    renderQR(null)
-  }
+  setTunnelUI('stopped')
 }
 
 // start tunnel
@@ -2604,22 +3090,10 @@ tunnelStopBtn.addEventListener('click', async () => {
   setTunnelUI('stopped')
   tunnelStopBtn.disabled = false
   tunnelStopBtn.textContent = 'Stop Tunnel'
-  // show LAN fallback
-  await loadBrutusQR()
 })
 
-// LAN only button
-document.getElementById('brutus-qr-refresh').addEventListener('click', async () => {
-  try {
-    const res = await fetch('/api/brutus/url')
-    const data = await res.json()
-    tunnelStatus.textContent = '● lan only'
-    tunnelStatus.style.color = 'var(--muted)'
-    renderQR(data.url)
-  } catch {
-    renderQR(null)
-  }
-})
+// refresh button — re-check tunnel status
+document.getElementById('brutus-qr-refresh').addEventListener('click', () => loadBrutusQR())
 
 // dashboard status display
 async function loadBrutusStatus() {
@@ -2731,4 +3205,208 @@ document.querySelectorAll('.tab').forEach(tab => {
       _brutusRefreshTimer = null
     }
   })
+})
+
+// ===== BRUTUS CONNECTOR =====
+const connectorConfigs = {
+  opencode: {
+    name: 'OpenCode',
+    render(url, key) {
+      return `<div class="file-path">opencode.json</div>
+<pre><code>{
+  "provider": {
+    "saturn": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "${url}",
+        "apiKey": "${key}"
+      }
+    }
+  }
+}</code></pre>`
+    }
+  },
+  codex: {
+    name: 'Codex',
+    render(url, key) {
+      return `<div class="file-path">~/.codex/config.toml</div>
+<pre><code>model_provider = "saturn"
+
+[model_providers.saturn]
+name = "Saturn"
+base_url = "${url}"
+env_key = "SATURN_API_KEY"
+wire_api = "responses"</code></pre>
+<p>Then set the env var:</p>
+<pre><code>export SATURN_API_KEY=${key}</code></pre>
+<p class="connector-note">Note: <code>wire_api = "chat"</code> was deprecated in Feb 2026 and is transitioning to a hard error. Saturn must support the <code>/v1/responses</code> endpoint, or use <code>"responses"</code> with a translation proxy.</p>`
+    }
+  },
+  continue: {
+    name: 'Continue',
+    render(url, key) {
+      return `<div class="file-path">~/.continue/config.yaml</div>
+<pre><code>models:
+  - name: Saturn
+    provider: openai
+    model: auto
+    apiBase: ${url}
+    apiKey: ${key}
+    roles: [chat, apply, edit]</code></pre>`
+    }
+  },
+  aider: {
+    name: 'Aider',
+    render(url, key) {
+      return `<p>Run directly:</p>
+<pre><code>OPENAI_API_BASE=${url} OPENAI_API_KEY=${key} aider --model openai/auto</code></pre>
+<p>Or add to <code>.aider.conf.yml</code>:</p>
+<pre><code>openai-api-base: ${url}
+openai-api-key: ${key}
+model: openai/auto</code></pre>`
+    }
+  },
+  cline: {
+    name: 'Cline',
+    render(url, key) {
+      return `<p>In VS Code:</p>
+<p>1. Open Cline settings (gear icon)</p>
+<p>2. Select <strong>OpenAI Compatible</strong> as provider</p>
+<p>3. Set <strong>Base URL</strong> to your Saturn endpoint</p>
+<p>4. Set <strong>API Key</strong> to your Saturn key</p>
+<p>5. Set model to <strong>auto</strong></p>`
+    }
+  },
+  cursor: {
+    name: 'Cursor',
+    render(url, key) {
+      return `<p>In Cursor:</p>
+<p>1. Open <strong>Settings > Models</strong></p>
+<p>2. Enable <strong>Override OpenAI Base URL</strong></p>
+<p>3. Set Base URL to your Saturn endpoint</p>
+<p>4. Set OpenAI API Key to your Saturn key</p>
+<p>5. Select any model — Saturn will route it</p>`
+    }
+  },
+  openclaw: {
+    name: 'OpenClaw',
+    render(url, key) {
+      return `<div class="file-path">~/.openclaw/openclaw.json</div>
+<pre><code>{
+  "baseUrl": "${url}",
+  "apiKey": "${key}"
+}</code></pre>`
+    }
+  },
+  'claude-code': {
+    name: 'Claude Code',
+    render(url, key) {
+      return `<p class="connector-note">Claude Code speaks the Anthropic Messages API, not OpenAI. Connecting it to Saturn requires a translation proxy like <strong>LiteLLM</strong> that converts between Anthropic and OpenAI formats.</p>
+<p>1. Run a LiteLLM proxy pointed at Saturn:</p>
+<pre><code>litellm --model openai/auto --api_base ${url} --api_key ${key}</code></pre>
+<p>2. Set Claude Code env vars to point at the proxy:</p>
+<pre><code>export ANTHROPIC_BASE_URL=http://localhost:4000
+export ANTHROPIC_AUTH_TOKEN=${key}</code></pre>
+<p class="connector-note">Security: avoid LiteLLM PyPI versions 1.82.7 and 1.82.8 — those were compromised with credential-stealing malware.</p>`
+    }
+  },
+  generic: {
+    name: 'Generic (env vars)',
+    render(url, key) {
+      return `<p>Works with any OpenAI-compatible tool:</p>
+<pre><code>export OPENAI_BASE_URL=${url}
+export OPENAI_API_KEY=${key}</code></pre>
+<p>Covers OpenCode, Aider, Codex, and most tools that read standard env vars.</p>`
+    }
+  }
+}
+
+function saturnEndpoint() {
+  return `${location.protocol}//${location.host}/v1`
+}
+
+const connectorAccordion = document.getElementById('connector-accordion')
+const connectorToolName = document.getElementById('connector-tool-name')
+const connectorStep2Name = document.getElementById('connector-step2-name')
+const connectorEndpoint = document.getElementById('connector-endpoint')
+const connectorKey = document.getElementById('connector-key')
+const connectorInstructions = document.getElementById('connector-instructions')
+
+function showConnector(tool) {
+  const cfg = connectorConfigs[tool]
+  if (!cfg) return
+  const url = saturnEndpoint()
+  const key = 'saturn-key'
+
+  // highlight active card
+  document.querySelectorAll('.connector-card').forEach(c => c.classList.toggle('active', c.dataset.tool === tool))
+
+  connectorToolName.textContent = cfg.name
+  connectorStep2Name.textContent = cfg.name
+  connectorEndpoint.textContent = url
+  connectorKey.textContent = key
+  connectorInstructions.innerHTML = cfg.render(url, key)
+  addCopyButtons(connectorInstructions)
+  connectorAccordion.classList.remove('hidden')
+}
+
+document.getElementById('connector-grid').addEventListener('click', e => {
+  const card = e.target.closest('.connector-card')
+  if (!card) return
+  showConnector(card.dataset.tool)
+})
+
+document.getElementById('connector-close').addEventListener('click', () => {
+  connectorAccordion.classList.add('hidden')
+  document.querySelectorAll('.connector-card').forEach(c => c.classList.remove('active'))
+})
+
+// copy buttons in connector
+document.querySelectorAll('.connector-copy').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const target = document.getElementById(btn.dataset.target)
+    if (!target) return
+    navigator.clipboard.writeText(target.textContent).then(() => {
+      const orig = btn.textContent
+      btn.textContent = 'Copied!'
+      setTimeout(() => btn.textContent = orig, 2000)
+    })
+  })
+})
+
+// key reveal toggle
+document.getElementById('connector-key-reveal').addEventListener('click', () => {
+  const el = document.getElementById('connector-key')
+  const btn = document.getElementById('connector-key-reveal')
+  el.classList.toggle('masked')
+  btn.textContent = el.classList.contains('masked') ? 'Show' : 'Hide'
+})
+
+// test connection button
+document.getElementById('connector-test-btn').addEventListener('click', async () => {
+  const result = document.getElementById('connector-test-result')
+  const btn = document.getElementById('connector-test-btn')
+  btn.disabled = true
+  btn.textContent = 'Testing...'
+  result.textContent = ''
+  result.className = 'connector-test-result'
+  try {
+    const start = performance.now()
+    const res = await fetch(saturnEndpoint() + '/models', { signal: AbortSignal.timeout(5000) })
+    const ms = Math.round(performance.now() - start)
+    if (res.ok) {
+      const data = await res.json()
+      const models = data.data?.map(m => m.id) || []
+      result.textContent = `Connected (${ms}ms) — ${models.length} model${models.length !== 1 ? 's' : ''} available`
+      result.classList.add('success')
+    } else {
+      result.textContent = `Server returned ${res.status}`
+      result.classList.add('error')
+    }
+  } catch (e) {
+    result.textContent = `Unreachable — ${e.message}`
+    result.classList.add('error')
+  }
+  btn.disabled = false
+  btn.textContent = 'Test Connection'
 })
