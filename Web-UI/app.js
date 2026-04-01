@@ -1089,6 +1089,7 @@ document.getElementById('cfg-save').addEventListener('click', async () => {
     port: parseInt(document.getElementById('cfg-adv-port').value) || 0,
     beacon_enabled: document.getElementById('cfg-ephemeral').checked,
     beacon_provider: document.getElementById('cfg-keygen-url').value.trim() || null,
+    spend_limit: parseFloat(document.getElementById('cfg-spend-limit').value) || 0,
     rotation_interval: parseInt(document.getElementById('cfg-rotation').value) || 300,
     expiration_interval: parseInt(document.getElementById('cfg-expiration').value) || 600,
   }
@@ -1308,19 +1309,29 @@ function compact(msgs) {
   return [...head, { role: 'system', content: '[Earlier messages trimmed to fit context window]' }, ...rest, ...tail]
 }
 
+function contextBudget() {
+  const params = typeof getActiveParams === 'function' ? getActiveParams() : {}
+  return params.num_ctx || TOKEN_BUDGET
+}
+
 function updateContextIndicator() {
   const el = document.getElementById('context-indicator')
+  const fill = document.getElementById('context-fill')
+  const label = document.getElementById('context-label')
   if (activeChat === null || chats[activeChat].messages.length === 0) {
     el.classList.remove('visible', 'warn', 'critical')
     return
   }
   const total = chats[activeChat].messages.reduce((s, m) => s + estimate(m.text), 0)
+  const budget = contextBudget()
+  const pct = Math.min(total / budget, 1)
   const k = (total / 1000).toFixed(total < 1000 ? 1 : 0)
-  const budgetK = (TOKEN_BUDGET / 1000).toFixed(0)
-  el.textContent = `~${k}K / ${budgetK}K tokens`
+  const budgetK = (budget / 1000).toFixed(0)
+  label.textContent = `~${k}K / ${budgetK}K tokens`
+  fill.style.width = `${(pct * 100).toFixed(1)}%`
   el.classList.add('visible')
-  el.classList.toggle('warn', total > TOKEN_BUDGET * 0.7)
-  el.classList.toggle('critical', total > TOKEN_BUDGET * 0.9)
+  el.classList.toggle('warn', pct >= 0.8)
+  el.classList.toggle('critical', pct >= 0.95)
 }
 
 function esc(s) {
@@ -1378,14 +1389,30 @@ function syncServices() {
     const moon = window.saturnMoons?.find(m => m.name === s.name)
     return moon ? moon.selected : false
   })
-  if (checked.length === 0 && discoveredServices.length === 0) {
+  const hasManual = loadEndpoints().length > 0
+  const hasAliases = Object.keys(loadAliases()).length > 0
+  if (checked.length === 0 && discoveredServices.length === 0 && !hasManual && !hasAliases) {
     serviceSelect.innerHTML = '<option value="" disabled selected>-- discover first --</option>'
     return
   }
-  if (checked.length === 0) {
+  if (checked.length === 0 && !hasManual && !hasAliases) {
     serviceSelect.innerHTML = '<option value="" disabled selected>-- select services in Discover --</option>'
     syncSendBtn()
     return
+  }
+  // aliases at top (SAT-pse.5)
+  const aliases = loadAliases()
+  if (Object.keys(aliases).length > 0) {
+    for (const [name, target] of Object.entries(aliases)) {
+      const opt = document.createElement('option')
+      opt.value = `__alias__:${name}`
+      opt.textContent = `@ ${name}`
+      serviceSelect.appendChild(opt)
+    }
+    const sep0 = document.createElement('option')
+    sep0.disabled = true
+    sep0.textContent = '────────────'
+    serviceSelect.appendChild(sep0)
   }
   checked.forEach(s => {
     const opt = document.createElement('option')
@@ -1393,6 +1420,20 @@ function syncServices() {
     opt.textContent = `⊙ ${s.name}`
     serviceSelect.appendChild(opt)
   })
+  // manual endpoints (SAT-pse.6)
+  const eps = loadEndpoints()
+  if (eps.length > 0) {
+    const sep1 = document.createElement('option')
+    sep1.disabled = true
+    sep1.textContent = '── manual ──'
+    serviceSelect.appendChild(sep1)
+    eps.forEach(ep => {
+      const opt = document.createElement('option')
+      opt.value = `__manual__:${ep.name}`
+      opt.textContent = `◇ ${ep.name}`
+      serviceSelect.appendChild(opt)
+    })
+  }
   // Auto-route option
   const sep = document.createElement('option')
   sep.disabled = true
@@ -1415,6 +1456,7 @@ function syncServices() {
   loadModels()
 }
 let _pendingAutoRoute = false
+let _pendingAliasModel = null
 
 function syncSendBtn() {
   const valid = modelSelect.value && !modelSelect.selectedOptions[0]?.disabled
@@ -1447,6 +1489,30 @@ async function loadModels() {
     modelSelect.innerHTML = '<option value="auto" selected>auto (best available)</option>'
     setDot('')
     syncSendBtn()
+    return
+  }
+  // manual endpoint (SAT-pse.6)
+  if (name.startsWith('__manual__:')) {
+    const epName = name.slice(11)
+    const ep = loadEndpoints().find(e => e.name === epName)
+    if (!ep) return
+    const cacheKey = `__manual__:${epName}`
+    if (_modelCache[cacheKey]) {
+      applyModels(_modelCache[cacheKey])
+      return
+    }
+    modelSelect.innerHTML = '<option value="" disabled selected>loading...</option>'
+    setDot('loading')
+    syncSendBtn()
+    try {
+      const res = await fetch(`/api/proxy/models?base_url=${encodeURIComponent(ep.url)}`)
+      const list = await res.json()
+      _modelCache[cacheKey] = { ok: true, models: list }
+      applyModels(_modelCache[cacheKey])
+    } catch (e) {
+      _modelCache[cacheKey] = { ok: false, error: e.message }
+      applyModels(_modelCache[cacheKey])
+    }
     return
   }
   // use cache if available
@@ -1516,6 +1582,18 @@ function applyModels(cached) {
     opt.textContent = isFav ? `\u2605 ${m.id}` : m.id
     modelSelect.appendChild(opt)
   })
+  // resolve pending alias model (SAT-pse.5)
+  if (_pendingAliasModel) {
+    const target = _pendingAliasModel
+    _pendingAliasModel = null
+    if ([...modelSelect.options].some(o => o.value === target)) {
+      modelSelect.value = target
+      savePrefs({ model: target })
+      setDot('')
+      syncSendBtn()
+      return
+    }
+  }
   const savedModel = loadPrefs().model
   if (savedModel && [...modelSelect.options].some(o => o.value === savedModel)) {
     modelSelect.value = savedModel
@@ -1525,7 +1603,25 @@ function applyModels(cached) {
 }
 
 serviceSelect.addEventListener('change', () => {
-  savePrefs({ service: serviceSelect.value })
+  const val = serviceSelect.value
+  // resolve alias (SAT-pse.5)
+  if (val.startsWith('__alias__:')) {
+    const name = val.slice(10)
+    const aliases = loadAliases()
+    const target = aliases[name]
+    if (target) {
+      // switch to the real service, then auto-select model
+      const real = [...serviceSelect.options].find(o => o.value === target.service)
+      if (real) {
+        serviceSelect.value = target.service
+        savePrefs({ service: target.service })
+        _pendingAliasModel = target.model
+        loadModels()
+        return
+      }
+    }
+  }
+  savePrefs({ service: val })
   loadModels()
 })
 modelSelect.addEventListener('change', () => {
@@ -1653,6 +1749,16 @@ function renderMessages() {
         <div class="meta">${metaLabel}</div>
         <div class="bubble markdown-body">${toolHTML}${renderWithThinking(m.text)}</div>
       `
+      if (m.usage) {
+        const c = cost(m.model, m.usage)
+        const uel = document.createElement('div')
+        uel.className = 'token-usage'
+        let label = `${m.usage.prompt_tokens || 0} in / ${m.usage.completion_tokens || 0} out`
+        if (m.usage.total_tokens) label += ` / ${m.usage.total_tokens} total`
+        if (c > 0) label += ` · $${c < 0.01 ? c.toFixed(6) : c.toFixed(4)}`
+        uel.textContent = label
+        div.appendChild(uel)
+      }
     }
     messagesEl.appendChild(div)
 
@@ -1727,6 +1833,7 @@ async function send() {
     toast('Select a service and model first (run Discover)')
     return
   }
+  if (!checkSpendLimit()) return
   input.value = ''
   input.style.height = 'auto'
 
@@ -1766,12 +1873,15 @@ async function send() {
   const compacted = compact(apiMessages)
 
   const isBrutus = service === '__brutus__'
+  const isManual = service.startsWith('__manual__:')
+  const manualEp = isManual ? loadEndpoints().find(e => e.name === service.slice(11)) : null
 
   // create assistant placeholder with streaming cursor
   const aDiv = document.createElement('div')
   aDiv.className = 'msg assistant'
+  const displayService = isManual ? service.slice(11) : service
   aDiv.innerHTML = `
-    <div class="meta">${isBrutus ? 'auto-route // routing...' : `${esc(service)} // ${esc(model)}`}</div>
+    <div class="meta">${isBrutus ? 'auto-route // routing...' : `${esc(displayService)} // ${esc(model)}`}</div>
     <div class="bubble markdown-body"><span class="cursor">▊</span></div>
   `
   messagesEl.appendChild(aDiv)
@@ -1780,6 +1890,7 @@ async function send() {
   const bubble = aDiv.querySelector('.bubble')
   let full = ''
   let toolCalls = []
+  let usage = null
   sending = true
   sendBtn.textContent = 'Stop'
   sendBtn.classList.add('btn-stop')
@@ -1787,10 +1898,18 @@ async function send() {
 
   let actualService = service, actualModel = model
 
-  const endpoint = isBrutus ? '/api/brutus/chat' : '/api/chat'
-  const payload = isBrutus
-    ? { messages: compacted, ...getActiveParams() }
-    : { service, model, messages: compacted, ...getActiveParams() }
+  let endpoint, payload
+  if (isManual && manualEp) {
+    endpoint = '/api/proxy/chat'
+    payload = { base_url: manualEp.url, model, messages: compacted, api_type: manualEp.api_type, ...getActiveParams() }
+  } else if (isBrutus) {
+    endpoint = '/api/brutus/chat'
+    payload = { messages: compacted, ...getActiveParams() }
+  } else {
+    endpoint = '/api/chat'
+    payload = { service, model, messages: compacted, ...getActiveParams() }
+  }
+  if (thinkingState !== 'off') payload.thinking = thinkingState
 
   const RETRIES = 3
   const KEEPALIVE = 30000
@@ -1897,6 +2016,7 @@ async function send() {
 
           try {
             const chunk = JSON.parse(data)
+            if (chunk.usage) usage = chunk.usage
             const delta = chunk.choices?.[0]?.delta
             if (delta?.content) {
               full += delta.content
@@ -1961,12 +2081,25 @@ async function send() {
       bubble.innerHTML = toolHTML + renderWithThinking(full)
       highlightCode(bubble)
       addCopyButtons(bubble)
+      // display token usage + cost (SAT-pse.2, SAT-pse.3)
+      if (usage) {
+        const c = cost(actualModel, usage)
+        if (c > 0) recordSpend(c)
+        const usageEl = document.createElement('div')
+        usageEl.className = 'token-usage'
+        let label = `${usage.prompt_tokens || 0} in / ${usage.completion_tokens || 0} out`
+        if (usage.total_tokens) label += ` / ${usage.total_tokens} total`
+        if (c > 0) label += ` · $${c < 0.01 ? c.toFixed(6) : c.toFixed(4)}`
+        usageEl.textContent = label
+        aDiv.appendChild(usageEl)
+      }
       chat.messages.push({
         role: 'assistant', text: full || '[empty response]',
         service: actualService, model: actualModel,
         routedBy: isBrutus ? 'brutus' : undefined,
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         toolResults: toolResults.length > 0 ? toolResults : undefined,
+        usage: usage || undefined,
       })
       saveChats()
       streamState = 'idle'
@@ -2345,6 +2478,230 @@ const STYLE_PREFIXES = {
   code: 'Respond with code only. No explanations unless asked. Use comments for clarity.',
 }
 
+// ===== THINKING TOGGLE (SAT-pse.1) =====
+let thinkingState = 'off' // off | on | deep
+const thinkingBtn = document.getElementById('thinking-toggle')
+if (thinkingBtn) {
+  thinkingBtn.addEventListener('click', () => {
+    const cycle = { off: 'on', on: 'deep', deep: 'off' }
+    thinkingState = cycle[thinkingState]
+    thinkingBtn.dataset.state = thinkingState
+    const labels = { off: 'Thinking: Off', on: 'Thinking: On', deep: 'Thinking: Deep' }
+    thinkingBtn.title = labels[thinkingState]
+  })
+}
+
+// ===== MANUAL ENDPOINTS (SAT-pse.6) =====
+const ENDPOINTS_KEY = 'saturn-endpoints'
+
+function loadEndpoints() {
+  try {
+    const raw = localStorage.getItem(ENDPOINTS_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch { /* ignore */ }
+  return []
+}
+
+function saveEndpoints(eps) {
+  try { localStorage.setItem(ENDPOINTS_KEY, JSON.stringify(eps)) } catch { /* ignore */ }
+}
+
+function renderEndpoints() {
+  const list = document.getElementById('manual-ep-list')
+  if (!list) return
+  const eps = loadEndpoints()
+  list.innerHTML = ''
+  eps.forEach((ep, i) => {
+    const row = document.createElement('div')
+    row.className = 'alias-row'
+    row.innerHTML = `<span class="alias-tag">${esc(ep.name)}</span> <span class="alias-target">${esc(ep.url)} (${esc(ep.api_type)})</span>
+      <button class="btn btn-secondary alias-rm" data-idx="${i}">×</button>`
+    row.querySelector('.alias-rm').addEventListener('click', () => {
+      const all = loadEndpoints()
+      all.splice(i, 1)
+      saveEndpoints(all)
+      renderEndpoints()
+      syncServices()
+    })
+    list.appendChild(row)
+  })
+}
+
+document.getElementById('ep-add')?.addEventListener('click', () => {
+  const name = document.getElementById('ep-name').value.trim()
+  const url = document.getElementById('ep-url').value.trim()
+  const type = document.getElementById('ep-type').value
+  if (!name || !url) return
+  const eps = loadEndpoints()
+  eps.push({ name, url, api_type: type })
+  saveEndpoints(eps)
+  document.getElementById('ep-name').value = ''
+  document.getElementById('ep-url').value = ''
+  renderEndpoints()
+  syncServices()
+})
+
+// ===== MODEL ALIASES (SAT-pse.5) =====
+const ALIASES_KEY = 'saturn-aliases'
+
+function loadAliases() {
+  try {
+    const raw = localStorage.getItem(ALIASES_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch { /* ignore */ }
+  return {}
+}
+
+function saveAliases(aliases) {
+  try { localStorage.setItem(ALIASES_KEY, JSON.stringify(aliases)) } catch { /* ignore */ }
+}
+
+function renderAliases() {
+  const list = document.getElementById('alias-list')
+  if (!list) return
+  const aliases = loadAliases()
+  list.innerHTML = ''
+  for (const [name, target] of Object.entries(aliases)) {
+    const row = document.createElement('div')
+    row.className = 'alias-row'
+    row.innerHTML = `<span class="alias-tag">@${esc(name)}</span> → <span class="alias-target">${esc(target.service)} / ${esc(target.model)}</span>
+      <button class="btn btn-secondary alias-rm" data-alias="${esc(name)}">×</button>`
+    row.querySelector('.alias-rm').addEventListener('click', () => {
+      const a = loadAliases()
+      delete a[name]
+      saveAliases(a)
+      renderAliases()
+    })
+    list.appendChild(row)
+  }
+  // populate alias-service select
+  const sel = document.getElementById('alias-service')
+  if (sel) {
+    sel.innerHTML = '<option value="" disabled selected>service</option>'
+    discoveredServices.forEach(s => {
+      const o = document.createElement('option')
+      o.value = s.name
+      o.textContent = s.name
+      sel.appendChild(o)
+    })
+  }
+}
+
+document.getElementById('alias-add')?.addEventListener('click', () => {
+  const name = document.getElementById('alias-name').value.trim()
+  const service = document.getElementById('alias-service').value
+  const model = document.getElementById('alias-model').value.trim()
+  if (!name || !service || !model) return
+  const aliases = loadAliases()
+  aliases[name] = { service, model }
+  saveAliases(aliases)
+  document.getElementById('alias-name').value = ''
+  document.getElementById('alias-model').value = ''
+  renderAliases()
+})
+
+// ===== COST TRACKING (SAT-pse.3) =====
+const SPEND_KEY = 'saturn-spend'
+const PRICING = {
+  // prices per million tokens { input, output }
+  'gpt-4o': { input: 2.5, output: 10 },
+  'gpt-4o-mini': { input: 0.15, output: 0.6 },
+  'gpt-4-turbo': { input: 10, output: 30 },
+  'gpt-4': { input: 30, output: 60 },
+  'gpt-3.5-turbo': { input: 0.5, output: 1.5 },
+  'o1': { input: 15, output: 60 },
+  'o1-mini': { input: 3, output: 12 },
+  'o3': { input: 10, output: 40 },
+  'o3-mini': { input: 1.1, output: 4.4 },
+  'o4-mini': { input: 1.1, output: 4.4 },
+  'claude-3-5-sonnet': { input: 3, output: 15 },
+  'claude-3-5-haiku': { input: 0.8, output: 4 },
+  'claude-3-opus': { input: 15, output: 75 },
+  'claude-sonnet-4': { input: 3, output: 15 },
+  'claude-opus-4': { input: 15, output: 75 },
+  'claude-haiku-4': { input: 0.8, output: 4 },
+  'gemini-2.0-flash': { input: 0.1, output: 0.4 },
+  'gemini-2.5-pro': { input: 1.25, output: 10 },
+  'gemini-2.5-flash': { input: 0.15, output: 0.6 },
+  'deepseek-chat': { input: 0.27, output: 1.1 },
+  'deepseek-reasoner': { input: 0.55, output: 2.19 },
+  'llama-3.1-8b': { input: 0, output: 0 },
+  'llama-3.1-70b': { input: 0, output: 0 },
+  'llama-3.3-70b': { input: 0, output: 0 },
+  'mistral-large': { input: 2, output: 6 },
+  'mixtral-8x7b': { input: 0.24, output: 0.24 },
+  'qwen-2.5-72b': { input: 0, output: 0 },
+}
+
+function loadSpend() {
+  try {
+    const raw = localStorage.getItem(SPEND_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch { /* ignore */ }
+  return { daily: {}, total: 0 }
+}
+
+function saveSpend(spend) {
+  try { localStorage.setItem(SPEND_KEY, JSON.stringify(spend)) } catch { /* ignore */ }
+}
+
+function pricing(model) {
+  if (!model) return null
+  const lower = model.toLowerCase()
+  for (const [key, price] of Object.entries(PRICING)) {
+    if (lower.includes(key)) return price
+  }
+  return null
+}
+
+function cost(model, u) {
+  if (!u) return 0
+  const p = pricing(model)
+  if (!p) return 0
+  return ((u.prompt_tokens || 0) * p.input + (u.completion_tokens || 0) * p.output) / 1_000_000
+}
+
+function recordSpend(amount) {
+  if (amount <= 0) return
+  const spend = loadSpend()
+  const today = new Date().toISOString().slice(0, 10)
+  spend.daily[today] = (spend.daily[today] || 0) + amount
+  spend.total = (spend.total || 0) + amount
+  saveSpend(spend)
+}
+
+function todaySpend() {
+  const spend = loadSpend()
+  return spend.daily[new Date().toISOString().slice(0, 10)] || 0
+}
+
+function spendLimit() {
+  const cfg = loadAllConfig()
+  return cfg.global.spend_limit || 0
+}
+
+function checkSpendLimit() {
+  const limit = spendLimit()
+  if (limit <= 0) return true
+  if (todaySpend() >= limit) {
+    toast(`Daily spend limit ($${limit.toFixed(2)}) reached`)
+    return false
+  }
+  return true
+}
+
+function updateBudgetSummary() {
+  const el = document.getElementById('budget-summary')
+  if (!el) return
+  const spend = loadSpend()
+  const today = todaySpend()
+  const limit = spendLimit()
+  let html = `<span>Today: $${today.toFixed(4)}</span>`
+  html += ` · <span>Total: $${(spend.total || 0).toFixed(4)}</span>`
+  if (limit > 0) html += ` · <span>Limit: $${limit.toFixed(2)}</span>`
+  el.innerHTML = html
+}
+
 // ===== SERVICE CONFIGURATION =====
 const configOverlay = document.getElementById('config-overlay')
 const PARAMS_KEY = 'saturn-model-params'
@@ -2423,7 +2780,7 @@ function getActiveParams() {
   }
   const out = {}
   for (const [k, v] of Object.entries(merged)) {
-    if (v !== null && v !== undefined && k !== 'system_prompt') out[k] = v
+    if (v !== null && v !== undefined && k !== 'system_prompt' && k !== 'spend_limit') out[k] = v
   }
   // per-provider param filtering (SAT-sgr.8)
   if (service && service !== '__brutus__') {
@@ -2706,6 +3063,9 @@ function openConfig(serviceName) {
     document.getElementById('config-service-select').classList.add('hidden')
   }
   applyParamsToUI(currentParams())
+  updateBudgetSummary()
+  renderAliases()
+  renderEndpoints()
   configOverlay.classList.remove('hidden')
 }
 

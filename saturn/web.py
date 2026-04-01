@@ -377,7 +377,7 @@ def _api_type(name: str) -> str:
     return "openai"
 
 
-def _adapt(messages: list[dict], params: dict, api_type: str) -> dict:
+def _adapt(messages: list[dict], params: dict, api_type: str, thinking: str | None = None) -> dict:
     allowed = PARAMS_BY_TYPE.get(api_type, OPENAI_PARAMS)
     payload = {k: v for k, v in params.items() if k in allowed}
 
@@ -389,6 +389,18 @@ def _adapt(messages: list[dict], params: dict, api_type: str) -> dict:
         payload["messages"] = chat_msgs
     else:
         payload["messages"] = messages
+
+    # inject thinking/reasoning params based on api_type
+    if thinking and thinking != "off":
+        if api_type == "openai":
+            payload["reasoning_effort"] = "high" if thinking == "deep" else "medium"
+        elif api_type == "ollama":
+            payload["think"] = True
+        elif api_type == "anthropic":
+            if thinking == "deep":
+                payload["thinking"] = {"type": "enabled", "budget_tokens": payload.get("max_tokens", 8192)}
+            else:
+                payload["thinking"] = {"type": "enabled", "budget_tokens": min(payload.get("max_tokens", 4096), 4096)}
 
     return payload
 
@@ -417,6 +429,7 @@ class ChatRequest(BaseModel):
     tfs_z: Optional[float] = None
     typical_p: Optional[float] = None
     response_format: Optional[dict] = None
+    thinking: Optional[str] = None
 
 
 @app.get("/api/models/all")
@@ -466,6 +479,26 @@ async def models_all():
     return merged
 
 
+@app.get("/api/proxy/models")
+async def proxy_models(base_url: str = Query(...), api_key: str = Query(default="")):
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    base = base_url.rstrip("/")
+    async with httpx.AsyncClient(timeout=10) as client:
+        try:
+            r = await client.get(f"{base}/models", headers=headers)
+            r.raise_for_status()
+        except httpx.HTTPError as e:
+            raise HTTPException(502, f"Failed to fetch models: {e}")
+    data = r.json()
+    if isinstance(data, dict) and "data" in data:
+        return [{"id": m["id"]} for m in data["data"]]
+    if isinstance(data, list):
+        return [{"id": m.get("id", m.get("name", "?"))} for m in data]
+    return []
+
+
 @app.get("/api/models")
 async def models(service: str = Query(...)):
     base, headers = _resolve(service)
@@ -484,6 +517,58 @@ async def models(service: str = Query(...)):
     return []
 
 
+class ManualChatRequest(BaseModel):
+    base_url: str
+    model: str
+    messages: List[dict]
+    api_type: Optional[str] = "openai"
+    api_key: Optional[str] = None
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    frequency_penalty: Optional[float] = None
+    presence_penalty: Optional[float] = None
+    seed: Optional[int] = None
+    stop: Optional[List[str]] = None
+    thinking: Optional[str] = None
+
+
+@app.post("/api/proxy/chat")
+async def proxy_chat(body: ManualChatRequest):
+    headers = {"Content-Type": "application/json"}
+    if body.api_key:
+        headers["Authorization"] = f"Bearer {body.api_key}"
+
+    raw_params = {}
+    for key in ("temperature", "max_tokens", "top_p", "top_k", "frequency_penalty",
+                "presence_penalty", "seed", "stop"):
+        val = getattr(body, key, None)
+        if val is not None:
+            raw_params[key] = val
+
+    at = body.api_type or "openai"
+    payload = {"model": body.model, "stream": True, **_adapt(body.messages, raw_params, at, body.thinking)}
+    payload["stream_options"] = {"include_usage": True}
+
+    base = body.base_url.rstrip("/")
+
+    async def generate():
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
+            async with client.stream("POST", f"{base}/chat/completions", json=payload, headers=headers) as r:
+                if r.status_code != 200:
+                    err = await r.aread()
+                    yield f"data: {err.decode()}\n\n"
+                    return
+                async for line in r.aiter_lines():
+                    if line:
+                        yield line + "\n"
+                    else:
+                        yield "\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
 @app.post("/api/chat")
 async def chat(body: ChatRequest):
     base, headers = _resolve(body.service)
@@ -500,7 +585,8 @@ async def chat(body: ChatRequest):
             raw_params[key] = val
 
     at = _api_type(body.service)
-    payload = {"model": body.model, "stream": True, **_adapt(body.messages, raw_params, at)}
+    payload = {"model": body.model, "stream": True, **_adapt(body.messages, raw_params, at, body.thinking)}
+    payload["stream_options"] = {"include_usage": True}
 
     async def generate():
         async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
@@ -542,6 +628,7 @@ class BrutusChat(BaseModel):
     tfs_z: Optional[float] = None
     typical_p: Optional[float] = None
     response_format: Optional[dict] = None
+    thinking: Optional[str] = None
 
 
 @app.post("/api/brutus/chat")
@@ -609,7 +696,8 @@ async def brutus_chat(body: BrutusChat):
                         raw_params[key] = val
 
                 at = _api_type(c["name"])
-                payload = {"model": model, "stream": True, **_adapt(body.messages, raw_params, at)}
+                payload = {"model": model, "stream": True, **_adapt(body.messages, raw_params, at, body.thinking)}
+                payload["stream_options"] = {"include_usage": True}
 
                 _routing_log.append({
                     "ts": time.time(),

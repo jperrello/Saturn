@@ -260,6 +260,13 @@
               </label>
             </div>
             <div class="strip-right">
+              <button id="thinking-toggle" class="strip-btn thinking-btn" title="Thinking: Off" data-state="off">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M12 2a7 7 0 00-3 13.33V17h6v-1.67A7 7 0 0012 2z"/>
+                  <line x1="9" y1="21" x2="15" y2="21"/>
+                  <line x1="10" y1="24" x2="14" y2="24"/>
+                </svg>
+              </button>
               <select id="style-select" class="style-select" title="Response style">
                 <option value="">Default</option>
                 <option value="concise">Concise</option>
@@ -325,7 +332,10 @@
             <span id="file-badge-name"></span>
             <button id="file-badge-remove" class="file-badge-x">&times;</button>
           </div>
-          <div id="context-indicator" class="context-indicator"></div>
+          <div id="context-indicator" class="context-indicator">
+            <div class="context-bar"><div class="context-fill" id="context-fill"></div></div>
+            <span class="context-label" id="context-label"></span>
+          </div>
           <div class="chat-input-float">
             <div class="chat-input-area">
               <input type="file" id="file-input" class="hidden" accept=".txt,.md,.py,.js,.ts,.json,.toml,.yaml,.yml,.csv">
@@ -554,6 +564,37 @@
           </select>
         </div>
 
+        <!-- Manual Endpoints (SAT-pse.6) -->
+        <div class="config-section">
+          <div class="config-section-title">Manual Endpoints</div>
+          <div class="config-section-hint">Add non-mDNS services (cloud APIs, VPN tunnels)</div>
+          <div id="manual-ep-list" class="alias-list"></div>
+          <div class="alias-add-row">
+            <input type="text" id="ep-name" placeholder="display name" class="alias-input">
+            <input type="text" id="ep-url" placeholder="https://api.example.com/v1" class="alias-input" style="flex:2">
+            <select id="ep-type" class="alias-input">
+              <option value="openai">OpenAI</option>
+              <option value="ollama">Ollama</option>
+              <option value="anthropic">Anthropic</option>
+            </select>
+            <button id="ep-add" class="btn btn-secondary">Add</button>
+          </div>
+        </div>
+
+        <!-- Model Aliases (SAT-pse.5) -->
+        <div class="config-section">
+          <div class="config-section-title">Model Aliases</div>
+          <div id="alias-list" class="alias-list"></div>
+          <div class="alias-add-row">
+            <input type="text" id="alias-name" placeholder="alias (e.g. fast)" class="alias-input">
+            <select id="alias-service" class="alias-input">
+              <option value="" disabled selected>service</option>
+            </select>
+            <input type="text" id="alias-model" placeholder="model id" class="alias-input">
+            <button id="alias-add" class="btn btn-secondary">Add</button>
+          </div>
+        </div>
+
         <!-- Presets -->
         <div class="config-section">
           <div class="config-section-title">Presets</div>
@@ -584,6 +625,22 @@
               <textarea id="response-format-schema" class="config-textarea hidden" rows="4" placeholder='{"type":"object","properties":{"name":{"type":"string"}}}'></textarea>
             </div>
           </div>
+        </div>
+
+        <!-- Budget (SAT-pse.3) -->
+        <div class="config-section">
+          <div class="config-section-title">Budget</div>
+          <div class="param-row" data-param="spend_limit">
+            <div class="param-label">
+              <span class="param-name">Daily Spend Limit ($)</span>
+              <span class="param-hint">0 = unlimited. Blocks sends when exceeded.</span>
+            </div>
+            <button class="param-toggle" data-default="true">Default</button>
+            <div class="param-controls hidden">
+              <input type="number" min="0" max="1000" step="0.01" value="0">
+            </div>
+          </div>
+          <div class="budget-summary" id="budget-summary"></div>
         </div>
 
         <!-- System prompt -->
