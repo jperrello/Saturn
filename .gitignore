@@ -48,3 +48,6 @@ chomp/
 # Dolt database files (added by bd init)
 .dolt/
 *.db
+
+# Bombadil test credentials
+tests/bombadil/test-config.json

@@ -2,7 +2,7 @@
   "meta": {
     "version": "1.0",
     "description": "Project knowledge graph.",
-    "node_types": ["code", "config", "note", "test", "script", "data", "style"],
+    "node_types": ["code", "config", "note", "test", "script", "data", "style", "web-ui"],
     "edge_types": ["references", "imports", "relates", "supports", "uses", "contains"]
   },
   "nodes": [
@@ -745,6 +745,397 @@
         { "to": "sdk-index", "rel": "imports" }
       ],
       "gravity": 0.2
+    },
+    {
+      "id": "brutus-init",
+      "type": "code",
+      "desc": "Brutus Discord bot package initialization.",
+      "file": "code/brutus-init.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "brutus-main",
+      "type": "code",
+      "desc": "Brutus Discord bot entry point.",
+      "file": "code/brutus-main.md",
+      "edges": [
+        { "to": "brutus-bot", "rel": "imports" }
+      ],
+      "gravity": 0.1
+    },
+    {
+      "id": "brutus-bot",
+      "type": "code",
+      "desc": "Brutus Discord bot main implementation.",
+      "file": "code/brutus-bot.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "brutus-env-example",
+      "type": "config",
+      "desc": "Example environment variables for Brutus Discord bot.",
+      "file": "config/brutus-env-example.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "brutus-service",
+      "type": "script",
+      "desc": "Systemd service file for Brutus Discord bot.",
+      "file": "script/brutus-service.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "brutus-features",
+      "type": "note",
+      "desc": "Brutus features list for Raspberry Pi deployment.",
+      "file": "note/brutus-features.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "saturn-mcp-client",
+      "type": "code",
+      "desc": "Saturn MCP client implementation.",
+      "file": "code/saturn-mcp-client.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "saturn-web",
+      "type": "code",
+      "desc": "Saturn web server and UI backend providing REST endpoints for the Web UI.",
+      "file": "code/saturn-web.md",
+      "edges": [
+        { "to": "saturn-discovery", "rel": "imports" },
+        { "to": "saturn-config", "rel": "imports" }
+      ],
+      "gravity": 0.1
+    },
+    {
+      "id": "saturnd-main",
+      "type": "code",
+      "desc": "Go Saturn daemon entry point.",
+      "file": "code/saturnd-main.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "saturnd-a2a-client",
+      "type": "code",
+      "desc": "Agent-to-agent client implementation in the Saturn daemon.",
+      "file": "code/saturnd-a2a-client.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "saturnd-a2a-executor",
+      "type": "code",
+      "desc": "Agent-to-agent executor in the Saturn daemon.",
+      "file": "code/saturnd-a2a-executor.md",
+      "edges": [
+        { "to": "saturnd-a2a-types", "rel": "imports" }
+      ],
+      "gravity": 0.1
+    },
+    {
+      "id": "saturnd-a2a-handler",
+      "type": "code",
+      "desc": "Agent-to-agent HTTP handler in the Saturn daemon.",
+      "file": "code/saturnd-a2a-handler.md",
+      "edges": [
+        { "to": "saturnd-a2a-executor", "rel": "uses" },
+        { "to": "saturnd-a2a-types", "rel": "imports" }
+      ],
+      "gravity": 0.1
+    },
+    {
+      "id": "saturnd-a2a-types",
+      "type": "code",
+      "desc": "Agent-to-agent type definitions shared across Saturn daemon A2A components.",
+      "file": "code/saturnd-a2a-types.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "saturnd-agents-monitor",
+      "type": "code",
+      "desc": "Agent monitor implementation in the Saturn daemon.",
+      "file": "code/saturnd-agents-monitor.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "saturnd-beacon-cache",
+      "type": "code",
+      "desc": "Beacon service cache for the Saturn daemon.",
+      "file": "code/saturnd-beacon-cache.md",
+      "edges": [
+        { "to": "saturnd-beacon-types", "rel": "imports" }
+      ],
+      "gravity": 0.15
+    },
+    {
+      "id": "saturnd-beacon-types",
+      "type": "code",
+      "desc": "Beacon service type definitions for the Saturn daemon.",
+      "file": "code/saturnd-beacon-types.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "saturnd-discovery-advertiser",
+      "type": "code",
+      "desc": "Service advertiser for mDNS/DNS-SD in the Saturn daemon.",
+      "file": "code/saturnd-discovery-advertiser.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "saturnd-discovery-discovery",
+      "type": "code",
+      "desc": "Service discovery implementation in the Saturn daemon.",
+      "file": "code/saturnd-discovery-discovery.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "saturnd-http-handlers",
+      "type": "code",
+      "desc": "HTTP request handlers for the Saturn daemon.",
+      "file": "code/saturnd-http-handlers.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "saturnd-http-server",
+      "type": "code",
+      "desc": "HTTP server implementation for the Saturn daemon.",
+      "file": "code/saturnd-http-server.md",
+      "edges": [
+        { "to": "saturnd-discovery-advertiser", "rel": "uses" },
+        { "to": "saturnd-beacon-cache", "rel": "uses" },
+        { "to": "saturnd-http-handlers", "rel": "contains" },
+        { "to": "saturnd-discovery-discovery", "rel": "uses" }
+      ],
+      "gravity": 0.2
+    },
+    {
+      "id": "saturnd-mcp-protocol",
+      "type": "code",
+      "desc": "MCP protocol implementation for the Saturn daemon.",
+      "file": "code/saturnd-mcp-protocol.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "saturnd-mcp-server",
+      "type": "code",
+      "desc": "MCP server implementation in the Saturn daemon.",
+      "file": "code/saturnd-mcp-server.md",
+      "edges": [
+        { "to": "saturnd-mcp-protocol", "rel": "uses" },
+        { "to": "saturnd-mcp-tools", "rel": "uses" }
+      ],
+      "gravity": 0.1
+    },
+    {
+      "id": "saturnd-mcp-tools",
+      "type": "code",
+      "desc": "MCP tools implementation in the Saturn daemon.",
+      "file": "code/saturnd-mcp-tools.md",
+      "edges": [
+        { "to": "saturnd-discovery-discovery", "rel": "uses" },
+        { "to": "saturnd-beacon-cache", "rel": "uses" },
+        { "to": "saturnd-discovery-advertiser", "rel": "uses" }
+      ],
+      "gravity": 0.15
+    },
+    {
+      "id": "web-ui-app",
+      "type": "code",
+      "desc": "Express.js web application server for the Saturn Web UI.",
+      "file": "code/web-ui-app.md",
+      "edges": [
+        { "to": "web-ui-index", "rel": "references" }
+      ],
+      "gravity": 0.1
+    },
+    {
+      "id": "web-ui-server",
+      "type": "code",
+      "desc": "Web server TypeScript implementation for the Saturn Web UI.",
+      "file": "code/web-ui-server.md",
+      "edges": [
+        { "to": "web-ui-app", "rel": "imports" }
+      ],
+      "gravity": 0.1
+    },
+    {
+      "id": "web-ui-index",
+      "type": "code",
+      "desc": "Web UI HTML entry point.",
+      "file": "code/web-ui-index.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "web-ui-styles",
+      "type": "style",
+      "desc": "Main stylesheet for the Saturn Web UI.",
+      "file": "style/web-ui-styles.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "web-ui-package",
+      "type": "config",
+      "desc": "Web UI Node.js package configuration.",
+      "file": "config/web-ui-package.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "web-ui-readme",
+      "type": "note",
+      "desc": "Web UI documentation.",
+      "file": "note/web-ui-readme.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "web-ui-chat",
+      "type": "code",
+      "desc": "Chat interface JavaScript module for the Saturn Web UI.",
+      "file": "code/web-ui-chat.md",
+      "edges": [
+        { "to": "web-ui-state", "rel": "imports" }
+      ],
+      "gravity": 0.1
+    },
+    {
+      "id": "web-ui-config",
+      "type": "code",
+      "desc": "Configuration interface JavaScript module for the Saturn Web UI.",
+      "file": "code/web-ui-config.md",
+      "edges": [
+        { "to": "web-ui-state", "rel": "imports" }
+      ],
+      "gravity": 0.1
+    },
+    {
+      "id": "web-ui-discover",
+      "type": "code",
+      "desc": "Service discovery interface JavaScript module for the Saturn Web UI.",
+      "file": "code/web-ui-discover.md",
+      "edges": [
+        { "to": "web-ui-state", "rel": "imports" }
+      ],
+      "gravity": 0.1
+    },
+    {
+      "id": "web-ui-graphics",
+      "type": "code",
+      "desc": "Graphics utility functions for the Saturn Web UI.",
+      "file": "code/web-ui-graphics.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "web-ui-main",
+      "type": "code",
+      "desc": "Main application logic for the Saturn Web UI, orchestrating all interface modules.",
+      "file": "code/web-ui-main.md",
+      "edges": [
+        { "to": "web-ui-chat", "rel": "imports" },
+        { "to": "web-ui-config", "rel": "imports" },
+        { "to": "web-ui-discover", "rel": "imports" },
+        { "to": "web-ui-services", "rel": "imports" },
+        { "to": "web-ui-models", "rel": "imports" }
+      ],
+      "gravity": 0.25
+    },
+    {
+      "id": "web-ui-models",
+      "type": "code",
+      "desc": "Model management module for the Saturn Web UI.",
+      "file": "code/web-ui-models.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "web-ui-services",
+      "type": "code",
+      "desc": "Service management module for the Saturn Web UI.",
+      "file": "code/web-ui-services.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "web-ui-state",
+      "type": "code",
+      "desc": "Application state management for the Saturn Web UI, shared across all interface modules.",
+      "file": "code/web-ui-state.md",
+      "edges": [],
+      "gravity": 0.25
+    },
+    {
+      "id": "web-ui-system",
+      "type": "code",
+      "desc": "System status interface module for the Saturn Web UI.",
+      "file": "code/web-ui-system.md",
+      "edges": [
+        { "to": "web-ui-state", "rel": "imports" }
+      ],
+      "gravity": 0.1
+    },
+    {
+      "id": "web-ui-tools",
+      "type": "code",
+      "desc": "UI utility tools for the Saturn Web UI.",
+      "file": "code/web-ui-tools.md",
+      "edges": [
+        { "to": "web-ui-state", "rel": "imports" },
+        { "to": "web-ui-ui", "rel": "imports" }
+      ],
+      "gravity": 0.1
+    },
+    {
+      "id": "web-ui-ui",
+      "type": "code",
+      "desc": "UI component library for the Saturn Web UI.",
+      "file": "code/web-ui-ui.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "web-ui-check-sh",
+      "type": "script",
+      "desc": "Bash script to start Saturn server and run Playwright integration checks for the Web UI.",
+      "file": "script/web-ui-check-sh.md",
+      "edges": [
+        { "to": "web-ui-check-ts", "rel": "uses" }
+      ],
+      "gravity": 0.1
+    },
+    {
+      "id": "web-ui-check-ts",
+      "type": "test",
+      "desc": "Playwright test suite validating Web UI structure and interactions.",
+      "file": "test/web-ui-check-ts.md",
+      "edges": [],
+      "gravity": 0.1
+    },
+    {
+      "id": "tests-bombadil-autoroute",
+      "type": "test",
+      "desc": "Bombadil property test for auto-route functionality.",
+      "file": "test/tests-bombadil-autoroute.md",
+      "edges": [],
+      "gravity": 0.1
     }
   ]
 }
