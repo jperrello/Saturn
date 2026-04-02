@@ -286,6 +286,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.getElementById('config-overlay')?.classList.add('hidden')
     // init canvas backgrounds on tab switch
     if (tab.dataset.tab === 'chat') {
+      newChat()
       const msgs = document.querySelector('.messages')
       if (msgs) initChatStars(msgs)
       initWelcomeSaturn()
@@ -1044,13 +1045,24 @@ document.getElementById('cfg-back').addEventListener('click', () => {
 const deploySelect = document.getElementById('cfg-deployment')
 const cloudFields = document.getElementById('cloud-fields')
 const networkFields = document.getElementById('network-fields')
+const cloudAdvanced = document.getElementById('cloud-advanced-fields')
 const testBtn = document.getElementById('cfg-test')
 
 deploySelect.addEventListener('change', () => {
   const cloud = deploySelect.value === 'cloud'
   cloudFields.classList.toggle('hidden', !cloud)
   networkFields.classList.toggle('hidden', cloud)
+  cloudAdvanced.classList.toggle('hidden', !cloud)
   testBtn.classList.toggle('hidden', cloud)
+})
+
+// Advanced section toggle
+const advToggle = document.getElementById('advanced-toggle')
+const advFields = document.getElementById('advanced-fields')
+
+advToggle.addEventListener('click', () => {
+  const open = advFields.classList.toggle('hidden')
+  advToggle.classList.toggle('open', !open)
 })
 
 // Ephemeral keys toggle
@@ -1134,8 +1146,11 @@ function resetConfigForm() {
   document.getElementById('cfg-net-port').value = ''
   cloudFields.classList.remove('hidden')
   networkFields.classList.add('hidden')
+  cloudAdvanced.classList.remove('hidden')
   testBtn.classList.add('hidden')
   document.getElementById('ephemeral-fields').classList.add('hidden')
+  advFields.classList.add('hidden')
+  advToggle.classList.remove('open')
 }
 
 // Config page star field (canvas)
@@ -1903,7 +1918,7 @@ async function send() {
     endpoint = '/api/proxy/chat'
     payload = { base_url: manualEp.url, model, messages: compacted, api_type: manualEp.api_type, ...getActiveParams() }
   } else if (isBrutus) {
-    endpoint = '/api/brutus/chat'
+    endpoint = '/api/system/chat'
     payload = { messages: compacted, ...getActiveParams() }
   } else {
     endpoint = '/api/chat'
@@ -1977,10 +1992,10 @@ async function send() {
 
       // read Brutus routing metadata from headers
       if (isBrutus) {
-        actualService = res.headers.get('X-Brutus-Service') || 'unknown'
-        actualModel = res.headers.get('X-Brutus-Model') || 'auto'
-        const skipped = res.headers.get('X-Brutus-Skipped')
-        const latency = res.headers.get('X-Brutus-Latency')
+        actualService = res.headers.get('X-Saturn-Service') || 'unknown'
+        actualModel = res.headers.get('X-Saturn-Model') || 'auto'
+        const skipped = res.headers.get('X-Saturn-Skipped')
+        const latency = res.headers.get('X-Saturn-Latency')
         const meta = aDiv.querySelector('.meta')
         meta.textContent = `auto → ${actualService} // ${actualModel}${latency ? ` · ${latency}ms` : ''}`
         if (skipped) {
@@ -3266,9 +3281,19 @@ function syncSystemGate() {
   remoteMain.classList.toggle('hidden', !accepted)
 }
 
-function showSubtab(name) {
-  document.querySelectorAll('.subtab').forEach(btn => btn.classList.toggle('active', btn.dataset.subtab === name))
+let activeSubtab = 'status'
+
+function showSubtab(name, focus) {
+  activeSubtab = name
+  document.querySelectorAll('.subtab').forEach(btn => {
+    const active = btn.dataset.subtab === name
+    btn.classList.toggle('active', active)
+    btn.setAttribute('aria-selected', active)
+    btn.setAttribute('tabindex', active ? '0' : '-1')
+    if (active && focus) btn.focus()
+  })
   document.querySelectorAll('.subtab-page').forEach(page => page.classList.toggle('active', page.id === 'subtab-' + name))
+  history.replaceState(null, '', '#system/' + name)
   if (name === 'status') {
     loadSystemStatus()
     return
@@ -3279,8 +3304,23 @@ function showSubtab(name) {
   }
 }
 
-document.querySelectorAll('.subtab').forEach(btn => {
+const subtabs = Array.from(document.querySelectorAll('.subtab'))
+subtabs.forEach(btn => {
   btn.addEventListener('click', () => showSubtab(btn.dataset.subtab))
+})
+
+document.querySelector('.system-subtabs-nav').addEventListener('keydown', e => {
+  const idx = subtabs.indexOf(document.activeElement)
+  if (idx < 0) return
+  let next
+  if (e.key === 'ArrowRight') next = (idx + 1) % subtabs.length
+  if (e.key === 'ArrowLeft') next = (idx - 1 + subtabs.length) % subtabs.length
+  if (e.key === 'Home') next = 0
+  if (e.key === 'End') next = subtabs.length - 1
+  if (next != null) {
+    e.preventDefault()
+    showSubtab(subtabs[next].dataset.subtab, true)
+  }
 })
 
 // gate acceptance
@@ -3293,21 +3333,35 @@ document.getElementById('system-accept').addEventListener('click', () => {
 
 syncSystemGate()
 
-// hash-based deep link — #brutus backward compat, also support #system
+// hash-based deep link — #brutus backward compat, also support #system and #system/<subtab>
+function switchToTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'))
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'))
+  document.querySelector(`[data-tab="${name}"]`)?.classList.add('active')
+  document.getElementById(name)?.classList.add('active')
+  updateIndicator()
+}
+
 function checkHash() {
-  if (location.hash === '#brutus' || location.hash === '#system') {
-    if (localStorage.getItem('brutus-accepted') !== '1') {
-      localStorage.setItem('brutus-accepted', '1')
+  const hash = location.hash.replace('#', '')
+  if (hash === 'brutus' || hash === 'system' || hash.startsWith('system/')) {
+    if (hash === 'brutus') {
+      if (localStorage.getItem('brutus-accepted') !== '1') {
+        localStorage.setItem('brutus-accepted', '1')
+      }
+      switchToTab('chat')
+      if ([...serviceSelect.options].some(o => o.value === '__brutus__')) {
+        serviceSelect.value = '__brutus__'
+        loadModels()
+      } else {
+        _pendingAutoRoute = true
+      }
+      return
     }
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'))
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'))
-    document.querySelector('[data-tab="chat"]').classList.add('active')
-    document.getElementById('chat').classList.add('active')
-    if ([...serviceSelect.options].some(o => o.value === '__brutus__')) {
-      serviceSelect.value = '__brutus__'
-      loadModels()
-    } else {
-      _pendingAutoRoute = true
+    switchToTab('system')
+    const sub = hash.split('/')[1]
+    if (sub && ['status', 'remote', 'integrate'].includes(sub)) {
+      showSubtab(sub)
     }
   }
 }
@@ -3370,7 +3424,7 @@ function setTunnelUI(status, url) {
 
 async function loadSystemQR() {
   try {
-    const res = await fetch('/api/brutus/tunnel/status')
+    const res = await fetch('/api/system/tunnel/status')
     const data = await res.json()
     if (data.status === 'running' && data.url) {
       setTunnelUI('running', data.url)
@@ -3393,7 +3447,7 @@ tunnelStartBtn.addEventListener('click', async () => {
   tunnelStatus.textContent = '● connecting...'
   tunnelStatus.style.color = 'var(--accent)'
   try {
-    const res = await fetch('/api/brutus/tunnel/start', { method: 'POST' })
+    const res = await fetch('/api/system/tunnel/start', { method: 'POST' })
     const data = await res.json().catch(() => ({}))
     const error = data.error || data.detail
     if (!res.ok || error) {
@@ -3419,7 +3473,7 @@ tunnelStopBtn.addEventListener('click', async () => {
   tunnelStopBtn.disabled = true
   tunnelStopBtn.textContent = 'Stopping...'
   try {
-    await fetch('/api/brutus/tunnel/stop', { method: 'POST' })
+    await fetch('/api/system/tunnel/stop', { method: 'POST' })
   } catch { /* ok */ }
   setTunnelUI('stopped')
   tunnelStopBtn.disabled = false
@@ -3429,7 +3483,7 @@ tunnelStopBtn.addEventListener('click', async () => {
 // dashboard status display
 async function loadSystemStatus() {
   try {
-    const res = await fetch('/api/brutus/status')
+    const res = await fetch('/api/system/status')
     const data = await res.json()
     renderHealthGrid(data.backends)
     renderRoutingLog(data.routing_log)
@@ -3866,7 +3920,7 @@ document.getElementById('summarize-btn')?.addEventListener('click', async () => 
       endpoint = '/api/proxy/chat'
       payload = { base_url: manualEp.url, model, messages: prompt, api_type: manualEp.api_type, max_tokens: 1024 }
     } else if (isBrutus) {
-      endpoint = '/api/brutus/chat'
+      endpoint = '/api/system/chat'
       payload = { messages: prompt, max_tokens: 1024 }
     } else {
       endpoint = '/api/chat'

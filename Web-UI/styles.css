@@ -8,9 +8,9 @@
   --bg:       #000000;
   --surface:  #0a0a0a;
   --surface2: #141414;
-  --border:   #2a2a2a;
+  --border:   #555555;
   --border-active: #fff;
-  --fg-muted: rgba(255,255,255,0.3);
+  --fg-muted: rgba(255,255,255,0.6);
   --fg:       rgba(255,255,255,0.7);
   --fg-bright: #fff;
   --accent:   #f0c040;
@@ -1463,29 +1463,21 @@ textarea:focus {
   display: flex;
 }
 
-.config-left {
+.config-full {
   display: flex;
   justify-content: center;
-  align-items: center;
-  position: relative;
-}
-
-.config-left canvas {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-}
-
-.config-center-btn {
-  position: relative;
-  z-index: 2;
+  flex: 1;
 }
 
 .config-right {
   overflow-y: auto;
   max-height: calc(100vh - 50px);
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  width: 100%;
+  max-width: 600px;
+  padding: 32px;
 }
 
 .config-heading {
@@ -1500,8 +1492,9 @@ textarea:focus {
 
 .config-form label {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 20px;
+  gap: 6px;
   margin-bottom: 16px;
   font-size: 11px;
   text-transform: uppercase;
@@ -1509,26 +1502,47 @@ textarea:focus {
   color: var(--fg-muted);
 }
 
+.config-form label input[type="text"],
+.config-form label input[type="number"],
+.config-form label input[type="password"],
+.config-form label select {
+  flex-basis: 100%;
+}
+
+.config-form label:has(input[type="checkbox"]) {
+  flex-wrap: nowrap;
+  gap: 12px;
+}
+
 .config-form input[type="text"],
 .config-form input[type="number"],
 .config-form input[type="password"] {
   background: var(--bg);
-  border: 2px solid var(--border);
+  border: 2px solid var(--fg-muted);
   color: var(--fg);
   padding: 10px 14px;
   font-family: var(--font);
   font-size: 13px;
-  width: 260px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.config-form input[type="text"]:focus,
+.config-form input[type="number"]:focus,
+.config-form input[type="password"]:focus {
+  border-color: var(--accent);
+  outline: none;
 }
 
 .config-form select {
   background: var(--bg);
-  border: 2px solid var(--border);
+  border: 2px solid var(--fg-muted);
   color: var(--fg);
   padding: 10px 14px;
   font-family: var(--font);
   font-size: 13px;
-  width: 260px;
+  width: 100%;
+  box-sizing: border-box;
   cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
@@ -1549,6 +1563,38 @@ textarea:focus {
   display: flex;
   gap: 12px;
   margin-top: 28px;
+}
+
+/* Config form sections */
+.config-section {
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 0 0 20px 0;
+  margin: 0 0 20px 0;
+}
+
+.config-section:last-of-type {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.config-section-title {
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 16px;
+  padding: 0;
+}
+
+
+.required {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+#cloud-advanced-fields {
+  margin-top: 0;
 }
 
 #ephemeral-fields {
@@ -1708,10 +1754,10 @@ textarea:focus {
   flex: 1;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 24px;
   width: 100%;
-  min-height: calc(100vh - 180px);
+  padding: 24px 0;
 }
 
 .proxy-qr {
@@ -1908,12 +1954,13 @@ textarea:focus {
 }
 
 .proxy-mode {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   min-height: 30px;
   padding: 0 12px;
   margin: 0 auto 20px;
+  width: fit-content;
   border: 1px solid var(--border);
   color: var(--fg-muted);
   font-size: 10px;
@@ -1971,7 +2018,7 @@ textarea:focus {
   position: relative;
   background: var(--surface);
   border: 1px solid var(--border);
-  padding: 12px 56px 12px 10px;
+  padding: 12px 10px;
   cursor: pointer;
   font-family: var(--font);
   text-align: left;
@@ -1980,6 +2027,7 @@ textarea:focus {
   gap: 4px;
   justify-content: flex-start;
   min-height: 86px;
+  overflow: hidden;
   transition: border-color var(--dur-fast), background var(--dur-fast);
 }
 
@@ -1998,12 +2046,18 @@ textarea:focus {
   font-weight: 700;
   color: var(--fg-bright);
   letter-spacing: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .connector-hint {
   font-size: 9px;
   color: var(--fg-muted);
   letter-spacing: 0.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .connector-accordion {

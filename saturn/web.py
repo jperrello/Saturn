@@ -862,7 +862,7 @@ class BrutusChat(BaseModel):
     thinking: Optional[str] = None
 
 
-@app.post("/api/brutus/chat")
+@app.post("/api/system/chat")
 async def brutus_chat(body: BrutusChat, request: Request):
     ip = _client_ip(request)
     blocked = _check_rate(ip)
@@ -964,11 +964,11 @@ async def brutus_chat(body: BrutusChat, request: Request):
                     generate(),
                     media_type="text/event-stream",
                     headers={
-                        "X-Brutus-Service": c["name"],
-                        "X-Brutus-Model": model,
-                        "X-Brutus-Skipped": skipped_names,
-                        "X-Brutus-Latency": str(latency),
-                        "Access-Control-Expose-Headers": "X-Brutus-Service, X-Brutus-Model, X-Brutus-Skipped, X-Brutus-Latency",
+                        "X-Saturn-Service": c["name"],
+                        "X-Saturn-Model": model,
+                        "X-Saturn-Skipped": skipped_names,
+                        "X-Saturn-Latency": str(latency),
+                        "Access-Control-Expose-Headers": "X-Saturn-Service, X-Saturn-Model, X-Saturn-Skipped, X-Saturn-Latency",
                     },
                 )
             except Exception:
@@ -979,7 +979,7 @@ async def brutus_chat(body: BrutusChat, request: Request):
     raise HTTPException(502, "All backends failed")
 
 
-@app.get("/api/brutus/status")
+@app.get("/api/system/status")
 async def brutus_status():
     backends = []
     for name, d in _discovered.items():
@@ -1035,7 +1035,7 @@ async def brutus_status():
     }
 
 
-@app.get("/api/brutus/url")
+@app.get("/api/system/url")
 async def brutus_url():
     global _tunnel_url
     if _tunnel_url:
@@ -1045,7 +1045,7 @@ async def brutus_url():
     return {"url": f"http://{ip}:3000" if ip else None, "mode": "lan"}
 
 
-@app.get("/api/brutus/tunnel/status")
+@app.get("/api/system/tunnel/status")
 async def brutus_tunnel_status():
     global _tunnel_proc, _tunnel_url
     running = _tunnel_proc is not None and _tunnel_proc.returncode is None
@@ -1073,7 +1073,7 @@ async def _kill_tunnel():
     _tunnel_url = None
 
 
-@app.post("/api/brutus/tunnel/start")
+@app.post("/api/system/tunnel/start")
 async def brutus_tunnel_start():
     global _tunnel_proc, _tunnel_url
     if _tunnel_proc and _tunnel_proc.returncode is None and _tunnel_url:
@@ -1146,7 +1146,7 @@ async def brutus_tunnel_start():
     return {"url": _tunnel_url, "status": "running"}
 
 
-@app.post("/api/brutus/tunnel/stop")
+@app.post("/api/system/tunnel/stop")
 async def brutus_tunnel_stop():
     await _kill_tunnel()
     return {"status": "stopped"}

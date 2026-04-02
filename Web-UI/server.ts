@@ -5,6 +5,7 @@ import { spawn, type Subprocess } from "bun"
 const SATURN_SERVICE = "_saturn._tcp.local"
 const SCAN_MS = 3000
 const CORS = { "Access-Control-Allow-Origin": "*" }
+const ADMIN_PASSWORD = process.env.SATURN_ADMIN_PASSWORD || "saturn"
 const HEALTH_INTERVAL = 20_000
 const BREAKER_THRESHOLD = 3
 const BREAKER_COOLDOWN = 30_000
@@ -248,9 +249,17 @@ const server = Bun.serve({
           ...CORS,
           "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type",
-          "Access-Control-Expose-Headers": "X-Brutus-Service, X-Brutus-Model",
+          "Access-Control-Expose-Headers": "X-Saturn-Service, X-Saturn-Model",
         },
       })
+    }
+
+    if (url.pathname === "/api/admin/auth" && req.method === "POST") {
+      const body = await req.json()
+      if (body.password !== ADMIN_PASSWORD) {
+        return Response.json({ detail: "Invalid password" }, { status: 401, headers: CORS })
+      }
+      return Response.json({ ok: true }, { headers: CORS })
     }
 
     if (url.pathname === "/api/discover") {
@@ -268,7 +277,7 @@ const server = Bun.serve({
     }
 
     // brutus auto-routed chat — picks best healthy backend automatically
-    if (url.pathname === "/api/brutus/chat" && req.method === "POST") {
+    if (url.pathname === "/api/system/chat" && req.method === "POST") {
       const body = await req.json()
       const { messages } = body
 
@@ -325,9 +334,9 @@ const server = Bun.serve({
               "Content-Type": "text/event-stream",
               "Cache-Control": "no-cache",
               Connection: "keep-alive",
-              "X-Brutus-Service": svc.name,
-              "X-Brutus-Model": model,
-              "Access-Control-Expose-Headers": "X-Brutus-Service, X-Brutus-Model",
+              "X-Saturn-Service": svc.name,
+              "X-Saturn-Model": model,
+              "Access-Control-Expose-Headers": "X-Saturn-Service, X-Saturn-Model",
               ...CORS,
             },
           })
@@ -344,7 +353,7 @@ const server = Bun.serve({
     }
 
     // brutus URL for QR code — returns tunnel URL or LAN fallback
-    if (url.pathname === "/api/brutus/url") {
+    if (url.pathname === "/api/system/url") {
       if (tunnelUrl) {
         return Response.json({ url: tunnelUrl, mode: "tunnel" }, { headers: CORS })
       }
@@ -355,7 +364,7 @@ const server = Bun.serve({
     }
 
     // start cloudflared tunnel
-    if (url.pathname === "/api/brutus/tunnel/start" && req.method === "POST") {
+    if (url.pathname === "/api/system/tunnel/start" && req.method === "POST") {
       if (tunnelUrl) {
         return Response.json({ url: tunnelUrl, status: "running" }, { headers: CORS })
       }
@@ -370,13 +379,13 @@ const server = Bun.serve({
     }
 
     // stop cloudflared tunnel
-    if (url.pathname === "/api/brutus/tunnel/stop" && req.method === "POST") {
+    if (url.pathname === "/api/system/tunnel/stop" && req.method === "POST") {
       stopTunnel()
       return Response.json({ status: "stopped" }, { headers: CORS })
     }
 
     // tunnel status
-    if (url.pathname === "/api/brutus/tunnel/status") {
+    if (url.pathname === "/api/system/tunnel/status") {
       return Response.json(
         { url: tunnelUrl, status: tunnel ? "running" : "stopped" },
         { headers: CORS }
