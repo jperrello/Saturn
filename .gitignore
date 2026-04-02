@@ -44,3 +44,6 @@ saturnd/saturn-router/target/
 thesis/
 
 chomp/
+
+# MkDocs build output
+site/
