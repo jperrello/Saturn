@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Saturn</title>
+  <link rel="stylesheet" href="styles/global.css">
+  <link rel="stylesheet" href="styles/discover.css">
+  <link rel="stylesheet" href="styles/chat.css">
+  <link rel="stylesheet" href="styles/config.css">
+  <link rel="stylesheet" href="styles/system.css">
+  <link rel="stylesheet" href="styles/tools.css">
+  <link rel="stylesheet" href="styles/markdown.css">
+<style>
+  body::before {
+    content: '';
+    position: fixed;
+    top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    filter: url(#grain);
+    opacity: 0.03;
+    pointer-events: none;
+    z-index: 9998;
+    animation: grainShift 0.5s steps(4) infinite;
+  }
+  @keyframes grainShift {
+    0%   { transform: translate(0, 0); }
+    25%  { transform: translate(-2%, -1%); }
+    50%  { transform: translate(1%, 2%); }
+    75%  { transform: translate(-1%, -2%); }
+  }
+</style>
+</head>
+<body>
+  <!-- SVG Filters -->
+  <svg style="display:none">
+    <filter id="grain">
+      <feTurbulence type="fractalNoise" baseFrequency="0.65"
+                    numOctaves="3" stitchTiles="stitch"/>
+      <feColorMatrix type="saturate" values="0"/>
+    </filter>
+    <filter id="glitch">
+      <feTurbulence type="turbulence" baseFrequency="0.02 0.9"
+                    numOctaves="1" seed="2" result="noise">
+        <animate attributeName="seed" values="1;2;3;4;5;6;7;8"
+                 dur="0.5s" repeatCount="indefinite"/>
+      </feTurbulence>
+      <feDisplacementMap in="SourceGraphic" in2="noise"
+                         scale="4" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </svg>
+
+  <!-- SVG Icon Sprite -->
+  <svg style="display:none">
+    <defs>
+      <symbol id="icon-clip" viewBox="0 0 24 24">
+        <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19
+                 a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"
+              fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </symbol>
+      <symbol id="icon-wrench" viewBox="0 0 24 24">
+        <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77
+                 a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91
+                 a6 6 0 017.94-7.94l-3.76 3.76z"
+              fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </symbol>
+      <symbol id="icon-warn" viewBox="0 0 24 24">
+        <path d="M12 2L2 22h20L12 2z" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="12" y1="10" x2="12" y2="15" stroke="currentColor" stroke-width="1.5"/>
+        <circle cx="12" cy="18" r="0.8" fill="currentColor"/>
+      </symbol>
+      <symbol id="icon-gear" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"
+              fill="none" stroke="currentColor" stroke-width="1.5"/>
+      </symbol>
+      <symbol id="icon-send" viewBox="0 0 24 24">
+        <line x1="22" y1="2" x2="11" y2="13" stroke="currentColor" stroke-width="1.5"/>
+        <polygon points="22 2 15 22 11 13 2 9 22 2" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      </symbol>
+      <symbol id="icon-copy" viewBox="0 0 24 24">
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      </symbol>
+      <symbol id="icon-search" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="21" y1="21" x2="16.65" y2="16.65" stroke="currentColor" stroke-width="1.5"/>
+      </symbol>
+      <symbol id="icon-chat" viewBox="0 0 24 24">
+        <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      </symbol>
+      <symbol id="icon-trash" viewBox="0 0 24 24">
+        <polyline points="3 6 5 6 21 6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      </symbol>
+      <symbol id="icon-plus" viewBox="0 0 24 24">
+        <line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="1.5"/>
+      </symbol>
+    </defs>
+  </svg>
+
+  <div class="app">
+    <nav class="tabs">
+      <button class="tab active" data-tab="discover">Network Scan</button>
+      <button class="tab" data-tab="chat">Chat</button>
+      <button class="tab" data-tab="system">System</button>
+    </nav>
+
+    <!-- DISCOVER -->
+    <section id="discover" class="page active">
+      <div class="discover-layout" id="discover-main">
+        <div class="discover-left" id="saturn-container"></div>
+        <div class="discover-right">
+          <div class="discover-right-inner">
+            <button id="discover-btn" class="btn discover-scan-btn">Network Scan</button>
+            <div id="services-list" class="checklist"></div>
+            <div class="discover-divider"></div>
+            <div id="admin-gate" class="admin-gate">
+              <div class="admin-gate-label">Admin</div>
+              <input type="password" id="admin-pw" placeholder="password" class="admin-pw-inline">
+              <button id="admin-pw-submit" class="btn btn-secondary">Unlock</button>
+            </div>
+            <div id="admin-section" class="hidden">
+              <div class="discover-section-title">Services</div>
+              <div id="server-list" class="checklist"></div>
+              <button id="config-btn" class="btn" style="margin:16px 0">Configure New Service</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="config-page" class="hidden">
+        <div class="config-full">
+          <div class="config-right">
+            <h2 class="config-heading">Configure New Service</h2>
+            <div class="config-form">
+              <!-- Section 1: Service Identity -->
+              <fieldset class="config-section">
+                <legend class="config-section-title">Service Identity</legend>
+                <label>
+                  Name <span class="required">*</span>
+                  <input type="text" id="cfg-name" placeholder="my-service" pattern="[A-Za-z0-9_-]+" required>
+                </label>
+                <label>
+                  Deployment <span class="required">*</span>
+                  <select id="cfg-deployment">
+                    <option value="cloud">Cloud (remote API)</option>
+                    <option value="network">Local (machine running local AI service)</option>
+                  </select>
+                </label>
+                <label>
+                  API Type <span class="required">*</span>
+                  <select id="cfg-api-type">
+                    <option value="openai">OpenAI-compatible</option>
+                    <option value="ollama">Ollama-native</option>
+                  </select>
+                </label>
+              </fieldset>
+
+              <!-- Section 2: Connection (conditional on deployment) -->
+              <fieldset class="config-section">
+                <legend class="config-section-title">Connection</legend>
+                <div id="cloud-fields">
+                  <label>
+                    Base URL <span class="required">*</span>
+                    <input type="text" id="cfg-base-url" placeholder="https://api.example.com/v1" required>
+                  </label>
+                  <label>
+                    API Key
+                    <input type="password" id="cfg-api-key" placeholder="sk-...">
+                  </label>
+                </div>
+                <div id="network-fields" class="hidden">
+                  <label>
+                    Host <span class="required">*</span>
+                    <input type="text" id="cfg-host" placeholder="192.168.1.50">
+                  </label>
+                  <label>
+                    Port <span class="required">*</span>
+                    <input type="number" id="cfg-net-port" placeholder="8080">
+                  </label>
+                </div>
+              </fieldset>
+
+              <!-- Section 3: Advanced -->
+              <fieldset class="config-section">
+                <legend class="config-section-title">Advanced</legend>
+                <div id="advanced-fields">
+                  <label>
+                    Priority
+                    <input type="number" id="cfg-priority" min="0" max="100" value="10" placeholder="10">
+                  </label>
+                  <div id="cloud-advanced-fields">
+                    <label>
+                      Advertise Port
+                      <input type="number" id="cfg-adv-port" placeholder="8400">
+                    </label>
+                    <label>
+                      Ephemeral Keys
+                      <input type="checkbox" id="cfg-ephemeral">
+                    </label>
+                    <div id="ephemeral-fields" class="hidden">
+                      <label>
+                        Key Generation Endpoint
+                        <input type="text" id="cfg-keygen-url" placeholder="https://openrouter.ai/api/v1/keys">
+                      </label>
+                      <label>
+                        Spending Limit
+                        <input type="number" id="cfg-spend-limit" min="0" value="0" placeholder="0">
+                      </label>
+                      <label>
+                        Rotation Interval
+                        <input type="number" id="cfg-rotation" min="0" value="300" placeholder="300">
+                      </label>
+                      <label>
+                        Expiration Interval
+                        <input type="number" id="cfg-expiration" min="0" value="600" placeholder="600">
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </fieldset>
+
+              <div class="config-actions">
+                <button id="cfg-test" class="btn btn-secondary hidden">Test Connection</button>
+                <button id="cfg-save" class="btn">Save</button>
+                <button id="cfg-save-enable" class="btn">Save &amp; Enable</button>
+                <button id="cfg-back" class="btn btn-secondary">Back</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CHAT -->
+    <section id="chat" class="page">
+      <div class="chat-layout">
+        <!-- History Drawer (slides over) -->
+        <div class="chat-drawer" id="chat-drawer">
+          <div class="drawer-head">
+            <span class="drawer-title">History</span>
+            <button id="drawer-close" class="drawer-x">&times;</button>
+          </div>
+          <button id="new-chat-btn" class="btn drawer-new">+ New</button>
+          <ul id="history-list" class="drawer-list"></ul>
+          <button id="clear-chats-btn" class="btn drawer-clear">Delete History</button>
+          <button class="chat-settings-btn drawer-settings-btn" title="Settings">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <ellipse cx="12" cy="12" rx="5" ry="4"/>
+              <ellipse cx="12" cy="12" rx="11" ry="3" transform="rotate(-30 12 12)"/>
+            </svg>
+          </button>
+        </div>
+        <div class="drawer-backdrop" id="drawer-backdrop"></div>
+
+        <div class="chat-main">
+          <!-- Command Strip -->
+          <div class="chat-topbar">
+            <button id="drawer-toggle" class="strip-btn" title="History">
+              <svg width="16" height="16"><use href="#icon-chat"/></svg>
+            </button>
+            <div class="chat-selectors">
+              <label class="selector-label">
+                <span class="sel-dot"></span>
+                Saturn Service:
+                <select id="service-select">
+                  <option value="" disabled selected>-- scan first --</option>
+                </select>
+              </label>
+              <label class="selector-label">Model:
+                <select id="model-select">
+                  <option value="" disabled selected>-- select service --</option>
+                </select>
+                <span id="model-error" class="model-error-hint" hidden></span>
+              </label>
+            </div>
+            <div class="strip-right">
+              <select id="style-select" class="style-select" title="Response style">
+                <option value="">Default</option>
+                <option value="concise">Concise</option>
+                <option value="detailed">Detailed</option>
+                <option value="code">Code</option>
+              </select>
+            </div>
+          </div>
+          <div id="models-panel" class="models-panel hidden">
+            <div class="models-panel-header">
+              <span>All Models</span>
+              <button id="models-refresh" class="btn btn-secondary">Refresh</button>
+            </div>
+            <div id="model-list" class="model-list"></div>
+          </div>
+          <div id="tools-panel" class="tools-panel hidden">
+            <div class="tools-panel-header">
+              <span>MCP Tools</span>
+              <button id="tools-refresh" class="btn btn-secondary">Refresh</button>
+              <button id="tools-manage" class="btn btn-secondary">Servers</button>
+            </div>
+            <div id="tools-list" class="tools-list"></div>
+            <div id="mcp-servers-config" class="mcp-servers-config hidden">
+              <div class="mcp-servers-header">MCP Servers</div>
+              <div id="mcp-servers-list" class="mcp-servers-list"></div>
+              <div class="mcp-add-form">
+                <input type="text" id="mcp-name" placeholder="Server name">
+                <input type="text" id="mcp-url" placeholder="http://localhost:8080/mcp">
+                <input type="text" id="mcp-token" placeholder="Auth token (optional)">
+                <button id="mcp-add-btn" class="btn">Add Server</button>
+              </div>
+            </div>
+          </div>
+          <!-- Messages -->
+          <div id="messages" class="messages">
+            <div id="welcome" class="welcome">
+              <div class="welcome-saturn" id="welcome-saturn"></div>
+              <div class="welcome-prompt">&gt; How can I help today?</div>
+              <div class="quick-examples">
+                <span class="example">What is Saturn?</span>
+                <span class="example">Help me write an email</span>
+                <span class="example">Lets make a web page</span>
+              </div>
+            </div>
+          </div>
+          <div id="file-badge" class="file-badge hidden">
+            <span id="file-badge-name"></span>
+            <button id="file-badge-remove" class="file-badge-x">&times;</button>
+          </div>
+          <!-- Rate limit usage bar (SAT-2n8.1) -->
+          <div id="rate-limit-bar" class="rate-limit-bar hidden">
+            <div class="rate-limit-fill" id="rate-limit-fill"></div>
+            <span class="rate-limit-label" id="rate-limit-label"></span>
+          </div>
+          <!-- Rate limit warning banner -->
+          <div id="rate-limit-banner" class="rate-limit-banner hidden"></div>
+          <!-- Auto-summarize notification (SAT-2n8.4) -->
+          <div id="summarize-notice" class="summarize-notice hidden">
+            <span>Context is filling up.</span>
+            <button id="summarize-btn" class="btn btn-secondary">Summarize older messages</button>
+            <button id="summarize-dismiss" class="summarize-x">&times;</button>
+          </div>
+          <div id="context-indicator" class="context-indicator">
+            <div class="context-bar"><div class="context-fill" id="context-fill"></div></div>
+            <span class="context-label" id="context-label"></span>
+          </div>
+          <div class="chat-input-float">
+            <div class="chat-input-fabs">
+              <button id="file-upload-btn" class="fab" title="Attach file"><svg width="16" height="16"><use href="#icon-clip"/></svg></button>
+              <input type="file" id="file-input" class="hidden" accept=".txt,.md,.py,.js,.ts,.json,.toml,.yaml,.yml,.csv">
+              <button id="thinking-toggle" class="fab thinking-btn" title="Thinking: Off" data-state="off">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M12 2a7 7 0 00-3 13.33V17h6v-1.67A7 7 0 0012 2z"/>
+                  <line x1="9" y1="21" x2="15" y2="21"/>
+                  <line x1="10" y1="24" x2="14" y2="24"/>
+                </svg>
+              </button>
+              <button id="export-json" class="fab" title="Export JSON">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              </button>
+              <button id="export-md" class="fab" title="Export Markdown">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8v8l3-3 3 3V8"/><path d="M17 12h-2l2-4 2 4h-2v4"/></svg>
+              </button>
+              <button id="tools-toggle" class="fab" title="MCP Tools">
+                <svg width="16" height="16"><use href="#icon-wrench"/></svg>
+              </button>
+            </div>
+            <div class="chat-input-area">
+              <textarea id="chat-input" placeholder="Message Saturn..." rows="1"></textarea>
+              <button id="send-btn" class="btn send-glow">
+                <svg width="14" height="14"><use href="#icon-send"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <!-- SYSTEM -->
+    <section id="system" class="page">
+      <div id="system-main" class="system-layout">
+        <div class="system-dashboard">
+          <div class="system-subtabs">
+            <div class="system-subtabs-nav" role="tablist" aria-label="System sections">
+              <button class="subtab active" id="tab-integrate" role="tab" aria-selected="true" aria-controls="subtab-integrate" tabindex="0" data-subtab="integrate">Integrate</button>
+              <button class="subtab" id="tab-status" role="tab" aria-selected="false" aria-controls="subtab-status" tabindex="-1" data-subtab="status">Status</button>
+              <button class="subtab" id="tab-remote" role="tab" aria-selected="false" aria-controls="subtab-remote" tabindex="-1" data-subtab="remote">Remote</button>
+            </div>
+          </div>
+          <div class="system-status-row">
+            <span class="system-status" id="system-status">● idle</span>
+          </div>
+
+          <!-- Status sub-tab -->
+          <div id="subtab-status" class="subtab-page" role="tabpanel" aria-labelledby="tab-status">
+            <div class="system-section">
+              <div class="system-section-title">Backend Health</div>
+              <div id="system-health-grid" class="system-health-grid">
+                <div class="system-log-empty">Run Network Scan to see backends</div>
+              </div>
+            </div>
+
+            <div class="system-section">
+              <div class="system-section-title">Routing Activity</div>
+              <div id="system-routing-log" class="system-routing-log">
+                <div class="system-log-empty">No routing activity yet</div>
+              </div>
+            </div>
+
+            <!-- Server Usage (SAT-2n8.2) -->
+            <div class="system-section">
+              <div class="system-section-title">Usage Today</div>
+              <div id="system-usage" class="system-usage">
+                <span class="system-log-empty">No usage data</span>
+              </div>
+            </div>
+
+
+          </div>
+
+          <!-- Remote sub-tab -->
+          <div id="subtab-remote" class="subtab-page" role="tabpanel" aria-labelledby="tab-remote">
+            <div id="system-gate" class="gate">
+              <div class="gate-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#f0c040" stroke-width="1.5">
+                  <path d="M12 2L2 22h20L12 2z" stroke-dasharray="68" stroke-dashoffset="68">
+                    <animate attributeName="stroke-dashoffset" from="68" to="0" dur="1s" fill="freeze"/>
+                  </path>
+                  <line x1="12" y1="10" x2="12" y2="15" opacity="0">
+                    <animate attributeName="opacity" from="0" to="1" begin="0.8s" dur="0.3s" fill="freeze"/>
+                  </line>
+                  <circle cx="12" cy="18" r="0.8" fill="#f0c040" opacity="0">
+                    <animate attributeName="opacity" from="0" to="1" begin="0.8s" dur="0.3s" fill="freeze"/>
+                  </circle>
+                </svg>
+              </div>
+              <h2>Remote Access Warning</h2>
+              <p class="gate-text">
+                Saturn auto-routes your messages to LLM backends on your local network.<br>
+                Enabling remote access exposes these services beyond your LAN.<br>
+                Only proceed if you trust the network you are connecting from.
+              </p>
+              <button id="system-accept" class="btn">I Understand — Enable Remote Access</button>
+            </div>
+
+            <div id="proxy-shell" class="hidden">
+              <div class="system-section">
+                <div id="proxy-mode" class="proxy-mode">Mode: LAN Only</div>
+                <div id="proxy-empty" class="proxy-empty">
+                  <button id="proxy-tunnel-start" class="btn proxy-qr-btn proxy-tunnel-btn">Start Tunnel</button>
+                </div>
+                <div id="proxy-active" class="hidden">
+                  <div id="proxy-qr" class="proxy-qr empty"></div>
+                  <div id="proxy-url" class="proxy-url-text">No tunnel active</div>
+                  <div id="proxy-tunnel-status" class="proxy-tunnel-status">● stopped</div>
+                  <div class="proxy-qr-config">
+                    <button id="proxy-tunnel-stop" class="btn btn-secondary proxy-qr-btn proxy-tunnel-btn hidden">Stop Tunnel</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Integrate sub-tab -->
+          <div id="subtab-integrate" class="subtab-page active" role="tabpanel" aria-labelledby="tab-integrate">
+            <div class="system-section connector-section">
+
+            <div class="connector-grid" id="connector-grid">
+              <button class="connector-card" data-tool="opencode">
+                <span class="connector-name">OpenCode</span>
+                <span class="connector-hint">JSON config</span>
+              </button>
+              <button class="connector-card" data-tool="codex">
+                <span class="connector-name">Codex</span>
+                <span class="connector-hint">TOML config</span>
+              </button>
+              <button class="connector-card" data-tool="continue">
+                <span class="connector-name">Continue</span>
+                <span class="connector-hint">YAML config</span>
+              </button>
+              <button class="connector-card" data-tool="aider">
+                <span class="connector-name">Aider</span>
+                <span class="connector-hint">CLI one-liner</span>
+              </button>
+              <button class="connector-card" data-tool="cline">
+                <span class="connector-name">Cline</span>
+                <span class="connector-hint">VS Code GUI</span>
+              </button>
+              <button class="connector-card" data-tool="cursor">
+                <span class="connector-name">Cursor</span>
+                <span class="connector-hint">Settings GUI</span>
+              </button>
+              <button class="connector-card" data-tool="claude-code">
+                <span class="connector-name">Claude Code</span>
+                <span class="connector-hint">Needs proxy</span>
+              </button>
+              <button class="connector-card" data-tool="openclaw">
+                <span class="connector-name">OpenClaw</span>
+                <span class="connector-hint">JSON config</span>
+              </button>
+              <button class="connector-card" data-tool="generic">
+                <span class="connector-name">Generic</span>
+                <span class="connector-hint">Env vars</span>
+              </button>
+            </div>
+
+            <!-- Accordion (shown when a card is selected) -->
+            <div id="connector-accordion" class="connector-accordion hidden">
+              <div class="connector-tool-header">
+                <span id="connector-tool-name"></span>
+                <button id="connector-close" class="btn btn-secondary" style="padding:4px 10px;font-size:9px">Close</button>
+              </div>
+
+              <!-- Step 1: Credentials -->
+              <div class="connector-step">
+                <div class="connector-step-num">1</div>
+                <div class="connector-step-body">
+                  <div class="connector-step-title">Copy Your Saturn Credentials</div>
+                  <div class="connector-field">
+                    <label class="connector-label">Endpoint</label>
+                    <div class="connector-copy-row">
+                      <code id="connector-endpoint" class="connector-value"></code>
+                      <button class="btn btn-secondary connector-copy" data-target="connector-endpoint">Copy</button>
+                    </div>
+                  </div>
+                  <div class="connector-field">
+                    <label class="connector-label">API Key</label>
+                    <div class="connector-copy-row">
+                      <code id="connector-key" class="connector-value masked">saturn-key</code>
+                      <button id="connector-key-reveal" class="btn btn-secondary" style="padding:4px 8px;font-size:9px">Show</button>
+                      <button class="btn btn-secondary connector-copy" data-target="connector-key">Copy</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Step 2: Configure -->
+              <div class="connector-step">
+                <div class="connector-step-num">2</div>
+                <div class="connector-step-body">
+                  <div class="connector-step-title">Configure <span id="connector-step2-name"></span></div>
+                  <div id="connector-instructions" class="connector-instructions"></div>
+                </div>
+              </div>
+
+              <!-- Step 3: Verify -->
+              <div class="connector-step">
+                <div class="connector-step-num">3</div>
+                <div class="connector-step-body">
+                  <div class="connector-step-title">Test Reachability</div>
+                  <p class="connector-verify-text">
+                    Confirm this browser can reach the Saturn endpoint.
+                  </p>
+                  <div class="connector-test-row">
+                    <button id="connector-test-btn" class="btn connector-test-btn">Test Connection</button>
+                    <span id="connector-test-result" class="connector-test-result"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <p class="connector-guide-link">
+              <a href="docs/index.html">Full Integrator Guide</a>
+            </p>
+          </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- CONFIG OVERLAY -->
+  <div id="config-overlay" class="config-overlay hidden">
+    <div class="config-overlay-inner">
+      <div class="config-overlay-header">
+        <span class="config-overlay-title">Configuration</span>
+        <button id="config-overlay-close" class="btn btn-secondary">Close</button>
+      </div>
+
+      <div class="config-overlay-body">
+        <!-- Scope selector -->
+        <div class="config-scope">
+          <label class="config-scope-label">Scope:</label>
+          <button id="scope-global" class="scope-btn active">Global Defaults</button>
+          <button id="scope-service" class="scope-btn">Per-Service</button>
+          <select id="config-service-select" class="config-service-select hidden">
+            <option value="" disabled selected>-- select service --</option>
+          </select>
+        </div>
+
+        <!-- Manual Endpoints (SAT-pse.6) -->
+        <div class="config-section">
+          <div class="config-section-title">Manual Endpoints</div>
+          <div class="config-section-hint">Add non-mDNS services (cloud APIs, VPN tunnels)</div>
+          <div id="manual-ep-list" class="alias-list"></div>
+          <div class="alias-add-row">
+            <input type="text" id="ep-name" placeholder="display name" class="alias-input">
+            <input type="text" id="ep-url" placeholder="https://api.example.com/v1" class="alias-input" style="flex:2">
+            <select id="ep-type" class="alias-input">
+              <option value="openai">OpenAI</option>
+              <option value="ollama">Ollama</option>
+              <option value="anthropic">Anthropic</option>
+            </select>
+            <button id="ep-add" class="btn btn-secondary">Add</button>
+          </div>
+        </div>
+
+        <!-- Model Filter (SAT-2n8.3) -->
+        <div class="config-section" id="model-filter-section">
+          <div class="config-section-title">Model Filter</div>
+          <div class="config-section-hint">LobeChat-style syntax: <code>-all,+gpt-4o,+llama3</code></div>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="model-filter-input" placeholder="-all,+gpt-4o,+llama3" class="alias-input" style="flex:1">
+            <button id="model-filter-save" class="btn btn-secondary">Apply</button>
+          </div>
+        </div>
+
+        <!-- Model Aliases (SAT-pse.5) -->
+        <div class="config-section">
+          <div class="config-section-title">Model Aliases</div>
+          <div id="alias-list" class="alias-list"></div>
+          <div class="alias-add-row">
+            <input type="text" id="alias-name" placeholder="alias (e.g. fast)" class="alias-input">
+            <select id="alias-service" class="alias-input">
+              <option value="" disabled selected>service</option>
+            </select>
+            <input type="text" id="alias-model" placeholder="model id" class="alias-input">
+            <button id="alias-add" class="btn btn-secondary">Add</button>
+          </div>
+        </div>
+
+        <!-- Presets -->
+        <div class="config-section">
+          <div class="config-section-title">Presets</div>
+          <div class="preset-row">
+            <select id="preset-select">
+              <option value="" selected>-- no preset --</option>
+            </select>
+            <button id="preset-save" class="btn btn-secondary">Save</button>
+            <button id="preset-delete" class="btn btn-secondary" disabled>Delete</button>
+          </div>
+        </div>
+
+        <!-- Response Format -->
+        <div class="config-section">
+          <div class="config-section-title">Response Format</div>
+          <div class="param-row" data-param="response_format">
+            <div class="param-label">
+              <span class="param-name">Format</span>
+              <span class="param-hint">Constrain output format</span>
+            </div>
+            <button class="param-toggle" data-default="true">Default</button>
+            <div class="param-controls hidden">
+              <select class="config-select" id="response-format-type">
+                <option value="text">Text</option>
+                <option value="json_object">JSON</option>
+                <option value="json_schema">JSON Schema</option>
+              </select>
+              <textarea id="response-format-schema" class="config-textarea hidden" rows="4" placeholder='{"type":"object","properties":{"name":{"type":"string"}}}'></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- Budget (SAT-pse.3) -->
+        <div class="config-section">
+          <div class="config-section-title">Budget</div>
+          <div class="param-row" data-param="spend_limit">
+            <div class="param-label">
+              <span class="param-name">Daily Spend Limit ($)</span>
+              <span class="param-hint">0 = unlimited. Blocks sends when exceeded.</span>
+            </div>
+            <button class="param-toggle" data-default="true">Default</button>
+            <div class="param-controls hidden">
+              <input type="number" min="0" max="1000" step="0.01" value="0">
+            </div>
+          </div>
+          <div class="budget-summary" id="budget-summary"></div>
+        </div>
+
+        <!-- System prompt -->
+        <div class="config-section">
+          <div class="config-section-title">System Prompt</div>
+          <div class="param-row" data-param="system_prompt">
+            <div class="param-label">
+              <span class="param-name">System Prompt</span>
+              <span class="param-hint">Prepended to every conversation</span>
+            </div>
+            <button class="param-toggle" data-default="true">Default</button>
+            <div class="param-controls hidden">
+              <textarea class="config-textarea" rows="3" placeholder="You are a helpful assistant."></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sampling parameters -->
+        <div class="config-section">
+          <div class="config-section-title">Sampling</div>
+          <div class="param-row" data-param="temperature">
+            <div class="param-label">
+              <span class="param-name">Temperature</span>
+              <span class="param-hint">Randomness. 0 = deterministic</span>
+            </div>
+            <button class="param-toggle" data-default="true">Default</button>
+            <div class="param-controls hidden">
+              <input type="range" min="0" max="2" step="0.05" value="0.8">
+              <input type="number" min="0" max="2" step="0.05" value="0.8">
+            </div>
+          </div>
+          <div class="param-row" data-param="max_tokens">
+            <div class="param-label">
+              <span class="param-name">Max Tokens</span>
+              <span class="param-hint">Maximum tokens to generate</span>
+            </div>
+            <button class="param-toggle" data-default="true">Default</button>
+            <div class="param-controls hidden">
+              <input type="range" min="1" max="32768" step="1" value="4096">
+              <input type="number" min="1" max="32768" step="1" value="4096">
+            </div>
+          </div>
+          <div class="param-row" data-param="top_p">
+            <div class="param-label">
+              <span class="param-name">Top P</span>
+              <span class="param-hint">Nucleus sampling threshold</span>
+            </div>
+            <button class="param-toggle" data-default="true">Default</button>
+            <div class="param-controls hidden">
+              <input type="range" min="0" max="1" step="0.01" value="0.9">
+              <input type="number" min="0" max="1" step="0.01" value="0.9">
+            </div>
+          </div>
+          <div class="param-row" data-param="top_k">
+            <div class="param-label">
+              <span class="param-name">Top K</span>
+              <span class="param-hint">Limit sampling to top K tokens</span>
+            </div>
+            <button class="param-toggle" data-default="true">Default</button>
+            <div class="param-controls hidden">
+              <input type="range" min="0" max="1000" step="1" value="40">
+              <input type="number" min="0" max="1000" step="1" value="40">
+            </div>
+          </div>
+          <div class="param-row" data-param="frequency_penalty">
+            <div class="param-label">
+              <span class="param-name">Frequency Penalty</span>
+              <span class="param-hint">Penalize tokens by frequency</span>
+            </div>
+            <button class="param-toggle" data-default="true">Default</button>
+            <div class="param-controls hidden">
+              <input type="range" min="-2" max="2" step="0.05" value="0">
+              <input type="number" min="-2" max="2" step="0.05" value="0">
+            </div>
+          </div>
+          <div class="param-row" data-param="presence_penalty">
+            <div class="param-label">
+              <span class="param-name">Presence Penalty</span>
+              <span class="param-hint">Penalize tokens already present</span>
+            </div>
+            <button class="param-toggle" data-default="true">Default</button>
+            <div class="param-controls hidden">
+              <input type="range" min="-2" max="2" step="0.05" value="0">
+              <input type="number" min="-2" max="2" step="0.05" value="0">
+            </div>
+          </div>
+        </div>
+
+        <!-- Advanced sampling -->
+        <details class="advanced-section">
+          <summary class="advanced-toggle">Advanced Sampling</summary>
+          <div class="advanced-params">
+            <div class="param-row" data-param="repeat_penalty">
+              <div class="param-label">
+                <span class="param-name">Repeat Penalty</span>
+                <span class="param-hint">Penalize repeated tokens</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="range" min="-2" max="2" step="0.05" value="1.1">
+                <input type="number" min="-2" max="2" step="0.05" value="1.1">
+              </div>
+            </div>
+            <div class="param-row" data-param="repeat_last_n">
+              <div class="param-label">
+                <span class="param-name">Repeat Last N</span>
+                <span class="param-hint">Window for repeat penalty</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="range" min="-1" max="128" step="1" value="64">
+                <input type="number" min="-1" max="128" step="1" value="64">
+              </div>
+            </div>
+            <div class="param-row" data-param="min_p">
+              <div class="param-label">
+                <span class="param-name">Min P</span>
+                <span class="param-hint">Minimum probability threshold</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="range" min="0" max="1" step="0.01" value="0">
+                <input type="number" min="0" max="1" step="0.01" value="0">
+              </div>
+            </div>
+            <div class="param-row" data-param="seed">
+              <div class="param-label">
+                <span class="param-name">Seed</span>
+                <span class="param-hint">Random seed (-1 = random)</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="number" min="-1" max="2147483647" step="1" value="-1" style="width:100%">
+              </div>
+            </div>
+            <div class="param-row" data-param="stop">
+              <div class="param-label">
+                <span class="param-name">Stop Sequences</span>
+                <span class="param-hint">Comma-separated stop strings</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="text" placeholder="e.g. \n, END" style="width:100%">
+              </div>
+            </div>
+            <div class="param-row" data-param="mirostat">
+              <div class="param-label">
+                <span class="param-name">Mirostat</span>
+                <span class="param-hint">Mirostat sampling mode (0/1/2)</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="range" min="0" max="2" step="1" value="0">
+                <input type="number" min="0" max="2" step="1" value="0">
+              </div>
+            </div>
+            <div class="param-row" data-param="mirostat_tau">
+              <div class="param-label">
+                <span class="param-name">Mirostat Tau</span>
+                <span class="param-hint">Target entropy</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="range" min="0" max="10" step="0.1" value="5.0">
+                <input type="number" min="0" max="10" step="0.1" value="5.0">
+              </div>
+            </div>
+            <div class="param-row" data-param="mirostat_eta">
+              <div class="param-label">
+                <span class="param-name">Mirostat Eta</span>
+                <span class="param-hint">Learning rate</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="range" min="0" max="1" step="0.01" value="0.1">
+                <input type="number" min="0" max="1" step="0.01" value="0.1">
+              </div>
+            </div>
+            <div class="param-row" data-param="tfs_z">
+              <div class="param-label">
+                <span class="param-name">TFS Z</span>
+                <span class="param-hint">Tail-free sampling (1.0 = disabled)</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="range" min="0" max="1" step="0.01" value="1.0">
+                <input type="number" min="0" max="1" step="0.01" value="1.0">
+              </div>
+            </div>
+            <div class="param-row" data-param="typical_p">
+              <div class="param-label">
+                <span class="param-name">Typical P</span>
+                <span class="param-hint">Typical sampling threshold (1.0 = disabled)</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="range" min="0" max="1" step="0.01" value="1.0">
+                <input type="number" min="0" max="1" step="0.01" value="1.0">
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <!-- Engine parameters (Ollama-specific) -->
+        <details id="ollama-section" class="advanced-section">
+          <summary class="advanced-toggle">Engine (Ollama)</summary>
+          <div class="advanced-params">
+            <div class="param-row" data-param="num_ctx">
+              <div class="param-label">
+                <span class="param-name">Context Window</span>
+                <span class="param-hint">Context size in tokens</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="range" min="256" max="131072" step="256" value="2048">
+                <input type="number" min="256" max="131072" step="256" value="2048">
+              </div>
+            </div>
+            <div class="param-row" data-param="num_batch">
+              <div class="param-label">
+                <span class="param-name">Batch Size</span>
+                <span class="param-hint">Batch size for prompt processing</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="range" min="256" max="8192" step="256" value="512">
+                <input type="number" min="256" max="8192" step="256" value="512">
+              </div>
+            </div>
+            <div class="param-row" data-param="keep_alive">
+              <div class="param-label">
+                <span class="param-name">Keep Alive</span>
+                <span class="param-hint">How long to keep model loaded (e.g. 5m)</span>
+              </div>
+              <button class="param-toggle" data-default="true">Default</button>
+              <div class="param-controls hidden">
+                <input type="text" value="5m" placeholder="5m" style="width:100%">
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <div class="settings-actions">
+          <button id="config-reset" class="btn btn-secondary">Reset All</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOOL PERMISSION DIALOG -->
+  <div id="tool-permission" class="tool-permission hidden">
+    <div class="permission-dialog">
+      <div class="permission-title">Tool Call Request</div>
+      <div class="permission-tool" id="permission-tool-name"></div>
+      <pre class="permission-args" id="permission-tool-args"></pre>
+      <div class="permission-actions">
+        <button id="perm-allow" class="btn">Allow Once</button>
+        <button id="perm-always" class="btn btn-secondary">Always Allow</button>
+        <button id="perm-deny" class="btn btn-stop">Deny</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github-dark.min.css">
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

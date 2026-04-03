@@ -39,8 +39,8 @@
     "test:restart": "tsx test/restart-scenario.ts"
   },
   "dependencies": {
-    "@ai-sdk/provider": "^3.0.7",
-    "@ai-sdk/provider-utils": "^3.0.0",
+    "@ai-sdk/provider": "^4.0.0-beta.5",
+    "@ai-sdk/provider-utils": "^5.0.0-beta.7",
     "multicast-dns": "^7.2.5"
   },
   "devDependencies": {

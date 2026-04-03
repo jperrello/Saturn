@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Moons — Saturn</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a1a; color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif; overflow: hidden; }
+
+#controls {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+  background: rgba(10,10,26,0.92); backdrop-filter: blur(8px);
+  padding: 12px 20px; display: flex; align-items: center; gap: 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+#controls h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.5px; color: #fff; }
+#controls h1 span { color: #888; font-weight: 400; }
+
+.legend { display: flex; gap: 10px; flex-wrap: wrap; margin-left: auto; }
+.legend-item {
+  display: flex; align-items: center; gap: 5px; font-size: 12px;
+  cursor: pointer; padding: 3px 8px; border-radius: 12px;
+  transition: opacity 0.2s;
+}
+.legend-item.dimmed { opacity: 0.3; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+#search {
+  background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+  color: #fff; padding: 6px 12px; border-radius: 6px; font-size: 13px; width: 180px;
+  outline: none;
+}
+#search:focus { border-color: rgba(255,255,255,0.3); }
+#search::placeholder { color: #666; }
+
+#tooltip {
+  position: fixed; pointer-events: none; z-index: 20;
+  background: rgba(20,20,40,0.95); border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px; padding: 12px 16px; max-width: 320px;
+  font-size: 13px; line-height: 1.5; display: none;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+#tooltip .tt-id { font-weight: 600; color: #fff; margin-bottom: 4px; }
+#tooltip .tt-type { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+#tooltip .tt-desc { color: #bbb; }
+#tooltip .tt-file { color: #666; font-size: 11px; margin-top: 6px; font-family: monospace; }
+#tooltip .tt-edges { color: #888; font-size: 11px; margin-top: 4px; }
+
+#detail {
+  position: fixed; bottom: 20px; left: 20px; z-index: 10;
+  background: rgba(20,20,40,0.95); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px; padding: 16px 20px; max-width: 360px;
+  display: none; font-size: 13px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  max-height: 60vh; overflow-y: auto;
+}
+#detail .d-close {
+  position: absolute; top: 8px; right: 12px; cursor: pointer;
+  color: #666; font-size: 18px;
+}
+#detail .d-close:hover { color: #fff; }
+#detail .d-id { font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 4px; }
+#detail .d-type { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+#detail .d-desc { color: #ccc; margin-bottom: 8px; }
+#detail .d-file { color: #888; font-size: 12px; font-family: monospace; margin-bottom: 8px; }
+#detail .d-edges { color: #aaa; font-size: 12px; }
+#detail .d-edges div { margin: 2px 0; }
+#detail .d-edges .edge-rel { color: #666; font-size: 11px; }
+
+#stats {
+  position: fixed; bottom: 20px; right: 20px; z-index: 10;
+  font-size: 11px; color: #555;
+}
+
+svg { width: 100vw; height: 100vh; }
+
+.link { stroke-opacity: 0.25; fill: none; }
+.link.highlighted { stroke-opacity: 0.8; }
+.link-label { font-size: 9px; fill: #555; pointer-events: none; display: none; }
+.link-label.visible { display: block; }
+
+.node circle { stroke-width: 2; cursor: pointer; transition: r 0.15s; }
+.node circle:hover { filter: brightness(1.3); }
+.node text {
+  font-size: 10px; fill: #aaa; pointer-events: none;
+  text-anchor: middle; dominant-baseline: central;
+}
+.node.dimmed circle { opacity: 0.12; }
+.node.dimmed text { opacity: 0.08; }
+.link.dimmed { stroke-opacity: 0.04; }
+.node.search-match circle { stroke: #fff; stroke-width: 3; }
+</style>
+</head>
+<body>
+
+<div id="controls">
+  <h1>Moons <span>Saturn</span></h1>
+  <input id="search" type="text" placeholder="Search nodes...">
+  <div class="legend" id="legend"></div>
+</div>
+
+<div id="tooltip">
+  <div class="tt-id"></div>
+  <div class="tt-type"></div>
+  <div class="tt-desc"></div>
+  <div class="tt-file"></div>
+  <div class="tt-edges"></div>
+</div>
+
+<div id="detail">
+  <span class="d-close" onclick="this.parentElement.style.display='none'">&times;</span>
+  <div class="d-id"></div>
+  <div class="d-type"></div>
+  <div class="d-desc"></div>
+  <div class="d-file"></div>
+  <div class="d-edges"></div>
+</div>
+
+<div id="stats"></div>
+
+<svg></svg>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+const GRAPH_DATA = {"meta":{"version":"1.0","description":"Project knowledge graph.","node_types":["code","config","note","test","script","data","style","web-ui"],"edge_types":["references","imports","relates","supports","uses","contains"]},"nodes":[{"id":"saturn-init","type":"code","desc":"Package entry point that re-exports core discovery classes and functions.","file":"code/saturn-init.md","edges":[{"to":"saturn-discovery","rel":"imports"}],"gravity":0.7},{"id":"saturn-main","type":"code","desc":"CLI entry point providing discover, endpoint, run, stop, and config commands.","file":"code/saturn-main.md","edges":[{"to":"saturn-discovery","rel":"imports"},{"to":"saturn-runner","rel":"imports"},{"to":"saturn-config","rel":"imports"},{"to":"saturn-aider","rel":"imports"}],"gravity":0.8},{"id":"saturn-discovery","type":"code","desc":"Core mDNS/DNS-SD discovery engine using zeroconf to find and advertise Saturn services.","file":"code/saturn-discovery.md","edges":[{"to":"saturn-config","rel":"uses"}],"gravity":1.0},{"id":"saturn-config","type":"code","desc":"Service configuration loader that reads TOML files and provides ServiceConfig dataclasses.","file":"code/saturn-config.md","edges":[{"to":"service-deepinfra-toml","rel":"references"},{"to":"service-ollama-toml","rel":"references"},{"to":"service-openrouter-toml","rel":"references"},{"to":"service-fallback-toml","rel":"references"},{"to":"service-orbeacon-toml","rel":"references"},{"to":"service-claude-toml","rel":"references"}],"gravity":0.8},{"id":"saturn-runner","type":"code","desc":"FastAPI server runner that loads service configs, starts uvicorn, and advertises via mDNS.","file":"code/saturn-runner.md","edges":[{"to":"saturn-config","rel":"imports"},{"to":"saturn-discovery","rel":"imports"},{"to":"saturn-servers-init","rel":"imports"},{"to":"server-fallback","rel":"uses"},{"to":"server-ollama","rel":"uses"}],"gravity":0.9},{"id":"saturn-servers-init","type":"code","desc":"Shared server utilities: ChatRequest/ChatMessage models, SSE streaming helpers, and proxy functions.","file":"code/saturn-servers-init.md","edges":[],"gravity":0.7},{"id":"server-fallback","type":"code","desc":"Mock fallback server that returns humorous responses for testing failover logic.","file":"code/server-fallback.md","edges":[{"to":"saturn-servers-init","rel":"imports"}],"gravity":0.4},{"id":"server-ollama","type":"code","desc":"Ollama proxy server translating OpenAI-compatible API calls to local Ollama instance.","file":"code/server-ollama.md","edges":[{"to":"saturn-servers-init","rel":"imports"}],"gravity":0.5},{"id":"server-claude","type":"code","desc":"Claude API proxy server for Anthropic's Claude models.","file":"code/server-claude.md","edges":[{"to":"saturn-servers-init","rel":"imports"}],"gravity":0.3},{"id":"providers-init","type":"code","desc":"Dynamic provider loader that imports beacon provider modules by name.","file":"code/providers-init.md","edges":[{"to":"provider-deepinfra","rel":"uses"},{"to":"provider-openrouter","rel":"uses"}],"gravity":0.5},{"id":"provider-deepinfra","type":"code","desc":"DeepInfra beacon provider implementing scoped JWT token creation for ephemeral keys.","file":"code/provider-deepinfra.md","edges":[],"gravity":0.3},{"id":"provider-openrouter","type":"code","desc":"OpenRouter beacon provider implementing API key rotation with expiration and revocation.","file":"code/provider-openrouter.md","edges":[],"gravity":0.3},{"id":"saturn-aider","type":"code","desc":"Aider integration that discovers Saturn services and launches Aider with the best endpoint.","file":"code/saturn-aider.md","edges":[{"to":"saturn-discovery","rel":"imports"}],"gravity":0.3},{"id":"owui-saturn","type":"code","desc":"Open WebUI integration with standalone Saturn discovery and chat completion piping.","file":"code/owui-saturn.md","edges":[{"to":"saturn-discovery","rel":"relates"}],"gravity":0.4},{"id":"sdk-index","type":"code","desc":"AI SDK provider entry point: factory function creating Saturn provider with auto-discovery.","file":"code/sdk-index.md","edges":[{"to":"sdk-discovery","rel":"imports"},{"to":"sdk-model","rel":"imports"},{"to":"sdk-types","rel":"imports"},{"to":"sdk-logger","rel":"imports"},{"to":"sdk-retry","rel":"imports"},{"to":"sdk-helpers","rel":"imports"}],"gravity":0.8},{"id":"sdk-discovery","type":"code","desc":"TypeScript mDNS discovery using multicast-dns, with health checks and service lifecycle.","file":"code/sdk-discovery.md","edges":[{"to":"sdk-types","rel":"imports"},{"to":"sdk-helpers","rel":"imports"},{"to":"sdk-logger","rel":"imports"}],"gravity":0.7},{"id":"sdk-model","type":"code","desc":"LanguageModelV3 implementation routing chat completions through discovered Saturn services.","file":"code/sdk-model.md","edges":[{"to":"sdk-types","rel":"imports"},{"to":"sdk-helpers","rel":"imports"},{"to":"sdk-logger","rel":"imports"},{"to":"sdk-retry","rel":"imports"},{"to":"sdk-discovery","rel":"imports"}],"gravity":0.7},{"id":"sdk-types","type":"code","desc":"Shared TypeScript type definitions for discovered services, settings, and OpenAI-compatible payloads.","file":"code/sdk-types.md","edges":[],"gravity":0.5},{"id":"sdk-helpers","type":"code","desc":"Utility functions for endpoint resolution, provider extraction, and IP address detection.","file":"code/sdk-helpers.md","edges":[{"to":"sdk-types","rel":"imports"}],"gravity":0.4},{"id":"sdk-retry","type":"code","desc":"Retry logic and circuit breaker for resilient service communication.","file":"code/sdk-retry.md","edges":[{"to":"sdk-logger","rel":"imports"}],"gravity":0.4},{"id":"sdk-logger","type":"code","desc":"Configurable logging abstraction with log levels and console output.","file":"code/sdk-logger.md","edges":[],"gravity":0.3},{"id":"sdk-mock-server","type":"code","desc":"Eliza chatbot mock server announcing via mDNS for testing Saturn discovery.","file":"code/sdk-mock-server.md","edges":[],"gravity":0.3},{"id":"mcp-server","type":"code","desc":"MCP server exposing Saturn discovery and chat as tool calls for AI assistants.","file":"code/mcp-server.md","edges":[{"to":"saturn-discovery","rel":"imports"}],"gravity":0.5},{"id":"mcp-init","type":"code","desc":"MCP package init re-exporting the FastMCP server instance.","file":"code/mcp-init.md","edges":[{"to":"mcp-server","rel":"imports"}],"gravity":0.2},{"id":"vlc-chat","type":"code","desc":"VLC Lua extension enabling AI chat about currently playing media via Saturn discovery.","file":"code/vlc-chat.md","edges":[{"to":"vlc-bridge","rel":"uses"}],"gravity":0.4},{"id":"vlc-roast","type":"code","desc":"VLC Lua extension that uses Saturn to generate humorous roasts of user's media taste.","file":"code/vlc-roast.md","edges":[{"to":"vlc-bridge","rel":"uses"}],"gravity":0.3},{"id":"vlc-bridge","type":"code","desc":"Python FastAPI bridge connecting VLC Lua extensions to Saturn discovery on the network.","file":"code/vlc-bridge.md","edges":[{"to":"saturn-discovery","rel":"relates"}],"gravity":0.4},{"id":"saturn-router","type":"code","desc":"Rust implementation of Saturn beacon for OpenWrt routers with mDNS advertisement.","file":"code/saturn-router.md","edges":[{"to":"install-router","rel":"relates"},{"to":"luci-saturn","rel":"contains"}],"gravity":0.5},{"id":"client-simple","type":"code","desc":"Simple Python chat client that discovers Saturn services and provides interactive CLI chat.","file":"code/client-simple.md","edges":[{"to":"saturn-discovery","rel":"relates"}],"gravity":0.3},{"id":"client-proxy","type":"code","desc":"Local proxy client that discovers services and exposes a unified FastAPI endpoint.","file":"code/client-proxy.md","edges":[{"to":"saturn-discovery","rel":"relates"}],"gravity":0.3},{"id":"client-upload","type":"code","desc":"File upload client supporting image/document analysis via discovered Saturn services.","file":"code/client-upload.md","edges":[{"to":"saturn-discovery","rel":"relates"}],"gravity":0.3},{"id":"pyproject","type":"config","desc":"Python project configuration defining saturn-ai package with CLI entry point and dependencies.","file":"config/pyproject.md","edges":[{"to":"saturn-init","rel":"references"},{"to":"saturn-main","rel":"references"}],"gravity":0.5},{"id":"service-deepinfra-toml","type":"config","desc":"DeepInfra service configuration with upstream URL, beacon settings, and model list.","file":"config/service-deepinfra-toml.md","edges":[{"to":"provider-deepinfra","rel":"references"}],"gravity":0.2},{"id":"service-ollama-toml","type":"config","desc":"Ollama service configuration pointing to local Ollama instance with custom server module.","file":"config/service-ollama-toml.md","edges":[{"to":"server-ollama","rel":"references"}],"gravity":0.2},{"id":"service-openrouter-toml","type":"config","desc":"OpenRouter service configuration with beacon provider for API key rotation.","file":"config/service-openrouter-toml.md","edges":[{"to":"provider-openrouter","rel":"references"}],"gravity":0.2},{"id":"service-fallback-toml","type":"config","desc":"Fallback service configuration for the mock testing server.","file":"config/service-fallback-toml.md","edges":[{"to":"server-fallback","rel":"references"}],"gravity":0.1},{"id":"service-orbeacon-toml","type":"config","desc":"OpenRouter beacon-only service configuration for ephemeral key distribution.","file":"config/service-orbeacon-toml.md","edges":[{"to":"provider-openrouter","rel":"references"}],"gravity":0.1},{"id":"service-claude-toml","type":"config","desc":"Claude service configuration for Anthropic API proxy.","file":"config/service-claude-toml.md","edges":[{"to":"server-claude","rel":"references"}],"gravity":0.1},{"id":"workflow-release","type":"config","desc":"GitHub Actions workflow for automated PyPI releases on version tags.","file":"config/workflow-release.md","edges":[{"to":"pyproject","rel":"references"}],"gravity":0.2},{"id":"workflow-test","type":"config","desc":"GitHub Actions CI workflow running pytest on push and pull requests.","file":"config/workflow-test.md","edges":[{"to":"test-config","rel":"uses"},{"to":"test-discovery","rel":"uses"}],"gravity":0.2},{"id":"sdk-package-json","type":"config","desc":"NPM package config for @saturn/ai-sdk-provider with build and test scripts.","file":"config/sdk-package-json.md","edges":[{"to":"sdk-index","rel":"references"}],"gravity":0.3},{"id":"sdk-tsconfig","type":"config","desc":"TypeScript compiler configuration for the AI SDK provider.","file":"config/sdk-tsconfig.md","edges":[],"gravity":0.1},{"id":"mcp-pyproject","type":"config","desc":"MCP server package configuration depending on saturn-ai and mcp libraries.","file":"config/mcp-pyproject.md","edges":[{"to":"mcp-server","rel":"references"},{"to":"saturn-init","rel":"references"}],"gravity":0.2},{"id":"cargo-toml","type":"config","desc":"Rust Cargo configuration for the saturn-router binary targeting OpenWrt.","file":"config/cargo-toml.md","edges":[{"to":"saturn-router","rel":"references"}],"gravity":0.2},{"id":"install-router","type":"script","desc":"Shell installer that downloads and configures saturn-router on OpenWrt devices.","file":"script/install-router.md","edges":[{"to":"saturn-router","rel":"supports"}],"gravity":0.3},{"id":"luci-saturn","type":"code","desc":"LuCI web interface JavaScript for managing Saturn services on OpenWrt routers.","file":"code/luci-saturn.md","edges":[{"to":"saturn-router","rel":"supports"}],"gravity":0.2},{"id":"test-config","type":"test","desc":"Tests for service configuration loading, TOML parsing, and config validation.","file":"test/test-config.md","edges":[{"to":"saturn-config","rel":"uses"}],"gravity":0.3},{"id":"test-discovery","type":"test","desc":"Tests for mDNS discovery, service deduplication, and priority sorting.","file":"test/test-discovery.md","edges":[{"to":"saturn-discovery","rel":"uses"}],"gravity":0.3},{"id":"test-fallback","type":"test","desc":"Tests for the fallback mock server responses and health endpoint.","file":"test/test-fallback.md","edges":[{"to":"server-fallback","rel":"uses"}],"gravity":0.2},{"id":"test-integration","type":"test","desc":"Integration tests covering end-to-end service discovery and request routing.","file":"test/test-integration.md","edges":[{"to":"saturn-discovery","rel":"uses"},{"to":"saturn-runner","rel":"uses"}],"gravity":0.3},{"id":"test-providers","type":"test","desc":"Tests for beacon provider modules (DeepInfra, OpenRouter) payload and parse functions.","file":"test/test-providers.md","edges":[{"to":"provider-deepinfra","rel":"uses"},{"to":"provider-openrouter","rel":"uses"}],"gravity":0.2},{"id":"test-runner","type":"test","desc":"Tests for the server runner lifecycle, port selection, and service advertisement.","file":"test/test-runner.md","edges":[{"to":"saturn-runner","rel":"uses"}],"gravity":0.2},{"id":"test-selection","type":"test","desc":"Tests for priority-based service selection and best-service algorithm.","file":"test/test-selection.md","edges":[{"to":"saturn-discovery","rel":"uses"}],"gravity":0.2},{"id":"test-servers","type":"test","desc":"Tests for shared server utilities, SSE streaming, and proxy functions.","file":"test/test-servers.md","edges":[{"to":"saturn-servers-init","rel":"uses"}],"gravity":0.2},{"id":"test-service","type":"test","desc":"Tests for SaturnService dataclass properties and endpoint computation.","file":"test/test-service.md","edges":[{"to":"saturn-discovery","rel":"uses"}],"gravity":0.2},{"id":"sdk-test-index","type":"test","desc":"Tests for the AI SDK provider factory, model routing, and discovery integration.","file":"test/sdk-test-index.md","edges":[{"to":"sdk-index","rel":"uses"},{"to":"sdk-mock-server","rel":"uses"}],"gravity":0.2},{"id":"sdk-test-failover","type":"test","desc":"Failover test scenarios for the AI SDK provider with multiple services.","file":"test/sdk-test-failover.md","edges":[{"to":"sdk-model","rel":"uses"},{"to":"sdk-discovery","rel":"uses"}],"gravity":0.2},{"id":"readme","type":"note","desc":"Project README with overview, installation instructions, and usage examples for Saturn.","file":"note/readme.md","edges":[{"to":"saturn-init","rel":"references"},{"to":"pyproject","rel":"references"}],"gravity":0.5},{"id":"claude-md","type":"note","desc":"Agent instructions for working with the Saturn codebase, issue tracking, and workflows.","file":"note/claude-md.md","edges":[],"gravity":0.2},{"id":"docs-index","type":"note","desc":"Landing page HTML for Saturn project documentation and PyPI installation.","file":"note/docs-index.md","edges":[{"to":"readme","rel":"relates"}],"gravity":0.3},{"id":"docs-llms","type":"note","desc":"LLM-friendly plain text project description for AI-assisted discovery.","file":"note/docs-llms.md","edges":[{"to":"readme","rel":"relates"}],"gravity":0.2},{"id":"fiction-design","type":"note","desc":"Design fiction narratives exploring Saturn's vision for zero-config AI on local networks.","file":"note/fiction-design.md","edges":[{"to":"saturn-discovery","rel":"relates"}],"gravity":0.2},{"id":"fiction-technical","type":"note","desc":"Technical design document detailing Saturn's architecture and protocol decisions.","file":"note/fiction-technical.md","edges":[{"to":"saturn-discovery","rel":"relates"},{"to":"saturn-runner","rel":"relates"}],"gravity":0.3},{"id":"fiction-edge-cases","type":"note","desc":"Edge case analysis for Saturn deployment scenarios and failure modes.","file":"note/fiction-edge-cases.md","edges":[{"to":"saturn-discovery","rel":"relates"}],"gravity":0.2},{"id":"legacy-code","type":"note","desc":"Collection of legacy implementations, old servers, and research ideas predating the current architecture.","file":"note/legacy-code.md","edges":[{"to":"saturn-discovery","rel":"relates"}],"gravity":0.2},{"id":"sdk-readme","type":"note","desc":"Documentation for the AI SDK provider package with API reference and examples.","file":"note/sdk-readme.md","edges":[{"to":"sdk-index","rel":"references"}],"gravity":0.3},{"id":"mcp-readme","type":"note","desc":"Documentation for the Saturn MCP server integration.","file":"note/mcp-readme.md","edges":[{"to":"mcp-server","rel":"references"}],"gravity":0.2},{"id":"vlc-readme","type":"note","desc":"Documentation for the VLC Saturn extension setup and usage.","file":"note/vlc-readme.md","edges":[{"to":"vlc-chat","rel":"references"},{"to":"vlc-bridge","rel":"references"}],"gravity":0.2},{"id":"router-readme","type":"note","desc":"Documentation for building and deploying Saturn on OpenWrt routers.","file":"note/router-readme.md","edges":[{"to":"saturn-router","rel":"references"},{"to":"install-router","rel":"references"}],"gravity":0.2},{"id":"saturnd-readme","type":"note","desc":"Documentation for the Saturn daemon with install/uninstall scripts.","file":"note/saturnd-readme.md","edges":[{"to":"saturnd-install","rel":"references"}],"gravity":0.2},{"id":"saturnd-install","type":"script","desc":"Shell scripts for installing and uninstalling the Saturn daemon as a system service.","file":"script/saturnd-install.md","edges":[{"to":"saturn-runner","rel":"supports"}],"gravity":0.2},{"id":"sdk-examples","type":"code","desc":"Example TypeScript scripts demonstrating basic usage and discovery with the AI SDK provider.","file":"code/sdk-examples.md","edges":[{"to":"sdk-index","rel":"imports"}],"gravity":0.2},{"id":"brutus-init","type":"code","desc":"Brutus Discord bot package initialization.","file":"code/brutus-init.md","edges":[],"gravity":0.1},{"id":"brutus-main","type":"code","desc":"Brutus Discord bot entry point.","file":"code/brutus-main.md","edges":[{"to":"brutus-bot","rel":"imports"}],"gravity":0.1},{"id":"brutus-bot","type":"code","desc":"Brutus Discord bot main implementation.","file":"code/brutus-bot.md","edges":[],"gravity":0.1},{"id":"brutus-env-example","type":"config","desc":"Example environment variables for Brutus Discord bot.","file":"config/brutus-env-example.md","edges":[],"gravity":0.1},{"id":"brutus-service","type":"script","desc":"Systemd service file for Brutus Discord bot.","file":"script/brutus-service.md","edges":[],"gravity":0.1},{"id":"brutus-features","type":"note","desc":"Brutus features list for Raspberry Pi deployment.","file":"note/brutus-features.md","edges":[],"gravity":0.1},{"id":"saturn-mcp-client","type":"code","desc":"Saturn MCP client implementation.","file":"code/saturn-mcp-client.md","edges":[],"gravity":0.1},{"id":"saturn-web","type":"code","desc":"Saturn web server and UI backend providing REST endpoints for the Web UI.","file":"code/saturn-web.md","edges":[{"to":"saturn-discovery","rel":"imports"},{"to":"saturn-config","rel":"imports"}],"gravity":0.1},{"id":"saturnd-main","type":"code","desc":"Go Saturn daemon entry point.","file":"code/saturnd-main.md","edges":[],"gravity":0.1},{"id":"saturnd-a2a-client","type":"code","desc":"Agent-to-agent client implementation in the Saturn daemon.","file":"code/saturnd-a2a-client.md","edges":[],"gravity":0.1},{"id":"saturnd-a2a-executor","type":"code","desc":"Agent-to-agent executor in the Saturn daemon.","file":"code/saturnd-a2a-executor.md","edges":[{"to":"saturnd-a2a-types","rel":"imports"}],"gravity":0.1},{"id":"saturnd-a2a-handler","type":"code","desc":"Agent-to-agent HTTP handler in the Saturn daemon.","file":"code/saturnd-a2a-handler.md","edges":[{"to":"saturnd-a2a-executor","rel":"uses"},{"to":"saturnd-a2a-types","rel":"imports"}],"gravity":0.1},{"id":"saturnd-a2a-types","type":"code","desc":"Agent-to-agent type definitions shared across Saturn daemon A2A components.","file":"code/saturnd-a2a-types.md","edges":[],"gravity":0.1},{"id":"saturnd-agents-monitor","type":"code","desc":"Agent monitor implementation in the Saturn daemon.","file":"code/saturnd-agents-monitor.md","edges":[],"gravity":0.1},{"id":"saturnd-beacon-cache","type":"code","desc":"Beacon service cache for the Saturn daemon.","file":"code/saturnd-beacon-cache.md","edges":[{"to":"saturnd-beacon-types","rel":"imports"}],"gravity":0.15},{"id":"saturnd-beacon-types","type":"code","desc":"Beacon service type definitions for the Saturn daemon.","file":"code/saturnd-beacon-types.md","edges":[],"gravity":0.1},{"id":"saturnd-discovery-advertiser","type":"code","desc":"Service advertiser for mDNS/DNS-SD in the Saturn daemon.","file":"code/saturnd-discovery-advertiser.md","edges":[],"gravity":0.1},{"id":"saturnd-discovery-discovery","type":"code","desc":"Service discovery implementation in the Saturn daemon.","file":"code/saturnd-discovery-discovery.md","edges":[],"gravity":0.1},{"id":"saturnd-http-handlers","type":"code","desc":"HTTP request handlers for the Saturn daemon.","file":"code/saturnd-http-handlers.md","edges":[],"gravity":0.1},{"id":"saturnd-http-server","type":"code","desc":"HTTP server implementation for the Saturn daemon.","file":"code/saturnd-http-server.md","edges":[{"to":"saturnd-discovery-advertiser","rel":"uses"},{"to":"saturnd-beacon-cache","rel":"uses"},{"to":"saturnd-http-handlers","rel":"contains"},{"to":"saturnd-discovery-discovery","rel":"uses"}],"gravity":0.2},{"id":"saturnd-mcp-protocol","type":"code","desc":"MCP protocol implementation for the Saturn daemon.","file":"code/saturnd-mcp-protocol.md","edges":[],"gravity":0.1},{"id":"saturnd-mcp-server","type":"code","desc":"MCP server implementation in the Saturn daemon.","file":"code/saturnd-mcp-server.md","edges":[{"to":"saturnd-mcp-protocol","rel":"uses"},{"to":"saturnd-mcp-tools","rel":"uses"}],"gravity":0.1},{"id":"saturnd-mcp-tools","type":"code","desc":"MCP tools implementation in the Saturn daemon.","file":"code/saturnd-mcp-tools.md","edges":[{"to":"saturnd-discovery-discovery","rel":"uses"},{"to":"saturnd-beacon-cache","rel":"uses"},{"to":"saturnd-discovery-advertiser","rel":"uses"}],"gravity":0.15},{"id":"web-ui-app","type":"code","desc":"Express.js web application server for the Saturn Web UI.","file":"code/web-ui-app.md","edges":[{"to":"web-ui-index","rel":"references"}],"gravity":0.1},{"id":"web-ui-server","type":"code","desc":"Web server TypeScript implementation for the Saturn Web UI.","file":"code/web-ui-server.md","edges":[{"to":"web-ui-app","rel":"imports"}],"gravity":0.1},{"id":"web-ui-index","type":"code","desc":"Web UI HTML entry point.","file":"code/web-ui-index.md","edges":[],"gravity":0.1},{"id":"web-ui-styles","type":"style","desc":"Main stylesheet for the Saturn Web UI.","file":"style/web-ui-styles.md","edges":[],"gravity":0.1},{"id":"web-ui-package","type":"config","desc":"Web UI Node.js package configuration.","file":"config/web-ui-package.md","edges":[],"gravity":0.1},{"id":"web-ui-readme","type":"note","desc":"Web UI documentation.","file":"note/web-ui-readme.md","edges":[],"gravity":0.1},{"id":"web-ui-chat","type":"code","desc":"Chat interface JavaScript module for the Saturn Web UI.","file":"code/web-ui-chat.md","edges":[{"to":"web-ui-state","rel":"imports"}],"gravity":0.1},{"id":"web-ui-config","type":"code","desc":"Configuration interface JavaScript module for the Saturn Web UI.","file":"code/web-ui-config.md","edges":[{"to":"web-ui-state","rel":"imports"}],"gravity":0.1},{"id":"web-ui-discover","type":"code","desc":"Service discovery interface JavaScript module for the Saturn Web UI.","file":"code/web-ui-discover.md","edges":[{"to":"web-ui-state","rel":"imports"}],"gravity":0.1},{"id":"web-ui-graphics","type":"code","desc":"Graphics utility functions for the Saturn Web UI.","file":"code/web-ui-graphics.md","edges":[],"gravity":0.1},{"id":"web-ui-main","type":"code","desc":"Main application logic for the Saturn Web UI, orchestrating all interface modules.","file":"code/web-ui-main.md","edges":[{"to":"web-ui-chat","rel":"imports"},{"to":"web-ui-config","rel":"imports"},{"to":"web-ui-discover","rel":"imports"},{"to":"web-ui-services","rel":"imports"},{"to":"web-ui-models","rel":"imports"}],"gravity":0.25},{"id":"web-ui-models","type":"code","desc":"Model management module for the Saturn Web UI.","file":"code/web-ui-models.md","edges":[],"gravity":0.1},{"id":"web-ui-services","type":"code","desc":"Service management module for the Saturn Web UI.","file":"code/web-ui-services.md","edges":[],"gravity":0.1},{"id":"web-ui-state","type":"code","desc":"Application state management for the Saturn Web UI, shared across all interface modules.","file":"code/web-ui-state.md","edges":[],"gravity":0.25},{"id":"web-ui-system","type":"code","desc":"System status interface module for the Saturn Web UI.","file":"code/web-ui-system.md","edges":[{"to":"web-ui-state","rel":"imports"}],"gravity":0.1},{"id":"web-ui-tools","type":"code","desc":"UI utility tools for the Saturn Web UI.","file":"code/web-ui-tools.md","edges":[{"to":"web-ui-state","rel":"imports"},{"to":"web-ui-ui","rel":"imports"}],"gravity":0.1},{"id":"web-ui-ui","type":"code","desc":"UI component library for the Saturn Web UI.","file":"code/web-ui-ui.md","edges":[],"gravity":0.1},{"id":"web-ui-check-sh","type":"script","desc":"Bash script to start Saturn server and run Playwright integration checks for the Web UI.","file":"script/web-ui-check-sh.md","edges":[{"to":"web-ui-check-ts","rel":"uses"}],"gravity":0.1},{"id":"web-ui-check-ts","type":"test","desc":"Playwright test suite validating Web UI structure and interactions.","file":"test/web-ui-check-ts.md","edges":[],"gravity":0.1},{"id":"tests-bombadil-autoroute","type":"test","desc":"Bombadil property test for auto-route functionality.","file":"test/tests-bombadil-autoroute.md","edges":[],"gravity":0.1}]};
+
+const BASE_RADIUS = {"code":10,"config":10,"script":10,"test":10,"note":10};
+
+const EDGE_COLORS = {
+  references:  '#3498db',
+  imports:     '#e67e22',
+  relates:     '#95a5a6',
+  supports:    '#2ecc71',
+  contrasts:   '#e74c3c',
+  uses:        '#9b59b6',
+  contains:    '#1abc9c'
+};
+
+function R(d) {
+  const base = BASE_RADIUS[d.type] || 10;
+  const g = d.gravity != null ? d.gravity : 0.5;
+  return base * (0.5 + 0.5 * g);
+}
+
+let graph, nodes, links;
+let simulation;
+let activeTypes = new Set(Object.keys(COLORS));
+let selectedNode = null;
+
+fetch('./graph.json')
+  .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+  .then(data => { graph = data; build(data); })
+  .catch(() => { graph = GRAPH_DATA; build(GRAPH_DATA); });
+
+function build(data) {
+  nodes = data.nodes.map(n => ({...n}));
+  links = [];
+  const ids = new Set(nodes.map(n => n.id));
+
+  for (const n of data.nodes) {
+    if (!n.edges) continue;
+    for (const e of n.edges) {
+      if (ids.has(e.to)) {
+        links.push({ source: n.id, target: e.to, rel: e.rel });
+      }
+    }
+  }
+
+  document.getElementById('stats').textContent =
+    `${nodes.length} nodes \u00b7 ${links.length} edges`;
+
+  const legend = document.getElementById('legend');
+  for (const [type, color] of Object.entries(COLORS)) {
+    const count = nodes.filter(n => n.type === type).length;
+    if (count === 0) continue;
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.innerHTML = `<span class="legend-dot" style="background:${color}"></span>${type} (${count})`;
+    item.onclick = () => toggleType(type, item);
+    legend.appendChild(item);
+  }
+
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  const svg = d3.select('svg');
+  const g = svg.append('g');
+
+  const zoom = d3.zoom()
+    .scaleExtent([0.2, 5])
+    .on('zoom', e => g.attr('transform', e.transform));
+  svg.call(zoom);
+
+  const defs = svg.append('defs');
+  for (const [rel, color] of Object.entries(EDGE_COLORS)) {
+    defs.append('marker')
+      .attr('id', `arrow-${rel}`)
+      .attr('viewBox', '0 -4 8 8')
+      .attr('refX', 20).attr('refY', 0)
+      .attr('markerWidth', 6).attr('markerHeight', 6)
+      .attr('orient', 'auto')
+      .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', color);
+  }
+
+  const link = g.append('g')
+    .selectAll('line').data(links).join('line')
+    .attr('class', 'link')
+    .attr('stroke', d => EDGE_COLORS[d.rel] || '#444')
+    .attr('stroke-width', 1)
+    .attr('marker-end', d => `url(#arrow-${d.rel})`);
+
+  const linkLabel = g.append('g')
+    .selectAll('text').data(links).join('text')
+    .attr('class', 'link-label')
+    .text(d => d.rel);
+
+  const node = g.append('g')
+    .selectAll('g').data(nodes).join('g')
+    .attr('class', 'node')
+    .call(d3.drag()
+      .on('start', dragStart)
+      .on('drag', dragging)
+      .on('end', dragEnd));
+
+  node.append('circle')
+    .attr('r', d => R(d))
+    .attr('fill', d => COLORS[d.type] || '#666')
+    .attr('stroke', d => d3.color(COLORS[d.type] || '#666').darker(0.5));
+
+  node.append('text')
+    .text(d => d.id)
+    .attr('dy', d => R(d) + 12);
+
+  const tooltip = document.getElementById('tooltip');
+  node.on('mouseover', (e, d) => {
+    const edgeCount = links.filter(l =>
+      (l.source.id || l.source) === d.id || (l.target.id || l.target) === d.id
+    ).length;
+    tooltip.querySelector('.tt-id').textContent = d.id;
+    tooltip.querySelector('.tt-type').textContent = d.type;
+    tooltip.querySelector('.tt-type').style.color = COLORS[d.type];
+    tooltip.querySelector('.tt-desc').textContent = d.desc;
+    tooltip.querySelector('.tt-file').textContent = d.file || '';
+    tooltip.querySelector('.tt-edges').textContent = `${edgeCount} connections`;
+    tooltip.style.display = 'block';
+  }).on('mousemove', (e) => {
+    tooltip.style.left = (e.clientX + 16) + 'px';
+    tooltip.style.top = (e.clientY + 16) + 'px';
+  }).on('mouseout', () => {
+    tooltip.style.display = 'none';
+  }).on('click', (e, d) => {
+    e.stopPropagation();
+    showDetail(d);
+    const connected = new Set();
+    connected.add(d.id);
+    links.forEach(l => {
+      const sid = l.source.id || l.source;
+      const tid = l.target.id || l.target;
+      if (sid === d.id) connected.add(tid);
+      if (tid === d.id) connected.add(sid);
+    });
+    node.classed('dimmed', n => !connected.has(n.id));
+    link.classed('dimmed', l => {
+      const sid = l.source.id || l.source;
+      const tid = l.target.id || l.target;
+      return !connected.has(sid) || !connected.has(tid);
+    });
+    linkLabel.classed('visible', l => {
+      const sid = l.source.id || l.source;
+      const tid = l.target.id || l.target;
+      return connected.has(sid) && connected.has(tid);
+    });
+  });
+
+  svg.on('click', (e) => {
+    if (e.target === svg.node() || e.target.tagName === 'svg') {
+      node.classed('dimmed', false).classed('search-match', false);
+      link.classed('dimmed', false);
+      linkLabel.classed('visible', false);
+      document.getElementById('detail').style.display = 'none';
+      selectedNode = null;
+    }
+  });
+
+  document.getElementById('search').addEventListener('input', function() {
+    const q = this.value.toLowerCase();
+    if (!q) {
+      node.classed('search-match', false).classed('dimmed', false);
+      link.classed('dimmed', false);
+      return;
+    }
+    const matches = new Set();
+    node.each(d => {
+      if (d.id.toLowerCase().includes(q) ||
+          (d.desc || '').toLowerCase().includes(q) ||
+          d.type.toLowerCase().includes(q)) {
+        matches.add(d.id);
+      }
+    });
+    node.classed('search-match', d => matches.has(d.id));
+    node.classed('dimmed', d => !matches.has(d.id));
+    link.classed('dimmed', l => {
+      const sid = l.source.id || l.source;
+      const tid = l.target.id || l.target;
+      return !matches.has(sid) && !matches.has(tid);
+    });
+  });
+
+  simulation = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(100))
+    .force('charge', d3.forceManyBody().strength(-300))
+    .force('center', d3.forceCenter(w / 2, h / 2))
+    .force('collision', d3.forceCollide().radius(d => R(d) + 8))
+    .force('x', d3.forceX(w / 2).strength(0.04))
+    .force('y', d3.forceY(h / 2).strength(0.04));
+
+  simulation.on('tick', () => {
+    link
+      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    linkLabel
+      .attr('x', d => (d.source.x + d.target.x) / 2)
+      .attr('y', d => (d.source.y + d.target.y) / 2);
+    node.attr('transform', d => `translate(${d.x},${d.y})`);
+  });
+
+  setTimeout(() => {
+    simulation.alphaTarget(0).alphaDecay(0.05);
+    simulation.alpha(0.3).restart();
+  }, 100);
+
+  window._node = node;
+  window._link = link;
+  window._linkLabel = linkLabel;
+}
+
+function showDetail(d) {
+  selectedNode = d;
+  const det = document.getElementById('detail');
+  det.querySelector('.d-id').textContent = d.id;
+  det.querySelector('.d-type').textContent = d.type;
+  det.querySelector('.d-type').style.color = COLORS[d.type];
+  det.querySelector('.d-desc').textContent = d.desc;
+  det.querySelector('.d-file').textContent = d.file || '';
+
+  const edgesDiv = det.querySelector('.d-edges');
+  edgesDiv.innerHTML = '';
+  if (d.edges) {
+    for (const e of d.edges) {
+      const div = document.createElement('div');
+      div.innerHTML = `<span class="edge-rel">${e.rel}</span> &rarr; ${e.to}`;
+      edgesDiv.appendChild(div);
+    }
+  }
+  const incoming = links.filter(l => (l.target.id || l.target) === d.id);
+  if (incoming.length) {
+    const hdr = document.createElement('div');
+    hdr.style.marginTop = '6px';
+    hdr.style.color = '#666';
+    hdr.style.fontSize = '11px';
+    hdr.textContent = 'Incoming:';
+    edgesDiv.appendChild(hdr);
+    for (const l of incoming) {
+      const div = document.createElement('div');
+      const sid = l.source.id || l.source;
+      div.innerHTML = `${sid} <span class="edge-rel">${l.rel}</span> &rarr;`;
+      edgesDiv.appendChild(div);
+    }
+  }
+  det.style.display = 'block';
+}
+
+function toggleType(type, el) {
+  if (activeTypes.has(type)) {
+    activeTypes.delete(type);
+    el.classList.add('dimmed');
+  } else {
+    activeTypes.add(type);
+    el.classList.remove('dimmed');
+  }
+  window._node.style('display', d => activeTypes.has(d.type) ? null : 'none');
+  window._link.style('display', d => {
+    const st = d.source.type || nodes.find(n => n.id === d.source)?.type;
+    const tt = d.target.type || nodes.find(n => n.id === d.target)?.type;
+    return activeTypes.has(st) && activeTypes.has(tt) ? null : 'none';
+  });
+}
+
+function dragStart(e, d) {
+  if (!e.active) simulation.alphaTarget(0.3).restart();
+  d.fx = d.x; d.fy = d.y;
+}
+function dragging(e, d) { d.fx = e.x; d.fy = e.y; }
+function dragEnd(e, d) {
+  if (!e.active) simulation.alphaTarget(0);
+  d.fx = null; d.fy = null;
+}
+</script>
+</body>
+</html>

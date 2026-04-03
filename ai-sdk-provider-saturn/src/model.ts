@@ -1,17 +1,17 @@
 import {
   JSONObject,
   JSONValue,
-  LanguageModelV3,
-  LanguageModelV3CallOptions,
-  LanguageModelV3Content,
-  LanguageModelV3FinishReason,
-  LanguageModelV3GenerateResult,
-  LanguageModelV3Prompt,
-  LanguageModelV3StreamPart,
-  LanguageModelV3StreamResult,
-  LanguageModelV3Usage,
+  LanguageModelV4,
+  LanguageModelV4CallOptions,
+  LanguageModelV4Content,
+  LanguageModelV4FinishReason,
+  LanguageModelV4GenerateResult,
+  LanguageModelV4Prompt,
+  LanguageModelV4StreamPart,
+  LanguageModelV4StreamResult,
+  LanguageModelV4Usage,
   NoSuchModelError,
-  SharedV3Warning,
+  SharedV4Warning,
 } from '@ai-sdk/provider';
 import { generateId } from '@ai-sdk/provider-utils';
 import type { LogLevel, SaturnLogger } from './logger.js';
@@ -21,8 +21,18 @@ import { withRetry } from './retry.js';
 import type { ServiceCircuitBreaker } from './retry.js';
 import type { SaturnDiscovery } from './discovery.js';
 
-export class SaturnChatLanguageModel implements LanguageModelV3 {
-  readonly specificationVersion = 'v3' as const;
+export type SaturnLanguageModelOptions = {
+  preferredService?: string;
+  thinking?: 'off' | 'on' | 'deep';
+  num_ctx?: number;
+  tfs_z?: number;
+  typical_p?: number;
+  mirostat?: number;
+  extra_body?: Record<string, unknown>;
+};
+
+export class SaturnChatLanguageModel implements LanguageModelV4 {
+  readonly specificationVersion = 'v4' as const;
   readonly provider = 'saturn';
   readonly modelId: string;
 
@@ -81,12 +91,12 @@ export class SaturnChatLanguageModel implements LanguageModelV3 {
     };
   }
 
-  private getArgs(options: LanguageModelV3CallOptions): {
+  private getArgs(options: LanguageModelV4CallOptions): {
     messages: OpenAIMessage[];
     body: Record<string, unknown>;
-    warnings: SharedV3Warning[];
+    warnings: SharedV4Warning[];
   } {
-    const warnings: SharedV3Warning[] = [];
+    const warnings: SharedV4Warning[] = [];
     const messages = this.convertPrompt(options.prompt);
 
     const body: Record<string, unknown> = {
@@ -161,7 +171,7 @@ export class SaturnChatLanguageModel implements LanguageModelV3 {
     return { messages, body, warnings };
   }
 
-  private convertPrompt(prompt: LanguageModelV3Prompt): OpenAIMessage[] {
+  private convertPrompt(prompt: LanguageModelV4Prompt): OpenAIMessage[] {
     const messages: OpenAIMessage[] = [];
 
     for (const message of prompt) {
@@ -245,7 +255,7 @@ export class SaturnChatLanguageModel implements LanguageModelV3 {
     return messages;
   }
 
-  private mapFinishReason(reason: string | null): LanguageModelV3FinishReason {
+  private mapFinishReason(reason: string | null): LanguageModelV4FinishReason {
     let unified: 'stop' | 'length' | 'content-filter' | 'tool-calls' | 'error' | 'other';
     switch (reason) {
       case 'stop':
@@ -383,7 +393,7 @@ export class SaturnChatLanguageModel implements LanguageModelV3 {
     return endpoints;
   }
 
-  async doGenerate(options: LanguageModelV3CallOptions): Promise<LanguageModelV3GenerateResult> {
+  async doGenerate(options: LanguageModelV4CallOptions): Promise<LanguageModelV4GenerateResult> {
     const endpoints = await this.resolveEndpoints(options);
 
     const { body, warnings } = this.getArgs(options);
@@ -411,7 +421,7 @@ export class SaturnChatLanguageModel implements LanguageModelV3 {
         this.circuitBreaker.recordSuccess(service.name);
 
         const choice = data.choices[0];
-        const content: LanguageModelV3Content[] = [];
+        const content: LanguageModelV4Content[] = [];
 
         if (choice.message.content) {
           content.push({ type: 'text', text: choice.message.content });
@@ -470,7 +480,7 @@ export class SaturnChatLanguageModel implements LanguageModelV3 {
     );
   }
 
-  async doStream(options: LanguageModelV3CallOptions): Promise<LanguageModelV3StreamResult> {
+  async doStream(options: LanguageModelV4CallOptions): Promise<LanguageModelV4StreamResult> {
     const endpoints = await this.resolveEndpoints(options);
 
     const { body, warnings } = this.getArgs(options);
@@ -532,11 +542,11 @@ export class SaturnChatLanguageModel implements LanguageModelV3 {
 
   private createFailoverStream(
     initialResponse: Response,
-    initialWarnings: SharedV3Warning[],
+    initialWarnings: SharedV4Warning[],
     requestBody: Record<string, unknown>,
     fallbackEndpoints: DiscoveredService[],
     abortSignal?: AbortSignal
-  ): ReadableStream<LanguageModelV3StreamPart> {
+  ): ReadableStream<LanguageModelV4StreamPart> {
     let currentResponse = initialResponse;
     let currentReader = currentResponse.body!.getReader();
     const decoder = new TextDecoder();
@@ -544,8 +554,8 @@ export class SaturnChatLanguageModel implements LanguageModelV3 {
     let buffer = '';
     let isFirstChunk = true;
     let hasEmittedContent = false;
-    let finishReason: LanguageModelV3FinishReason = { unified: 'other', raw: undefined };
-    let usage: LanguageModelV3Usage = {
+    let finishReason: LanguageModelV4FinishReason = { unified: 'other', raw: undefined };
+    let usage: LanguageModelV4Usage = {
       inputTokens: { total: undefined, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
       outputTokens: { total: undefined, text: undefined, reasoning: undefined },
     };

@@ -1,0 +1,11 @@
+64-bit quad-core Cortex-A76
+4GB LPDDR4X SDRAM
+2 micro HDMI ports
+2 USB 3.0 ports
+2 4-lane connectors for camera or display peripherals
+Gigabit Ethernet port
+802.11b/g/n/ac wireless
+Bluetooth 5.0
+PoE-compatible
+PCIe Expansion connector
+5V/5A USB-C power supply
