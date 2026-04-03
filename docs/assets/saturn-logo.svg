@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <clipPath id="rb">
+      <path d="M0,0 H48 V24 H0 Z"/>
+    </clipPath>
+    <clipPath id="rf">
+      <path d="M0,24 H48 V48 H0 Z"/>
+    </clipPath>
+  </defs>
+  <ellipse cx="24" cy="24" rx="22" ry="7" fill="none" stroke="white" stroke-width="2.5" opacity="0.45" clip-path="url(#rb)" transform="rotate(-25 24 24)"/>
+  <circle cx="24" cy="24" r="10.5" fill="white" opacity="0.9"/>
+  <ellipse cx="24" cy="24" rx="22" ry="7" fill="none" stroke="white" stroke-width="2.5" opacity="0.9" clip-path="url(#rf)" transform="rotate(-25 24 24)"/>
+</svg>

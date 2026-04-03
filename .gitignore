@@ -51,3 +51,6 @@ chomp/
 
 # Bombadil test credentials
 tests/bombadil/test-config.json
+
+# MkDocs build output
+site/

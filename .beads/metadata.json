@@ -2,6 +2,6 @@
   "database": "dolt",
   "backend": "dolt",
   "dolt_mode": "server",
-  "dolt_database": "SAT",
-  "project_id": "9c88e69b-c004-4673-8b09-ac4d2b8e1443"
+  "dolt_database": "Saturn",
+  "project_id": "28953f6b-834b-471e-b4f3-9dd5e94fa3f2"
 }

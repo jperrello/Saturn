@@ -176,6 +176,14 @@ Saturn makes an explicit trade-off: broadcast discovery means any device on the 
 - Windows: Install [Bonjour Print Services](https://support.apple.com/kb/DL999) (comes with iTunes)
 - Linux: `sudo apt install avahi-utils`
 
+**Avahi version requirement (Linux):**
+Saturn requires Avahi 0.9-rc3 or newer. Older versions are affected by
+CVE-2025-68276, CVE-2025-68468, and CVE-2025-68471 — remote DoS / memory
+corruption vulnerabilities triggered by crafted mDNS packets. Check your
+version with `avahi-daemon --version`. Ubuntu 24.04 LTS ships a patched
+build; if you are on an older distro, upgrade Avahi before exposing Saturn
+to an untrusted network.
+
 **No services discovered:**
 ```bash
 dns-sd -B _saturn._tcp local.   # Should show your server
