@@ -103,8 +103,8 @@
   <div class="app">
     <nav class="tabs">
       <button class="tab active" data-tab="discover">Network Scan</button>
-      <button class="tab" data-tab="chat">Chat</button>
       <button class="tab" data-tab="system">System</button>
+      <button class="tab" data-tab="chat">Chat</button>
     </nav>
 
     <!-- DISCOVER -->
@@ -236,7 +236,29 @@
 
     <!-- CHAT -->
     <section id="chat" class="page">
-      <div class="chat-layout">
+      <div id="chat-gate" class="gate">
+        <div class="gate-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#f0c040" stroke-width="1.5">
+            <path d="M12 2L2 22h20L12 2z" stroke-dasharray="68" stroke-dashoffset="68">
+              <animate attributeName="stroke-dashoffset" from="68" to="0" dur="1s" fill="freeze"/>
+            </path>
+            <line x1="12" y1="10" x2="12" y2="15" opacity="0">
+              <animate attributeName="opacity" from="0" to="1" begin="0.8s" dur="0.3s" fill="freeze"/>
+            </line>
+            <circle cx="12" cy="18" r="0.8" fill="#f0c040" opacity="0">
+              <animate attributeName="opacity" from="0" to="1" begin="0.8s" dur="0.3s" fill="freeze"/>
+            </circle>
+          </svg>
+        </div>
+        <h2>Experimental Feature</h2>
+        <p class="gate-text">
+          This page is experimental and currently under construction.<br>
+          Proceed if you would like to integrate Saturn on your preferred platform via the
+          <a href="https://jperrello.github.io/Saturn/integrations/" style="color:var(--accent)">Integrate</a> page.
+        </p>
+        <button id="chat-accept" class="btn">I Understand — Continue to Chat</button>
+      </div>
+      <div id="chat-shell" class="chat-layout hidden">
         <!-- History Drawer (slides over) -->
         <div class="chat-drawer" id="chat-drawer">
           <div class="drawer-head">
@@ -558,7 +580,7 @@
             </div>
 
             <p class="connector-guide-link">
-              <a href="docs/index.html">Full Integrator Guide</a>
+              <a href="https://jperrello.github.io/Saturn/integrations/">Full Integrator Guide</a>
             </p>
           </div>
           </div>
