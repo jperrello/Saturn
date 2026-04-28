@@ -1,0 +1,355 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - navigation [ref=e3]:
+      - button "Network Scan" [ref=e4]
+      - button "System" [ref=e5]
+      - button "Chat" [ref=e6]
+    - generic [ref=e7]:
+      - generic [ref=e10]:
+        - button "Network Scan" [ref=e11]
+        - generic [ref=e12]:
+          - generic [ref=e13]: Admin
+          - textbox "password" [ref=e14]: saturn
+          - button "Unlock" [active] [ref=e15]
+        - generic [ref=e16]:
+          - generic [ref=e17]: Services
+          - button "Configure New Service" [ref=e18]
+      - generic [ref=e21]:
+        - heading "Configure New Service" [level=2] [ref=e22]
+        - generic [ref=e23]:
+          - group "Service Identity" [ref=e24]:
+            - generic [ref=e25]: Service Identity
+            - generic [ref=e26]:
+              - text: Name *
+              - textbox "Name *" [ref=e27]:
+                - /placeholder: my-service
+            - generic [ref=e28]:
+              - text: Deployment *
+              - combobox "Deployment *" [ref=e29]:
+                - option "Cloud (remote API)" [selected]
+                - option "Local (machine running local AI service)"
+            - generic [ref=e30]:
+              - text: API Type *
+              - combobox "API Type *" [ref=e31]:
+                - option "OpenAI-compatible" [selected]
+                - option "Ollama-native"
+          - group "Connection" [ref=e32]:
+            - generic [ref=e33]: Connection
+            - generic [ref=e34]:
+              - generic [ref=e35]:
+                - text: Base URL *
+                - textbox "Base URL *" [ref=e36]:
+                  - /placeholder: https://api.example.com/v1
+              - generic [ref=e37]:
+                - text: API Key
+                - textbox "API Key" [ref=e38]:
+                  - /placeholder: sk-...
+            - generic [ref=e39]:
+              - generic [ref=e40]:
+                - text: Host *
+                - textbox "Host *" [ref=e41]:
+                  - /placeholder: 192.168.1.50
+              - generic [ref=e42]:
+                - text: Port *
+                - spinbutton "Port *" [ref=e43]
+          - group "Advanced" [ref=e44]:
+            - generic [ref=e45]: Advanced
+            - generic [ref=e46]:
+              - generic [ref=e47]:
+                - text: Priority
+                - spinbutton "Priority" [ref=e48]: "10"
+              - generic [ref=e49]:
+                - generic [ref=e50]:
+                  - text: Advertise Port
+                  - spinbutton "Advertise Port" [ref=e51]
+                - generic [ref=e52]:
+                  - text: Ephemeral Keys
+                  - checkbox "Ephemeral Keys" [ref=e53]
+                - generic [ref=e54]:
+                  - generic [ref=e55]:
+                    - text: Key Generation Endpoint
+                    - textbox "Key Generation Endpoint" [ref=e56]:
+                      - /placeholder: https://openrouter.ai/api/v1/keys
+                  - generic [ref=e57]:
+                    - text: Spending Limit
+                    - spinbutton "Spending Limit" [ref=e58]: "0"
+                  - generic [ref=e59]:
+                    - text: Rotation Interval
+                    - spinbutton "Rotation Interval" [ref=e60]: "300"
+                  - generic [ref=e61]:
+                    - text: Expiration Interval
+                    - spinbutton "Expiration Interval" [ref=e62]: "600"
+          - generic [ref=e63]:
+            - button "Test Connection" [ref=e64]
+            - button "Save" [ref=e65]
+            - button "Save & Enable" [ref=e66]
+            - button "Back" [ref=e67]
+    - generic [ref=e68]:
+      - generic [ref=e69]:
+        - img [ref=e71]
+        - heading "Experimental Feature" [level=2] [ref=e74]
+        - paragraph [ref=e75]:
+          - text: This page is experimental and currently under construction.
+          - text: Proceed if you would like to integrate Saturn on your preferred platform via the
+          - link "Integrate" [ref=e76] [cursor=pointer]:
+            - /url: https://jperrello.github.io/Saturn/integrations/
+          - text: page.
+        - button "I Understand — Continue to Chat" [ref=e77]
+      - generic [ref=e78]:
+        - generic [ref=e79]:
+          - generic [ref=e80]:
+            - text: History
+            - button "×" [ref=e81]
+          - button "+ New" [ref=e82]
+          - list
+          - button "Delete History" [ref=e83]
+          - button "Settings" [ref=e84]:
+            - img [ref=e85]
+        - generic [ref=e88]:
+          - generic [ref=e89]:
+            - button "History" [ref=e90]:
+              - img [ref=e91]
+            - generic [ref=e93]:
+              - generic [ref=e94]:
+                - text: "Saturn Service:"
+                - combobox "Saturn Service:" [ref=e95]:
+                  - option "-- scan first --" [disabled] [selected]
+              - generic [ref=e96]:
+                - text: "Model:"
+                - combobox "Model:" [ref=e97]:
+                  - option "-- select service --" [disabled] [selected]
+            - combobox "Response style" [ref=e99]:
+              - option "Default" [selected]
+              - option "Concise"
+              - option "Detailed"
+              - option "Code"
+          - generic [ref=e101]:
+            - text: All Models
+            - button "Refresh" [ref=e102]
+          - generic [ref=e103]:
+            - generic [ref=e104]:
+              - text: MCP Tools
+              - button "Refresh" [ref=e105]
+              - button "Servers" [ref=e106]
+            - generic [ref=e107]:
+              - generic [ref=e108]: MCP Servers
+              - generic [ref=e109]:
+                - textbox "Server name" [ref=e110]
+                - textbox "http://localhost:8080/mcp" [ref=e111]
+                - textbox "Auth token (optional)" [ref=e112]
+                - button "Add Server" [ref=e113]
+          - generic [ref=e115]:
+            - generic [ref=e116]: "> How can I help today?"
+            - generic [ref=e117]: What is Saturn? Help me write an email Lets make a web page
+          - button "×" [ref=e119]
+          - generic [ref=e120]:
+            - text: Context is filling up.
+            - button "Summarize older messages" [ref=e121]
+            - button "×" [ref=e122]
+          - generic [ref=e123]:
+            - generic [ref=e124]:
+              - button "Attach file" [ref=e125]:
+                - img [ref=e126]
+              - button "Choose File" [ref=e128]
+              - 'button "Thinking: Off" [ref=e129]':
+                - img [ref=e130]
+              - button "Export JSON" [ref=e132]:
+                - img [ref=e133]
+              - button "Export Markdown" [ref=e136]:
+                - img [ref=e137]
+              - button "MCP Tools" [ref=e141]:
+                - img [ref=e142]
+            - generic [ref=e144]:
+              - textbox "Message Saturn..." [ref=e145]
+              - button [ref=e146]:
+                - img [ref=e147]
+    - generic [ref=e151]:
+      - tablist "System sections" [ref=e153]:
+        - tab "Integrate" [selected] [ref=e154]
+        - tab "Status" [ref=e155]
+        - tab "Remote" [ref=e156]
+      - generic [ref=e157]: ● idle
+      - tabpanel "Status" [ref=e158]:
+        - generic [ref=e159]:
+          - generic [ref=e160]: Backend Health
+          - generic [ref=e162]: Run Network Scan to see backends
+        - generic [ref=e163]:
+          - generic [ref=e164]: Routing Activity
+          - generic [ref=e166]: No routing activity yet
+        - generic [ref=e167]:
+          - generic [ref=e168]: Usage Today
+          - generic [ref=e169]: No usage data
+      - tabpanel "Remote" [ref=e170]:
+        - generic [ref=e171]:
+          - img [ref=e173]
+          - heading "Remote Access Warning" [level=2] [ref=e176]
+          - paragraph [ref=e177]:
+            - text: Saturn auto-routes your messages to LLM backends on your local network.
+            - text: Enabling remote access exposes these services beyond your LAN.
+            - text: Only proceed if you trust the network you are connecting from.
+          - button "I Understand — Enable Remote Access" [ref=e178]
+        - generic [ref=e180]:
+          - generic [ref=e181]: "Mode: LAN Only"
+          - button "Start Tunnel" [ref=e183]
+          - generic [ref=e184]:
+            - generic [ref=e185]: No tunnel active
+            - generic [ref=e186]: ● stopped
+            - button "Stop Tunnel" [ref=e188]
+      - tabpanel "Integrate" [ref=e189]:
+        - generic [ref=e190]:
+          - generic [ref=e191]:
+            - button "OpenCode JSON config" [ref=e192]
+            - button "Codex TOML config" [ref=e193]
+            - button "Continue YAML config" [ref=e194]
+            - button "Aider CLI one-liner" [ref=e195]
+            - button "Cline VS Code GUI" [ref=e196]
+            - button "Cursor Settings GUI" [ref=e197]
+            - button "Claude Code Needs proxy" [ref=e198]
+            - button "OpenClaw JSON config" [ref=e199]
+            - button "Generic Env vars" [ref=e200]
+          - generic [ref=e201]:
+            - button "Close" [ref=e203]
+            - generic [ref=e204]:
+              - generic [ref=e205]: "1"
+              - generic [ref=e206]:
+                - generic [ref=e207]: Copy Your Saturn Credentials
+                - generic [ref=e208]:
+                  - text: Endpoint
+                  - generic [ref=e209]:
+                    - code
+                    - button "Copy" [ref=e210]
+                - generic [ref=e211]:
+                  - text: API Key
+                  - generic [ref=e212]:
+                    - code [ref=e213]: saturn-key
+                    - button "Show" [ref=e214]
+                    - button "Copy" [ref=e215]
+            - generic [ref=e216]:
+              - generic [ref=e217]: "2"
+              - generic [ref=e219]: Configure
+            - generic [ref=e220]:
+              - generic [ref=e221]: "3"
+              - generic [ref=e222]:
+                - generic [ref=e223]: Test Reachability
+                - paragraph [ref=e224]: Confirm this browser can reach the Saturn endpoint.
+                - button "Test Connection" [ref=e226]
+          - paragraph [ref=e227]:
+            - link "Full Integrator Guide" [ref=e228] [cursor=pointer]:
+              - /url: https://jperrello.github.io/Saturn/integrations/
+  - generic [ref=e230]:
+    - generic [ref=e231]:
+      - text: Configuration
+      - button "Close" [ref=e232]
+    - generic [ref=e233]:
+      - generic [ref=e234]:
+        - text: "Scope:"
+        - button "Global Defaults" [ref=e235]
+        - button "Per-Service" [ref=e236]
+        - combobox [ref=e237]:
+          - option "-- select service --" [disabled] [selected]
+      - generic [ref=e238]:
+        - generic [ref=e239]: Manual Endpoints
+        - generic [ref=e240]: Add non-mDNS services (cloud APIs, VPN tunnels)
+        - generic [ref=e241]:
+          - textbox "display name" [ref=e242]
+          - textbox "https://api.example.com/v1" [ref=e243]
+          - combobox [ref=e244]:
+            - option "OpenAI" [selected]
+            - option "Ollama"
+            - option "Anthropic"
+          - button "Add" [ref=e245]
+      - generic [ref=e246]:
+        - generic [ref=e247]: Model Filter
+        - generic [ref=e248]:
+          - text: "LobeChat-style syntax:"
+          - code [ref=e249]: "-all,+gpt-4o,+llama3"
+        - generic [ref=e250]:
+          - textbox "-all,+gpt-4o,+llama3" [ref=e251]
+          - button "Apply" [ref=e252]
+      - generic [ref=e253]:
+        - generic [ref=e254]: Model Aliases
+        - generic [ref=e255]:
+          - textbox "alias (e.g. fast)" [ref=e256]
+          - combobox [ref=e257]:
+            - option "service" [disabled] [selected]
+          - textbox "model id" [ref=e258]
+          - button "Add" [ref=e259]
+      - generic [ref=e260]:
+        - generic [ref=e261]: Presets
+        - generic [ref=e262]:
+          - combobox [ref=e263]:
+            - option "-- no preset --" [selected]
+          - button "Save" [ref=e264]
+          - button "Delete" [disabled] [ref=e265]
+      - generic [ref=e266]:
+        - generic [ref=e267]: Response Format
+        - generic [ref=e268]:
+          - generic [ref=e269]: Format Constrain output format
+          - button "Default" [ref=e270]
+          - generic [ref=e271]:
+            - combobox [ref=e272]:
+              - option "Text" [selected]
+              - option "JSON"
+              - option "JSON Schema"
+            - 'textbox "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}}}" [ref=e273]'
+      - generic [ref=e274]:
+        - generic [ref=e275]: Budget
+        - generic [ref=e276]:
+          - generic [ref=e277]: Daily Spend Limit ($) 0 = unlimited. Blocks sends when exceeded.
+          - button "Default" [ref=e278]
+          - spinbutton [ref=e280]: "0"
+      - generic [ref=e281]:
+        - generic [ref=e282]: System Prompt
+        - generic [ref=e283]:
+          - generic [ref=e284]: System Prompt Prepended to every conversation
+          - button "Default" [ref=e285]
+          - textbox "You are a helpful assistant." [ref=e287]
+      - generic [ref=e288]:
+        - generic [ref=e289]: Sampling
+        - generic [ref=e290]:
+          - generic [ref=e291]: Temperature Randomness. 0 = deterministic
+          - button "Default" [ref=e292]
+          - generic [ref=e293]:
+            - slider [ref=e294]: "0.8"
+            - spinbutton [ref=e295]: "0.8"
+        - generic [ref=e296]:
+          - generic [ref=e297]: Max Tokens Maximum tokens to generate
+          - button "Default" [ref=e298]
+          - generic [ref=e299]:
+            - slider [ref=e300]: "4096"
+            - spinbutton [ref=e301]: "4096"
+        - generic [ref=e302]:
+          - generic [ref=e303]: Top P Nucleus sampling threshold
+          - button "Default" [ref=e304]
+          - generic [ref=e305]:
+            - slider [ref=e306]: "0.9"
+            - spinbutton [ref=e307]: "0.9"
+        - generic [ref=e308]:
+          - generic [ref=e309]: Top K Limit sampling to top K tokens
+          - button "Default" [ref=e310]
+          - generic [ref=e311]:
+            - slider [ref=e312]: "40"
+            - spinbutton [ref=e313]: "40"
+        - generic [ref=e314]:
+          - generic [ref=e315]: Frequency Penalty Penalize tokens by frequency
+          - button "Default" [ref=e316]
+          - generic [ref=e317]:
+            - slider [ref=e318]: "0"
+            - spinbutton [ref=e319]: "0"
+        - generic [ref=e320]:
+          - generic [ref=e321]: Presence Penalty Penalize tokens already present
+          - button "Default" [ref=e322]
+          - generic [ref=e323]:
+            - slider [ref=e324]: "0"
+            - spinbutton [ref=e325]: "0"
+      - group [ref=e326]:
+        - generic "Advanced Sampling" [ref=e327]
+      - group [ref=e328]:
+        - generic "Engine (Ollama)" [ref=e329]
+      - button "Reset All" [ref=e331]
+  - generic [ref=e333]:
+    - generic [ref=e334]: Tool Call Request
+    - generic [ref=e335]:
+      - button "Allow Once" [ref=e336]
+      - button "Always Allow" [ref=e337]
+      - button "Deny" [ref=e338]
