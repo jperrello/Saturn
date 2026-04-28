@@ -995,12 +995,25 @@ function renderServers() {
 loadServices()
 
 // admin password gate for service configuration
-let adminUnlocked = sessionStorage.getItem('saturn-admin') === '1'
+const ADMIN_TOKEN_KEY = 'saturn-admin-token'
+let adminToken = sessionStorage.getItem(ADMIN_TOKEN_KEY)
+let adminUnlocked = !!adminToken
 
 function showAdminState() {
   document.getElementById('admin-gate').classList.toggle('hidden', adminUnlocked)
   document.getElementById('admin-section').classList.toggle('hidden', !adminUnlocked)
+  document.getElementById('admin-pw-form').classList.add('hidden')
 }
+
+function adminLogout() {
+  adminToken = null
+  adminUnlocked = false
+  sessionStorage.removeItem(ADMIN_TOKEN_KEY)
+  sessionStorage.removeItem('saturn-admin')
+  document.getElementById('admin-pw').value = ''
+  showAdminState()
+}
+
 showAdminState()
 
 async function tryAdminAuth() {
@@ -1013,8 +1026,12 @@ async function tryAdminAuth() {
       body: JSON.stringify({ password: pw }),
     })
     if (res.ok) {
+      const { token } = await res.json()
+      adminToken = token
       adminUnlocked = true
+      sessionStorage.setItem(ADMIN_TOKEN_KEY, token)
       sessionStorage.setItem('saturn-admin', '1')
+      document.getElementById('admin-pw').value = ''
       showAdminState()
     } else {
       toast('Wrong password')
@@ -1028,6 +1045,72 @@ async function tryAdminAuth() {
 document.getElementById('admin-pw-submit').addEventListener('click', tryAdminAuth)
 document.getElementById('admin-pw').addEventListener('keydown', e => {
   if (e.key === 'Enter') tryAdminAuth()
+})
+
+document.getElementById('admin-logout-btn').addEventListener('click', adminLogout)
+
+const pwForm = document.getElementById('admin-pw-form')
+const pwCurrent = document.getElementById('pw-current')
+const pwNew = document.getElementById('pw-new')
+const pwConfirm = document.getElementById('pw-confirm')
+
+function resetPwForm() {
+  pwCurrent.value = ''
+  pwNew.value = ''
+  pwConfirm.value = ''
+}
+
+document.getElementById('admin-pw-change-btn').addEventListener('click', () => {
+  pwForm.classList.toggle('hidden')
+  if (!pwForm.classList.contains('hidden')) pwCurrent.focus()
+})
+
+document.getElementById('pw-cancel').addEventListener('click', () => {
+  resetPwForm()
+  pwForm.classList.add('hidden')
+})
+
+async function changePassword() {
+  if (!adminToken) {
+    toast('Not authenticated')
+    return
+  }
+  if (!pwCurrent.value || !pwNew.value) return
+  if (pwNew.value !== pwConfirm.value) {
+    toast('New passwords do not match')
+    return
+  }
+  if (pwNew.value.length < 8) {
+    toast('New password must be at least 8 characters')
+    return
+  }
+  try {
+    const res = await fetch('/api/admin/password', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({ current: pwCurrent.value, next: pwNew.value }),
+    })
+    if (res.ok) {
+      resetPwForm()
+      toast('Password changed — please log in again')
+      adminLogout()
+      return
+    }
+    const err = await res.json().catch(() => ({}))
+    toast(err.detail || 'Password change failed')
+  } catch {
+    toast('Password change failed')
+  }
+}
+
+document.getElementById('pw-save').addEventListener('click', changePassword)
+;[pwCurrent, pwNew, pwConfirm].forEach(el => {
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter') changePassword()
+  })
 })
 
 document.getElementById('config-btn').addEventListener('click', () => {

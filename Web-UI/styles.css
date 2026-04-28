@@ -256,6 +256,22 @@ body::after {
   width: 140px;
 }
 
+.admin-pw-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.admin-pw-form .admin-pw-inline {
+  width: 100%;
+}
+
+.admin-pw-actions {
+  display: flex;
+  gap: 8px;
+}
+
 #discover-btn {
   margin-bottom: 16px;
 }

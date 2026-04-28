@@ -1,14 +1,49 @@
 import multicastDns from "multicast-dns"
 import { networkInterfaces } from "os"
 import { spawn, type Subprocess } from "bun"
+import { randomUUID } from "crypto"
 
 const SATURN_SERVICE = "_saturn._tcp.local"
 const SCAN_MS = 3000
-const CORS = { "Access-Control-Allow-Origin": "*" }
-const ADMIN_PASSWORD = process.env.SATURN_ADMIN_PASSWORD || "saturn"
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+}
+const ADMIN_FILE = import.meta.dir + "/admin.json"
 const HEALTH_INTERVAL = 20_000
 const BREAKER_THRESHOLD = 3
 const BREAKER_COOLDOWN = 30_000
+const MIN_PW = 8
+
+// admin password is hashed at rest in admin.json. on first boot we seed from
+// SATURN_ADMIN_PASSWORD (or "saturn") so existing deploys keep working.
+let adminHash: string = ""
+const tokens = new Set<string>()
+
+async function loadAdmin() {
+  const file = Bun.file(ADMIN_FILE)
+  if (await file.exists()) {
+    const data = await file.json() as { hash: string }
+    adminHash = data.hash
+    return
+  }
+  const seed = process.env.SATURN_ADMIN_PASSWORD || "saturn"
+  adminHash = await Bun.password.hash(seed)
+  await Bun.write(ADMIN_FILE, JSON.stringify({ hash: adminHash }))
+}
+
+async function saveAdmin(hash: string) {
+  adminHash = hash
+  await Bun.write(ADMIN_FILE, JSON.stringify({ hash }))
+}
+
+function bearer(req: Request): string | null {
+  const h = req.headers.get("authorization") || ""
+  const m = h.match(/^Bearer (.+)$/i)
+  return m ? m[1] : null
+}
+
+await loadAdmin()
 
 interface Service {
   name: string
@@ -248,7 +283,7 @@ const server = Bun.serve({
         headers: {
           ...CORS,
           "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
           "Access-Control-Expose-Headers": "X-Saturn-Service, X-Saturn-Model",
         },
       })
@@ -256,9 +291,39 @@ const server = Bun.serve({
 
     if (url.pathname === "/api/admin/auth" && req.method === "POST") {
       const body = await req.json()
-      if (body.password !== ADMIN_PASSWORD) {
+      const ok = await Bun.password.verify(body.password ?? "", adminHash)
+      if (!ok) {
         return Response.json({ detail: "Invalid password" }, { status: 401, headers: CORS })
       }
+      const token = randomUUID()
+      tokens.add(token)
+      return Response.json({ ok: true, token }, { headers: CORS })
+    }
+
+    if (url.pathname === "/api/admin/password" && req.method === "POST") {
+      const token = bearer(req)
+      if (!token || !tokens.has(token)) {
+        return Response.json({ detail: "Not authenticated" }, { status: 401, headers: CORS })
+      }
+      const { current, next } = await req.json()
+      if (typeof next !== "string" || next.length < MIN_PW) {
+        return Response.json(
+          { detail: `New password must be at least ${MIN_PW} characters` },
+          { status: 400, headers: CORS }
+        )
+      }
+      if (!(await Bun.password.verify(current ?? "", adminHash))) {
+        return Response.json({ detail: "Current password incorrect" }, { status: 401, headers: CORS })
+      }
+      if (await Bun.password.verify(next, adminHash)) {
+        return Response.json(
+          { detail: "New password must differ from current" },
+          { status: 400, headers: CORS }
+        )
+      }
+      await saveAdmin(await Bun.password.hash(next))
+      // invalidate every session — including this one — so the user must re-auth
+      tokens.clear()
       return Response.json({ ok: true }, { headers: CORS })
     }
 

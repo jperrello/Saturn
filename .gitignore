@@ -54,3 +54,7 @@ tests/bombadil/test-config.json
 
 # MkDocs build output
 site/
+
+# Web-UI runtime state
+Web-UI/admin.json
+Web-UI/node_modules/

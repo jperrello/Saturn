@@ -125,6 +125,19 @@
               <div class="discover-section-title">Services</div>
               <div id="server-list" class="checklist"></div>
               <button id="config-btn" class="btn" style="margin:16px 0">Configure New Service</button>
+              <div class="discover-divider"></div>
+              <button id="admin-pw-change-btn" class="btn btn-secondary" style="margin:8px 0">Change Password</button>
+              <button id="admin-logout-btn" class="btn btn-secondary" style="margin:8px 0">Log Out</button>
+              <div id="admin-pw-form" class="admin-pw-form hidden">
+                <div class="discover-section-title">Change Password</div>
+                <input type="password" id="pw-current" placeholder="current password" class="admin-pw-inline">
+                <input type="password" id="pw-new" placeholder="new password (min 8)" class="admin-pw-inline">
+                <input type="password" id="pw-confirm" placeholder="confirm new password" class="admin-pw-inline">
+                <div class="admin-pw-actions">
+                  <button id="pw-save" class="btn">Save</button>
+                  <button id="pw-cancel" class="btn btn-secondary">Cancel</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
