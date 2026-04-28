@@ -68,18 +68,6 @@ An institution deploys a Saturn beacon, funds a token budget with a cloud provid
 
 ---
 
-## Install
-
-Saturn's Python reference implementation:
-
-```bash
-pip install saturn-ai
-```
-
-This gives you the `saturn` CLI, the discovery library, and the [Web UI](web-ui/overview.md). Other implementations (Rust router, TypeScript AI SDK provider, Lua VLC extension) live in their own packages — see the [Reference](reference/protocol.md) section.
-
----
-
 ## Saturn is a protocol, not a package
 
 Seven implementations span three languages and four mDNS libraries. None share Saturn-specific code. Interoperability comes from the protocol specification: standard DNS-SD records on `_saturn._tcp.local.`, a fixed TXT schema, and OpenAI-compatible HTTP endpoints.
@@ -93,3 +81,9 @@ Seven implementations span three languages and four mDNS libraries. None share S
 | OpenCode Fork | TypeScript | multicast-dns |
 | Open WebUI Plugin | Python | zeroconf |
 | MCP Server | Python | zeroconf |
+
+---
+
+## Try it from Python
+
+A convenient way to participate in Saturn from Python — `pip install saturn-ai` — gets you the `saturn` CLI, the discovery library, and the Web UI. See [Python package — easy install](python-package.md).

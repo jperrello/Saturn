@@ -59,6 +59,7 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Python package — easy install: python-package.md
   - Getting Started:
     - Quick Start: getting-started/quickstart.md
     - Troubleshooting: getting-started/troubleshooting.md

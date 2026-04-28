@@ -56,32 +56,22 @@ Connection method depends on deployment type:
 - **Cloud**: use `api_base` from TXT record as the endpoint. Set `Authorization: Bearer {ephemeral_key}` header.
 - **Local / Network**: construct the URL from the SRV record: `http://{host}:{port}/v1`.
 
-## Code Examples
+## Inspecting the wire
 
-### Python
-
-```python
-from saturn import discover, select_best_service
-
-services = discover(timeout=5.0)
-best = select_best_service(services)
-print(best.effective_endpoint)
-```
-
-### Shell (dns-sd)
+To verify a service is broadcasting, query the LAN with the standard `dns-sd` tool:
 
 ```bash
 dns-sd -B _saturn._tcp local.
 ```
 
-This lists all Saturn services broadcasting on the local network. Useful for debugging whether beacons are visible.
+Every Saturn service on the network responds. This works without any Saturn implementation installed and is the canonical way to confirm beacon visibility independent of language or runtime.
 
-### TypeScript
+## Implementations
 
-```typescript
-import { createSaturnProvider } from 'ai-sdk-provider-saturn'
+Saturn discovery is implemented as a library in several languages. Each one wraps the four steps above so applications can call a single `discover()`-style function.
 
-const saturn = createSaturnProvider({ timeout: 5000 })
-```
+- [Python — saturn-ai package](../python-package.md) — convenient way to participate from Python (`pip install saturn-ai`)
+- [TypeScript — AI SDK Provider](ai-sdk-provider.md)
+- [Rust — Saturn Router](router.md)
 
-The provider handles browse, resolve, select, and connect internally. Models become available as they are discovered.
+All three speak the same protocol on the wire. A Python beacon is discoverable by a TypeScript client and vice versa.
