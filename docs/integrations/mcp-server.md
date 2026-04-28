@@ -5,10 +5,10 @@ Saturn provides a [Model Context Protocol](https://modelcontextprotocol.io/) (MC
 ## Install
 
 ```bash
-pip install saturn-ai
+pip install saturn-mcp
 ```
 
-The MCP server binary is `saturn-mcp` and communicates over stdio transport.
+The MCP server is shipped as its own package (`saturn-mcp`) that depends on `saturn-ai`. Installing it gives you the `saturn-mcp` binary, which communicates over stdio transport.
 
 ## Setup
 

@@ -302,20 +302,18 @@ def main():
         prog='saturn',
         description='Saturn: Zero-configuration AI service discovery'
     )
-    parser.add_argument('--timeout', type=float, default=5.0,
-                        help='Discovery timeout in seconds')
-    parser.add_argument('--json', action='store_true',
-                        help='Output in JSON format')
-
     subparsers = parser.add_subparsers(dest='command', required=True)
 
-    discover_parser = subparsers.add_parser('discover',
-                                            help='Discover all available Saturn services')
-    discover_parser.set_defaults(func=cli_discover)
-
-    endpoint_parser = subparsers.add_parser('endpoint',
-                                            help='Output the best service endpoint URL (for scripts)')
-    endpoint_parser.set_defaults(func=cli_endpoint)
+    for name, help_text, func in (
+        ('discover', 'Discover all available Saturn services', cli_discover),
+        ('endpoint', 'Output the best service endpoint URL (for scripts)', cli_endpoint),
+    ):
+        sub = subparsers.add_parser(name, help=help_text)
+        sub.add_argument('--timeout', type=float, default=5.0,
+                         help='Discovery timeout in seconds')
+        sub.add_argument('--json', action='store_true',
+                         help='Output in JSON format')
+        sub.set_defaults(func=func)
 
     args = parser.parse_args()
     return args.func(args)
