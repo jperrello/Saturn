@@ -1,10 +1,10 @@
 # Saturn
 
-**Zero-configuration AI service discovery for every device on your network.**
+**A zero-configuration protocol for advertising, discovering, and connecting to AI service endpoints on a local network.**
 
-Saturn provisions AI the way networks already provision printers and file shares: through [Multicast DNS](https://tools.ietf.org/html/rfc6762) and [DNS-based Service Discovery](https://tools.ietf.org/html/rfc6763). A Saturn device announces AI endpoints under the service type `_saturn._tcp.local.`, and every device on the network discovers them automatically — no accounts, no API keys, no configuration files.
+Saturn is a protocol specification, not a software package. It defines a DNS-SD service type — `_saturn._tcp.local.` — under which AI endpoints register themselves on the local network. Every device on the network discovers them automatically through Multicast DNS. No accounts. No API keys. No configuration files. The protocol provisions AI the way networks already provision printers and file shares.
 
-The gap between AI's falling inference costs and its persistent access barriers is a protocol problem. Saturn closes that gap with existing network infrastructure.
+The gap between AI's falling inference costs and its persistent access barriers is a protocol problem. Saturn closes that gap with infrastructure that ships on every major operating system.
 
 ---
 
@@ -12,78 +12,153 @@ The gap between AI's falling inference costs and its persistent access barriers 
 
 ---
 
-## How it works
+## What Saturn defines
 
-**1. Announce** — An administrator runs a Saturn beacon that broadcasts AI service metadata on the local network via mDNS. TXT records carry the endpoint URL, API type, priority, and time-limited credentials.
+A Saturn service is any AI endpoint advertised under the DNS-SD service type `_saturn._tcp.local.`. The protocol specifies three things and nothing else:
 
-**2. Discover** — Any application on the network resolves these records automatically. No hardcoded URLs, no config files, no cloud accounts.
+1. **The service type.** `_saturn._tcp.local.` — a single DNS-SD identifier, registered under the link-local mDNS scope.
+2. **A TXT record schema.** Six required and optional fields that carry the endpoint URL, API format, deployment type, routing priority, and time-limited credentials.
+3. **An endpoint contract.** Every advertised service exposes an OpenAI-compatible HTTP API at `/v1/health`, `/v1/models`, and `/v1/chat/completions`.
 
-**3. Connect** — The client selects the highest-priority service and talks to it over standard OpenAI-compatible HTTP. If multiple services exist, Saturn routes to the best one with automatic failover.
-
-Beacons broadcast metadata but never proxy API traffic. Clients connect directly to endpoints, keeping beacons lightweight and eliminating them as a bottleneck or surveillance chokepoint.
+Anything that publishes a conformant advertisement is a Saturn service. Anything that resolves the service type and speaks the endpoint contract is a Saturn client. Saturn carries no shared library, no bridging layer, and no central registry — interoperability comes entirely from the specification.
 
 ---
 
-## Who is Saturn for?
+## Why mDNS
+
+Saturn rests on two protocols that already ship on every major operating system: Multicast DNS (mDNS, [RFC 6762](https://tools.ietf.org/html/rfc6762)) and DNS-based Service Discovery (DNS-SD, [RFC 6763](https://tools.ietf.org/html/rfc6763)). Apple's Bonjour ships natively on macOS and iOS and is available as a Windows service. Avahi is the default mDNS daemon on most Linux distributions. They interoperate.
+
+Choosing mDNS means Saturn rides on top of the same machinery that already discovers AirPrint printers, Chromecasts, file shares, and AirPlay speakers on a typical home or campus network. There is no daemon to install, no port to forward, no infrastructure to deploy. A device that joined the network already speaks the discovery layer.
+
+The alternatives ruled themselves out:
+
+- **NetBIOS** — no structured metadata beyond a 15-character hostname; deprecated.
+- **DLNA** — limited to media streaming; consortium dissolved.
+- **WS-Discovery** — SOAP/XML payloads roughly 20× the size of a DNS query.
+- **UPnP** — bundles a remote-control surface with documented security exposure.
+
+The structural inspiration came from DHCP: a single broadcast on join, central administrator, every client benefits without per-user configuration. Saturn applies the same concentration of complexity to AI service discovery, but operates entirely in userspace on top of mDNS rather than below the IP layer.
+
+---
+
+## How a service announces itself
+
+A Saturn beacon registers a standard DNS-SD record triple under `_saturn._tcp.local.`:
+
+```
+PTR  _saturn._tcp.local.  →  ollama._saturn._tcp.local.
+SRV  ollama._saturn._tcp.local.  →  macbook.local. port 11434
+TXT  version=1 api_type=openai deployment=local priority=1 features=chat,vision
+```
+
+The PTR record enumerates every Saturn service instance on the network. The SRV record provides the hostname and port for one instance. The TXT record carries the metadata a client needs to route and authenticate.
+
+Beacons advertise; they do not proxy. A beacon broadcasts service metadata via mDNS and the client connects directly to the advertised endpoint over HTTP. The discovery layer and the data plane are strictly separate, which keeps beacons lightweight and prevents them from becoming a bottleneck or surveillance chokepoint.
+
+A beacon is `local`, `cloud`, or `network`-scoped. A local beacon advertises a service running on the same host (e.g., an Ollama instance). A cloud beacon advertises a remote service (e.g., OpenRouter) and distributes ephemeral credentials so network participants can use the administrator's account without ever holding a long-lived API key.
+
+---
+
+## What's in a TXT record
+
+DNS-SD encodes TXT records as `key=value` strings, one pair per string, 255 bytes max per string ([RFC 6763](https://tools.ietf.org/html/rfc6763)). Saturn defines the schema:
+
+| Field | Required | Description |
+|---|---|---|
+| `version` | Yes | Protocol version (currently `1`) |
+| `api_type` | Yes | Backend API format (e.g., `openai`) |
+| `deployment` | Yes | One of `local`, `cloud`, or `network` |
+| `priority` | Yes | Numeric routing preference; lower is preferred |
+| `api_base` | Conditional | Endpoint base URL. Required when `deployment=cloud` |
+| `ephemeral_key` | Conditional | Time-limited API credential. Required when `deployment=cloud` |
+| `rotation_interval` | No | Key rotation period in seconds (default: `300`) |
+| `features` | No | Comma-separated capability list (e.g., `chat,vision,tools`) |
+
+`priority` mirrors the semantics of DNS SRV record priority: clients sort ascending and prefer the lowest. A lab with a local GPU server at priority 1 and an OpenRouter fallback at priority 10 gets local inference by default and cloud inference automatically when the local server is unreachable.
+
+`ephemeral_key` is the field that makes broadcast credentials safe. Static keys fail because every mitigation — detection, rotation, revocation — acts after the damage. Saturn sidesteps that failure mode: a cloud beacon generates a short-lived credential, broadcasts it, and rotates it on a default ten-minute lifetime with a five-minute overlap. A key that expires in ten minutes is worthless by the time someone extracts it from a packet capture or commits it to a repository. The trade-off is operational — the beacon needs an active session with the cloud provider's key-provisioning API — analyzed in detail in the [Security Model](reference/security.md).
+
+The 255-byte limit forces credential formats to be compact. JWTs from OpenRouter and DeepInfra fit. Full X.509 certificates do not. Saturn chose to carry credentials inline rather than introduce an HTTPS bootstrap endpoint, because a bootstrap endpoint would reintroduce the infrastructure dependency Saturn exists to eliminate.
+
+---
+
+## How a client discovers
+
+Four steps, no user interaction:
+
+1. **Browse.** The client queries for PTR records of type `_saturn._tcp.local.`. Every beacon on the local network responds with its instance name.
+2. **Resolve.** For each instance, the client retrieves the SRV record (hostname, port) and the TXT record (metadata).
+3. **Select.** The client sorts by `priority` ascending, optionally filters by `features` or `deployment`, and picks the preferred service.
+4. **Connect.** For `cloud` deployments, the client uses `api_base` and attaches `ephemeral_key` as a Bearer token. For `local` and `network` deployments, the client constructs the URL from the SRV record's hostname and port (e.g., `http://macbook.local:11434/v1`).
+
+No hardcoded URLs. No config files. No cloud accounts. The four steps replace what would otherwise be a configuration file, an environment variable, or a settings UI in every application.
+
+---
+
+## Three roles
+
+The protocol decomposes participants into three responsibilities. Every design decision identifies which role bears complexity and which roles benefit.
 
 <div class="role-cards" markdown>
 <div class="role-card" markdown>
 
-### End Users
+### Administrator
 
-Use AI-powered applications on your local network with no setup. Saturn handles discovery behind the scenes — you never touch a config file, create an account, or enter an API key.
-
-[**Quick Start &rarr;**](getting-started/quickstart.md)
-
-</div>
-<div class="role-card" markdown>
-
-### Administrators
-
-Deploy Saturn beacons, manage API credentials, set routing priorities, and control budgets. One device serves your entire household, lab, or team.
+Deploys and configures Saturn beacons: selects backends, sets priorities, manages API credentials, monitors health. The only role that touches configuration files or credentials. One administrator absorbs the configuration burden for every other user on the network.
 
 [**Configuration &rarr;**](configuration/service-config.md)
 
 </div>
 <div class="role-card" markdown>
 
-### Application Developers
+### Application developer
 
-Integrate Saturn discovery into your software. Call `discover()` to get services with URLs and credentials pre-populated. SDKs in Python, Rust, and TypeScript.
+Integrates Saturn discovery into software. Calls a function like `discover()` that returns available services with URLs and credentials already populated. No authentication logic, no configuration UI, no billing integration.
 
-[**Reference &rarr;**](reference/protocol.md)
+[**Protocol Reference &rarr;**](reference/protocol.md)
+
+</div>
+<div class="role-card" markdown>
+
+### End user
+
+Interacts with AI-powered applications without awareness that Saturn exists. Opens an app on the network, types a question, gets a response. No API key prompt, no account creation, no settings page. Performs zero configuration steps.
+
+[**Quick Start &rarr;**](getting-started/quickstart.md)
 
 </div>
 </div>
 
 ---
 
-## Why Saturn exists
+## Reference implementations
 
-The dominant AI access model creates barriers that scale with users. A student needing three AI capabilities from three providers must manage three subscriptions, three API keys, and three billing relationships. Research shows students from lower socioeconomic backgrounds interact less frequently with AI tools as a result.
+Seven implementations span three languages and four mDNS libraries. None share Saturn-specific code. Interoperability comes from the specification alone — a working demonstration that Saturn is a protocol, not a package.
 
-Universities already provision shared resources — printers, file shares, licensed software — through zero-configuration network protocols. There was no equivalent for AI services. Saturn fills that gap.
+| Implementation | Language | mDNS Library | Role |
+|---|---|---|---|
+| [Python SDK](reference/python-package.md) | Python | zeroconf | Beacon + client |
+| [Saturn Router](reference/router.md) | Rust | mdns-sd | Beacon (on-device, OpenWRT) |
+| [AI SDK Provider](reference/ai-sdk-provider.md) | TypeScript | multicast-dns | Client |
+| VLC Extension | Lua | macOS `dns-sd` CLI | Client |
+| OpenCode Fork | TypeScript | multicast-dns | Client |
+| Open WebUI Plugin | Python | zeroconf | Client |
+| [MCP Server](reference/mcp-tools.md) | Python | zeroconf | Client |
 
-An institution deploys a Saturn beacon, funds a token budget with a cloud provider, and every device joining the network discovers the service automatically. Students pay nothing. The institution pays only for tokens consumed, not seats licensed.
-
----
-
-## Saturn is a protocol, not a package
-
-Seven implementations span three languages and four mDNS libraries. None share Saturn-specific code. Interoperability comes from the protocol specification: standard DNS-SD records on `_saturn._tcp.local.`, a fixed TXT schema, and OpenAI-compatible HTTP endpoints.
-
-| Implementation | Language | mDNS Library |
-|---|---|---|
-| Python SDK | Python | zeroconf |
-| Saturn Router | Rust | mdns-sd |
-| AI SDK Provider | TypeScript | multicast-dns |
-| VLC Extension | Lua | macOS dns-sd CLI |
-| OpenCode Fork | TypeScript | multicast-dns |
-| Open WebUI Plugin | Python | zeroconf |
-| MCP Server | Python | zeroconf |
+The Python implementation (`pip install saturn-ai`) is the most complete and ships the Web UI; it is one consumer of the protocol, not the protocol itself. Any conformant advertisement from any language is a valid Saturn service.
 
 ---
 
 ## Try it from Python
 
 A convenient way to participate in Saturn from Python — `pip install saturn-ai` — gets you the `saturn` CLI, the discovery library, and the Web UI. See [Python package — easy install](python-package.md).
+
+---
+
+## Read next
+
+- **[Quick Start](getting-started/quickstart.md)** — bring up a beacon and discover it from a client.
+- **[Protocol Specification](reference/protocol.md)** — the normative DNS-SD and TXT schema reference.
+- **[Discovery Flow](reference/discovery.md)** — Browse → Resolve → Select → Connect in detail.
+- **[Beacons & Ephemeral Keys](reference/beacons.md)** — beacon roles, key rotation, and the data-plane separation.
+- **[Security Model](reference/security.md)** — threat models, broadcast exposure, and what the protocol does and doesn't protect.
