@@ -2,11 +2,11 @@
 
 > If you are an AI agent or LLM integrating this project, read [AGENTS.md](AGENTS.md) instead.
 
-Saturn provisions AI API endpoints the same way printers and speakers provision themselves: through Multicast DNS and DNS-based Service Discovery, network protocols that ship on every major operating system. AI endpoints register under the service type `_saturn._tcp.local.` and every device on the network discovers them without accounts, credentials, or configuration files.
+Saturn is a network protocol — `_saturn._tcp.local.` — that lets AI API endpoints announce themselves over Multicast DNS and DNS-based Service Discovery, the same way printers and speakers do. Every device on the network discovers them without accounts, credentials, or configuration files.
 
-Saturn is a **protocol**, not a library. Any language that supports mDNS/DNS-SD can discover and use Saturn services. The Python package, TypeScript SDK, and Rust binary are reference implementations. Six implementations across four languages and four mDNS libraries interoperate through the protocol specification alone.
+Saturn is defined by its specification, not by any single implementation. Any language with mDNS/DNS-SD support can speak Saturn. Seven artifacts across three languages and four mDNS libraries already interoperate through the protocol alone — the Python package, TypeScript SDK, and Rust binary are reference implementations, not the protocol itself.
 
-This project is the artifact of a [master's thesis](Saturn.pdf) at UC Santa Cruz by Joey Perrello, advised by Adam Smith.
+This project is the artifact of a master's thesis at UC Santa Cruz by Joey Perrello, advised by Adam Smith. Read it on [eScholarship](https://escholarship.org/uc/item/74r4d4c5) or [locally](Saturn.pdf).
 
 ---
 
@@ -101,9 +101,9 @@ Interoperability emerges from the protocol specification, not from a reference i
 
 ---
 
-## Installation
+## Python package
 
-### Python (reference implementation)
+The Python package (`saturn-ai`) is one way to use Saturn — a reference implementation that ships discovery, servers, beacons, and a CLI. It is not the protocol; any mDNS-capable client can interoperate with it. See [Implementations](#implementations) for alternatives in TypeScript, Rust, and Lua.
 
 ```bash
 pip install saturn-ai
@@ -118,7 +118,7 @@ pip install -e .
 
 **Windows users:** If the `saturn` command isn't found, use `python -m saturn` instead.
 
-### Quick Start
+### Quick start
 
 ```bash
 saturn openrouter   # Terminal 1: Start a server
@@ -127,7 +127,7 @@ saturn discover     # Terminal 2: Find it
 
 Terminal 1 registers a Saturn service via mDNS as `OpenRouter._saturn._tcp.local.` and starts the API on an auto-detected port. Terminal 2 finds the server automatically and displays its capabilities, models, and priority. No IP addresses, ports, or configuration files needed.
 
-### OpenWRT / Router
+## OpenWRT / Router
 
 Saturn runs on routers at the network edge.
 
