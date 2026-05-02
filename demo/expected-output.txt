@@ -1,0 +1,49 @@
+Successful run looks like this. Hostnames, ports, PIDs, IDs, and the
+model's actual reply will differ; everything else should match.
+
+[demo] 1/6 preflight: saturn + ollama
+[demo] 2/6 model qwen2.5:0.5b already present
+[demo] 3/6 starting 'saturn ollama' (Saturn-advertised proxy)
+[demo] proxy up on port 8080, pid <PID>
+
+[demo] 4/6 discovering via mDNS ('saturn discover')
+... - INFO - Discovered Saturn service: ollama-8080 at <host>.local:8080
+... - INFO -   deployment: local | api_type: ollama | priority: 50
+Saturn: 1 service(s) discovered
+   └─ ollama-8080._saturn._tcp.local (network)
+      ├─ api_type: ollama
+      ├─ capabilities: chat
+      ├─ context: 4096 | cost: unknown
+      └─ priority: 50
+
+[demo] 5/6 resolving best endpoint ('saturn endpoint')
+[demo] endpoint = http://<host>.local:8080
+
+[demo] 6/6 OpenAI-compatible chat completion
+{
+    "id": "chatcmpl-...",
+    "object": "chat.completion",
+    "created": ...,
+    "model": "qwen2.5:0.5b",
+    "choices": [
+        {
+            "index": 0,
+            "message": { "role": "assistant", "content": "..." },
+            "finish_reason": "stop"
+        }
+    ],
+    "usage": { "prompt_tokens": 36, "completion_tokens": 32, "total_tokens": 68 }
+}
+
+[demo] OK — model said: <model reply>
+[demo] cleanup
+
+Notes:
+- A "[Errno 9] Bad file descriptor" line in the discover output is a
+  cosmetic warning from the userspace mDNS backend during shutdown of
+  the discovery socket. Discovery still succeeds. Tracked separately
+  from this demo.
+- "models: none" in the TXT record is expected: Saturn does not
+  pre-enumerate Ollama's local model list into the mDNS TXT record.
+  The chat completion still routes correctly because the model name
+  is in the request body, not the discovery record.
