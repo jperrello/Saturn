@@ -127,7 +127,7 @@ curl $(saturn endpoint)/v1/models
 
 ### Cloud backends
 
-`saturn openrouter` and `saturn deepinfra` require provider credentials in the environment (`OPENROUTER_API_KEY`, `DEEPINFRA_API_KEY`). The proxy starts even without them; `/v1/chat/completions` will return 401 from the upstream until a key is set. See `saturn/services/*.toml` for the full set of bundled service definitions.
+`saturn openrouter` and `saturn deepinfra` require provider credentials in the environment (`OPENROUTER_API_KEY`, `DEEPINFRA_API_KEY`). Copy [`.env.example`](.env.example) to `.env` and fill in the relevant key, or `export` it directly. The proxy starts even without them; `/v1/chat/completions` will return 401 from the upstream until a key is set. See `saturn/services/*.toml` for the full set of bundled service definitions.
 
 ### Router deployment
 
