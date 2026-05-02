@@ -1,0 +1,5 @@
+recursive-include Web-UI *
+recursive-exclude Web-UI/references *
+recursive-exclude Web-UI/ui-notes *
+exclude Web-UI/bun.lock
+include .env.example

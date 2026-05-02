@@ -41,7 +41,15 @@ from .mcp_client import manager as mcp_manager
 
 logger = logging.getLogger("saturn.web")
 
-WEB_DIR = Path(__file__).parent.parent / "Web-UI"
+def _webdir():
+    try:
+        from . import webui
+        return Path(webui.__file__).parent
+    except ImportError:
+        return Path(__file__).parent.parent / "Web-UI"
+
+
+WEB_DIR = _webdir()
 
 
 @asynccontextmanager

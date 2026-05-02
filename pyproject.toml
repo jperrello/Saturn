@@ -50,8 +50,22 @@ aider-saturn = "saturn.aider_saturn:main"
 Homepage = "https://github.com/jperrello/Saturn"
 Repository = "https://github.com/jperrello/Saturn"
 
-[tool.setuptools.packages.find]
-include = ["saturn", "saturn.*"]
+[tool.setuptools]
+packages = [
+    "saturn",
+    "saturn.mdns",
+    "saturn.providers",
+    "saturn.servers",
+    "saturn.tests",
+    "saturn.webui",
+]
+
+[tool.setuptools.package-dir]
+"saturn.webui" = "Web-UI"
 
 [tool.setuptools.package-data]
 saturn = ["services/*.toml"]
+"saturn.webui" = ["*", "**/*"]
+
+[tool.setuptools.exclude-package-data]
+"saturn.webui" = ["references/*", "ui-notes/*", "bun.lock"]
