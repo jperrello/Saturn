@@ -1,18 +1,47 @@
 # Quick Start
 
-Get Saturn running in under five minutes.
+Get on the Saturn network in under five minutes. Saturn is a DNS-SD service type (`_saturn._tcp.local.`) — the examples below use three different clients against the same advertisements.
 
-## Install
+## Browse with the OS resolver — no install
+
+If your machine has Bonjour (macOS, iOS, Windows + Bonjour Print Services) or Avahi (most Linux), you can already see Saturn instances:
+
+```bash
+dns-sd -B _saturn._tcp local.        # macOS / Bonjour
+avahi-browse -rtp _saturn._tcp       # Linux / Avahi
+```
+
+Resolve a single instance to host/port/TXT:
+
+```bash
+dns-sd -L "<instance>" _saturn._tcp local.
+```
+
+Then hit the OpenAI-compatible endpoint directly:
+
+```bash
+curl http://<host>:<port>/v1/models
+```
+
+## Browse with `saturnd` (Go)
+
+`saturnd/cmd/saturnd` is a standalone Go daemon — no Python required. Build and run:
+
+```bash
+cd saturnd && go build -o saturnd ./cmd/saturnd
+./saturnd
+curl http://localhost:7827/v1/agents
+```
+
+It shares no code with the Python package; both implement the same protocol.
+
+## Browse with the Python package
 
 ```bash
 pip install saturn-ai
 ```
 
 This installs the `saturn` CLI, the Python discovery library, and the Web UI.
-
-## Discover services
-
-If someone on your network is already running a Saturn beacon, discover it:
 
 ```bash
 saturn discover

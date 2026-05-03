@@ -1,14 +1,12 @@
 # Developer Guide
 
-Saturn lets you drop AI into any application without requiring users to configure anything. No auth logic, no config UI, no billing integration. Call `discover()`, get services with URLs and credentials already populated, make HTTP requests.
+Saturn is a wire protocol — DNS-SD on `_saturn._tcp.local.` plus OpenAI-compatible HTTP. To integrate, you implement (or borrow) the three steps below in whatever language the host application speaks. There is no Saturn-specific SDK requirement; conformance is defined by the records and the endpoints, not by shared code.
 
-The integration pattern is the same regardless of language or platform:
+1. Browse `_saturn._tcp.local.` via mDNS/DNS-SD; resolve PTR → SRV → TXT for each instance.
+2. Sort by TXT `priority` (lower wins); pick the lowest healthy.
+3. Issue standard HTTP requests against the resulting `host:port` (or `api_base` for cloud deployments).
 
-1. Discover services on the local network via mDNS/DNS-SD
-2. Select the best service by priority
-3. Make standard HTTP requests to OpenAI-compatible endpoints
-
-Six reference implementations across Python, Rust, TypeScript, and Lua prove the protocol works cross-platform. Every implementation follows the same discovery protocol and talks to the same endpoints.
+Reference implementations exist in Go (`saturnd`), Python, Rust, TypeScript, and Lua across four mDNS libraries. They share no Saturn-specific code — they share the protocol.
 
 ## Pages
 

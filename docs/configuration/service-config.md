@@ -1,6 +1,6 @@
 # Service Configuration
 
-Saturn services are defined as TOML files. Built-in configs ship with Saturn in `saturn/services/`. User-created configs go in `~/.saturn/services/`.
+A Saturn service is fully defined by the DNS-SD records it advertises (see [Protocol Specification](../developer-guide/protocol.md)). The TOML files described here are the Python reference server's way of producing those records — other implementations (Go `saturnd`, Rust `saturn-router`) configure the same TXT fields through their own mechanisms. Built-in configs ship in `saturn/services/`; user-created configs go in `~/.saturn/services/`.
 
 ## Two ways to configure
 

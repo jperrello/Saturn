@@ -17,18 +17,25 @@ Zero-configuration discovery for OpenAI-compatible AI backends on a LAN — mDNS
 ```
 # AI access at the network layer.
 
-### Saturn is a protocol for zero-configuration discovery of OpenAI-compatible AI backends on a LAN.
+### Saturn is a DNS-SD/mDNS protocol (`_saturn._tcp.local.`) for OpenAI-compatible AI backends on a LAN.
 
 Run a Saturn server once on your home, lab, or office network. Every device on
 that network gets AI access — no per-app keys, no per-user subscriptions, no
-manual endpoint configuration. The protocol is mDNS/DNS-SD: the same
+manual endpoint configuration. The wire format is mDNS/DNS-SD: the same
 mechanism your laptop already uses to find printers and AirPlay receivers.
-Three reference implementations across Python, TypeScript, and Rust
+Reference implementations across Go (`saturnd`), Python, TypeScript, and Rust
 interoperate with no Saturn-specific shared code, and the Rust build runs on
 a $20 OpenWRT router alongside DHCP.
 
-    git clone https://github.com/jperrello/Saturn && cd Saturn
-    pip install -e . && saturn ollama
+    # No install — browse with the OS resolver:
+    dns-sd -B _saturn._tcp local.            # macOS / Bonjour
+    avahi-browse -rtp _saturn._tcp           # Linux / Avahi
+
+    # Or with the Go daemon:
+    cd saturnd && go build -o saturnd ./cmd/saturnd && ./saturnd
+
+    # Or with the Python reference package:
+    pip install saturn-ai && saturn discover
 ```
 
 ---

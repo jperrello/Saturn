@@ -1,6 +1,6 @@
 # Integrations
 
-Saturn has been integrated into applications across different domains — coding agents, media players, chat interfaces, and more. Each integration demonstrates how Saturn's zero-config discovery works in practice.
+Each integration below is an independent client of the `_saturn._tcp.local.` protocol — coding agents, media players, chat interfaces, and more. They use different mDNS libraries in different languages; what unifies them is the wire format, not a shared SDK.
 
 <div class="grid cards" markdown>
 

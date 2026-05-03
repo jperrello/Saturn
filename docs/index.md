@@ -1,8 +1,8 @@
 # Saturn
 
-**Zero-configuration AI service discovery for every device on your network.**
+**A DNS-SD/mDNS protocol for zero-configuration AI service discovery.**
 
-Saturn provisions AI the way networks already provision printers and file shares: through [Multicast DNS](https://tools.ietf.org/html/rfc6762) and [DNS-based Service Discovery](https://tools.ietf.org/html/rfc6763). A Saturn device announces AI endpoints under the service type `_saturn._tcp.local.`, and every device on the network discovers them automatically — no accounts, no API keys, no configuration files.
+Saturn defines the service type `_saturn._tcp.local.` over [Multicast DNS](https://tools.ietf.org/html/rfc6762) and [DNS-based Service Discovery](https://tools.ietf.org/html/rfc6763) — the same mechanism networks already use for printers and file shares. Service instances publish PTR/SRV/TXT records; TXT carries priority, version, capabilities, and (for cloud backends) ephemeral credentials. Any process that can browse mDNS and speak HTTP is a conformant client.
 
 The gap between AI's falling inference costs and its persistent access barriers is a protocol problem. Saturn closes that gap with existing network infrastructure.
 
@@ -68,15 +68,28 @@ An institution deploys a Saturn beacon, funds a token budget with a cloud provid
 
 ---
 
-## Install
+## Try the protocol
 
-Saturn's Python reference implementation:
+Saturn is a wire format, not a binary. The lowest-friction entry point uses tools your operating system already ships.
+
+**From the shell** — browse `_saturn._tcp.local.` with the OS's mDNS resolver:
 
 ```bash
-pip install saturn-ai
+dns-sd -B _saturn._tcp local.        # macOS / Bonjour
+avahi-browse -rtp _saturn._tcp       # Linux / Avahi
 ```
 
-This gives you the `saturn` CLI, the discovery library, and the [Web UI](web-ui/overview.md). Other implementations (Rust router, TypeScript AI SDK provider, Lua VLC extension) live in their own packages — see the [Reference](reference/protocol.md) section.
+Resolve an instance and call its OpenAI-compatible endpoint:
+
+```bash
+curl http://<host>:<port>/v1/models
+```
+
+**From Go** — the `saturnd` daemon (in `saturnd/`) browses mDNS and re-exports discovery over HTTP/MCP. `go build -o saturnd ./cmd/saturnd && ./saturnd`.
+
+**From Python** — `pip install saturn-ai` installs the `saturn` CLI, the discovery library, and the [Web UI](web-ui/overview.md).
+
+Other implementations (Rust router, TypeScript AI SDK provider, Lua VLC extension) live in their own packages — see the [Reference](reference/protocol.md).
 
 ---
 
