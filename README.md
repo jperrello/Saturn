@@ -1,6 +1,8 @@
 # Saturn
 
-Saturn is a protocol for zero-configuration discovery of OpenAI-compatible AI backends on a LAN, built on standard mDNS/DNS-SD records (`_saturn._tcp.local.`) with TXT metadata for priority, version, capabilities, and ephemeral credentials. It moves AI access from the application layer to the network layer: a household, lab, or office runs Saturn servers once, and every device on the network gets AI access without per-app keys, per-user subscriptions, or manual endpoint configuration.
+Saturn is a DNS-SD/mDNS protocol (`_saturn._tcp.local.`) for zero-configuration discovery of OpenAI-compatible AI backends on a LAN. Service instances advertise PTR/SRV/TXT records; TXT metadata carries priority, version, capabilities, and (for cloud backends) an ephemeral JWT. Any process that can browse mDNS and speak HTTP is a conformant client — Python, Go, Rust, JS, or `dns-sd -B` from a terminal.
+
+Saturn moves AI access from the application layer to the network layer: a household, lab, or office runs Saturn servers once, and every device on the network gets AI access without per-app keys, per-user subscriptions, or manual endpoint configuration.
 
 > If you are an AI agent or LLM integrating this project, read [AGENTS.md](AGENTS.md) instead.
 
@@ -98,32 +100,45 @@ Seven artifacts across three languages and four mDNS libraries, sharing no Satur
 
 ## Quickstart
 
-The lowest-friction path requires a local Ollama daemon and no API keys.
+Saturn is a wire protocol; the examples below progress from the rawest tools up. All three reach the same `_saturn._tcp.local.` advertisement.
+
+### From the shell — `dns-sd` + `curl`
+
+No Saturn binary on the client side. Anything that ships with Bonjour or Avahi can browse:
+
+```bash
+dns-sd -B _saturn._tcp local.                        # macOS / Bonjour
+avahi-browse -rtp _saturn._tcp                       # Linux / Avahi
+```
+
+Resolve an instance, read TXT, and call the OpenAI-compatible endpoint directly:
+
+```bash
+dns-sd -L "ollama" _saturn._tcp local.               # SRV + TXT for instance "ollama"
+curl http://<host>:<port>/v1/models
+```
+
+### From Go — `saturnd`
+
+The Go daemon (`saturnd/`) browses mDNS, parses TXT, and exposes discovered backends over HTTP/MCP. After `go build -o saturnd ./cmd/saturnd` in `saturnd/`:
+
+```bash
+./saturnd                                            # browse + serve on :7827
+curl http://localhost:7827/v1/agents                 # discovered Saturn instances
+```
+
+`saturnd` shares no code with the Python package; the protocol is the contract.
+
+### From Python — `saturn`
+
+The reference Python package wraps the same browse/resolve loop:
 
 ```bash
 git clone https://github.com/jperrello/Saturn.git && cd Saturn
 pip install -e .
-```
-
-Terminal 1 — start a Saturn-wrapped Ollama backend (assumes `ollama serve` is running on `localhost:11434`):
-
-```bash
-saturn ollama
-```
-
-Terminal 2 — discover it:
-
-```bash
-saturn discover
-```
-
-Discovery returns the advertised host, port, priority, and TXT metadata. No IP addresses or configuration files are involved.
-
-To exercise the API end-to-end:
-
-```bash
-saturn endpoint                    # prints the URL of the highest-priority service
-curl $(saturn endpoint)/v1/models
+saturn ollama                                        # advertise an Ollama backend
+saturn discover                                      # browse and print TXT
+curl $(saturn endpoint)/v1/models                    # call the highest-priority service
 ```
 
 ### Cloud backends
