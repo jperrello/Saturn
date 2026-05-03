@@ -2238,6 +2238,20 @@ const fileBadge = document.getElementById('file-badge')
 const fileBadgeName = document.getElementById('file-badge-name')
 const fileBadgeRemove = document.getElementById('file-badge-remove')
 const chatMain = document.querySelector('.chat-main')
+const chatGate = document.getElementById('chat-gate')
+const chatShell = document.getElementById('chat-shell')
+const chatAccept = document.getElementById('chat-accept')
+
+function syncChatGate() {
+  const accepted = localStorage.getItem('chat-accepted') === '1'
+  chatGate.classList.toggle('hidden', accepted)
+  chatShell.classList.toggle('hidden', !accepted)
+}
+syncChatGate()
+chatAccept.addEventListener('click', () => {
+  localStorage.setItem('chat-accepted', '1')
+  syncChatGate()
+})
 
 function clearAttachment() {
   attachedFile = null
