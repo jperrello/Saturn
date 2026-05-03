@@ -950,7 +950,11 @@ function actionBtn(s) {
 async function loadServices() {
   try {
     const res = await fetch('/api/services')
-    services = await res.json()
+    if (!res.ok) {
+      services = []
+    } else {
+      services = await res.json()
+    }
   } catch (e) {
     services = []
     console.error('Failed to load services:', e)

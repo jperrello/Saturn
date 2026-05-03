@@ -429,6 +429,39 @@ const server = Bun.serve({
       return proxy(urls, { model, messages, stream: true })
     }
 
+    // dev-mode stubs for endpoints only the python server fully implements;
+    // returning empty data keeps the UI quiet instead of throwing on 404.
+    if (url.pathname === "/api/services") {
+      return Response.json([], { headers: CORS })
+    }
+    if (url.pathname === "/api/rate-limit/status") {
+      return Response.json({ rpm: { limit: 60, remaining: 60 } }, { headers: CORS })
+    }
+    if (url.pathname === "/api/admin/config") {
+      if (req.method === "POST") return Response.json({ ok: true }, { headers: CORS })
+      return Response.json({ model_filter: "" }, { headers: CORS })
+    }
+    if (url.pathname === "/api/usage" || url.pathname === "/api/usage/history") {
+      return Response.json({ requests: 0, tokens_in: 0, tokens_out: 0, history: [] }, { headers: CORS })
+    }
+    if (url.pathname === "/api/usage/report") {
+      return Response.json({ ok: true }, { headers: CORS })
+    }
+
+    // openai-compatible aliases — saturn is the proxy, /v1/* mirrors /api/proxy/*
+    if (url.pathname === "/v1/health") {
+      return Response.json({ status: "ok" }, { headers: CORS })
+    }
+    if (url.pathname === "/v1/models") {
+      const ids = new Set<string>()
+      for (const svc of cache) {
+        if (svc.status !== "online") continue
+        for (const m of svc.models || []) ids.add(m)
+      }
+      const data = [...ids].map((id) => ({ id, object: "model" }))
+      return Response.json({ object: "list", data }, { headers: CORS })
+    }
+
     // serve static files
     let path = url.pathname === "/" ? "/index.html" : url.pathname
     const file = Bun.file(import.meta.dir + path)

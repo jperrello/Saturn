@@ -689,6 +689,25 @@ async def models_all():
     return _filter_models(merged, _model_filter())
 
 
+@app.get("/v1/health")
+async def v1_health():
+    return {"status": "ok"}
+
+
+@app.get("/v1/models")
+async def v1_models():
+    merged = await models_all()
+    seen = set()
+    data = []
+    for m in merged:
+        mid = m["id"]
+        if mid in seen:
+            continue
+        seen.add(mid)
+        data.append({"id": mid, "object": "model"})
+    return {"object": "list", "data": data}
+
+
 @app.get("/api/proxy/models")
 async def proxy_models(base_url: str = Query(...), api_key: str = Query(default="")):
     headers = {}
