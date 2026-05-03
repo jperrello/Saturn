@@ -3255,7 +3255,7 @@ function openConfig(serviceName) {
   configOverlay.classList.remove('hidden')
 }
 
-document.querySelector('.chat-settings-btn').addEventListener('click', () => openConfig(null))
+document.querySelectorAll('.chat-settings-btn').forEach(b => b.addEventListener('click', () => openConfig(null)))
 
 document.getElementById('config-overlay-close').addEventListener('click', () => {
   configOverlay.classList.add('hidden')
@@ -3513,9 +3513,6 @@ function checkHash() {
   const hash = location.hash.replace('#', '')
   if (hash === 'brutus' || hash === 'system' || hash.startsWith('system/')) {
     if (hash === 'brutus') {
-      if (localStorage.getItem('brutus-accepted') !== '1') {
-        localStorage.setItem('brutus-accepted', '1')
-      }
       switchToTab('chat')
       if ([...serviceSelect.options].some(o => o.value === '__brutus__')) {
         serviceSelect.value = '__brutus__'

@@ -260,12 +260,12 @@
         <div class="chat-drawer" id="chat-drawer">
           <div class="drawer-head">
             <span class="drawer-title">History</span>
-            <button id="drawer-close" class="drawer-x">&times;</button>
+            <button id="drawer-close" class="drawer-x" aria-label="Close history drawer">&times;</button>
           </div>
           <button id="new-chat-btn" class="btn drawer-new">+ New</button>
           <ul id="history-list" class="drawer-list"></ul>
           <button id="clear-chats-btn" class="btn drawer-clear">Delete History</button>
-          <button class="chat-settings-btn drawer-settings-btn" title="Settings">
+          <button class="chat-settings-btn drawer-settings-btn" title="Settings" aria-label="Open settings">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <ellipse cx="12" cy="12" rx="5" ry="4"/>
               <ellipse cx="12" cy="12" rx="11" ry="3" transform="rotate(-30 12 12)"/>
@@ -277,7 +277,7 @@
         <div class="chat-main">
           <!-- Command Strip -->
           <div class="chat-topbar">
-            <button id="drawer-toggle" class="strip-btn" title="History">
+            <button id="drawer-toggle" class="strip-btn" title="History" aria-label="Toggle chat history drawer">
               <svg width="16" height="16"><use href="#icon-chat"/></svg>
             </button>
             <div class="chat-selectors">
@@ -302,6 +302,12 @@
                 <option value="detailed">Detailed</option>
                 <option value="code">Code</option>
               </select>
+              <button class="chat-settings-btn strip-btn" title="Settings" aria-label="Open settings">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <ellipse cx="12" cy="12" rx="5" ry="4"/>
+                  <ellipse cx="12" cy="12" rx="11" ry="3" transform="rotate(-30 12 12)"/>
+                </svg>
+              </button>
             </div>
           </div>
           <div id="models-panel" class="models-panel hidden">
@@ -343,7 +349,7 @@
           </div>
           <div id="file-badge" class="file-badge hidden">
             <span id="file-badge-name"></span>
-            <button id="file-badge-remove" class="file-badge-x">&times;</button>
+            <button id="file-badge-remove" class="file-badge-x" aria-label="Remove attached file">&times;</button>
           </div>
           <!-- Rate limit usage bar (SAT-2n8.1) -->
           <div id="rate-limit-bar" class="rate-limit-bar hidden">
@@ -356,7 +362,7 @@
           <div id="summarize-notice" class="summarize-notice hidden">
             <span>Context is filling up.</span>
             <button id="summarize-btn" class="btn btn-secondary">Summarize older messages</button>
-            <button id="summarize-dismiss" class="summarize-x">&times;</button>
+            <button id="summarize-dismiss" class="summarize-x" aria-label="Dismiss summarize prompt">&times;</button>
           </div>
           <div id="context-indicator" class="context-indicator">
             <div class="context-bar"><div class="context-fill" id="context-fill"></div></div>
@@ -364,22 +370,22 @@
           </div>
           <div class="chat-input-float">
             <div class="chat-input-fabs">
-              <button id="file-upload-btn" class="fab" title="Attach file"><svg width="16" height="16"><use href="#icon-clip"/></svg></button>
+              <button id="file-upload-btn" class="fab" title="Attach file" aria-label="Attach file"><svg width="16" height="16"><use href="#icon-clip"/></svg></button>
               <input type="file" id="file-input" class="hidden" accept=".txt,.md,.py,.js,.ts,.json,.toml,.yaml,.yml,.csv">
-              <button id="thinking-toggle" class="fab thinking-btn" title="Thinking: Off" data-state="off">
+              <button id="thinking-toggle" class="fab thinking-btn" title="Thinking: Off" aria-label="Toggle thinking mode" data-state="off">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                   <path d="M12 2a7 7 0 00-3 13.33V17h6v-1.67A7 7 0 0012 2z"/>
                   <line x1="9" y1="21" x2="15" y2="21"/>
                   <line x1="10" y1="24" x2="14" y2="24"/>
                 </svg>
               </button>
-              <button id="export-json" class="fab" title="Export JSON">
+              <button id="export-json" class="fab" title="Export JSON" aria-label="Export chat as JSON">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               </button>
-              <button id="export-md" class="fab" title="Export Markdown">
+              <button id="export-md" class="fab" title="Export Markdown" aria-label="Export chat as Markdown">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8v8l3-3 3 3V8"/><path d="M17 12h-2l2-4 2 4h-2v4"/></svg>
               </button>
-              <button id="tools-toggle" class="fab" title="MCP Tools">
+              <button id="tools-toggle" class="fab" title="MCP Tools" aria-label="Toggle MCP tools panel">
                 <svg width="16" height="16"><use href="#icon-wrench"/></svg>
               </button>
             </div>
