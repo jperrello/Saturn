@@ -3115,3 +3115,65 @@ input[type="range"]::-webkit-slider-runnable-track {
   font-size: 14px;
   font-weight: 500;
 }
+
+/* ===== Heuristics fixes (Saturn-gww.3) ===== */
+.scan-status {
+  margin-top: 6px;
+  min-height: 14px;
+  font-size: 10px;
+  font-family: var(--mono, monospace);
+  letter-spacing: 0.5px;
+  color: var(--fg-muted);
+}
+.scan-status[data-kind="busy"] { color: var(--accent, #f0c040); }
+.scan-status[data-kind="ok"]   { color: var(--fg); }
+.scan-status[data-kind="warn"] { color: #f59e0b; }
+.scan-status[data-kind="error"]{ color: #ef4444; }
+.scan-status[data-kind="empty"]{ color: var(--fg-muted); }
+
+#discover-btn.busy::after {
+  content: '';
+  display: inline-block;
+  width: 10px; height: 10px;
+  margin-left: 8px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -1px;
+  animation: scan-spin 0.8s linear infinite;
+}
+@keyframes scan-spin { to { transform: rotate(360deg); } }
+
+.cfg-test-status {
+  margin-left: 12px;
+  font-size: 10px;
+  font-family: var(--mono, monospace);
+  letter-spacing: 0.5px;
+  color: var(--fg-muted);
+  align-self: center;
+}
+.cfg-test-status[data-kind="busy"]  { color: var(--accent, #f0c040); }
+.cfg-test-status[data-kind="ok"]    { color: #22c55e; }
+.cfg-test-status[data-kind="error"] { color: #ef4444; }
+
+.cfg-save-error {
+  margin: 12px 0;
+  padding: 8px 10px;
+  border: 1px solid #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+  color: #fecaca;
+  font-size: 11px;
+  font-family: var(--mono, monospace);
+  letter-spacing: 0.3px;
+}
+
+[aria-invalid="true"] {
+  outline: 1px solid #ef4444;
+  outline-offset: 1px;
+}
+
+#cfg-save:disabled,
+#cfg-save-enable:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

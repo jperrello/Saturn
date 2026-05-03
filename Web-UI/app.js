@@ -867,24 +867,34 @@ function render(list, items, type) {
 const discoverBtn = document.getElementById('discover-btn')
 const servicesList = document.getElementById('services-list')
 
+const scanStatus = document.getElementById('scan-status')
+function setScanStatus(msg, kind) {
+  if (!scanStatus) return
+  scanStatus.textContent = msg || ''
+  scanStatus.dataset.kind = kind || ''
+}
+
 discoverBtn.addEventListener('click', async () => {
   discoverBtn.disabled = true
-  discoverBtn.textContent = 'Scanning...'
+  discoverBtn.classList.add('busy')
+  setScanStatus('Scanning _saturn._tcp.local. …', 'busy')
 
   const left = document.querySelector('.discover-left')
   left.classList.add('discovering')
   if (window.saturnDiscover) window.saturnDiscover(true)
 
+  let failed = false
   try {
     Object.keys(_modelCache).forEach(k => delete _modelCache[k])
     const res = await fetch('/api/discover')
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
     discoveredServices = await res.json()
   } catch (e) {
     discoveredServices = []
+    failed = true
     console.error('Discovery failed:', e)
   }
 
-  // probe each service to check reachability
   await Promise.all(discoveredServices.map(async s => {
     try {
       const r = await fetch(`/api/models?service=${encodeURIComponent(s.name)}`)
@@ -906,7 +916,17 @@ discoverBtn.addEventListener('click', async () => {
 
   render(servicesList, discoveredServices, 'svc')
   syncServices()
-  discoverBtn.textContent = 'Discover'
+  if (failed) {
+    setScanStatus('Scan failed — check that the Saturn server is running.', 'error')
+  } else {
+    const n = discoveredServices.length
+    const u = unreachable.length
+    const reach = n - u
+    if (n === 0) setScanStatus('No peers found on this LAN.', 'empty')
+    else if (u === 0) setScanStatus(`Found ${n} peer${n === 1 ? '' : 's'}.`, 'ok')
+    else setScanStatus(`Found ${n} peer${n === 1 ? '' : 's'} — ${reach} reachable, ${u} unreachable.`, 'warn')
+  }
+  discoverBtn.classList.remove('busy')
   discoverBtn.disabled = false
   left.classList.remove('discovering')
   if (window.saturnDiscover) window.saturnDiscover(false)
@@ -1070,29 +1090,114 @@ document.getElementById('cfg-ephemeral').addEventListener('change', (e) => {
   document.getElementById('ephemeral-fields').classList.toggle('hidden', !e.target.checked)
 })
 
-// Test connection
+const testStatus = document.getElementById('cfg-test-status')
+function setTestStatus(msg, kind) {
+  if (!testStatus) return
+  if (!msg) {
+    testStatus.classList.add('hidden')
+    testStatus.textContent = ''
+    return
+  }
+  testStatus.classList.remove('hidden')
+  testStatus.textContent = msg
+  testStatus.dataset.kind = kind || ''
+}
+
 testBtn.addEventListener('click', async () => {
-  const baseUrl = document.getElementById('cfg-base-url').value
-  if (!baseUrl) return
+  const baseUrl = document.getElementById('cfg-base-url').value.trim()
+  if (!baseUrl) {
+    setTestStatus('Enter a Base URL first.', 'error')
+    return
+  }
   testBtn.disabled = true
-  testBtn.textContent = 'Testing...'
+  setTestStatus('Testing…', 'busy')
   try {
     const res = await fetch(baseUrl.replace(/\/+$/, '') + '/models', { signal: AbortSignal.timeout(5000) })
-    testBtn.textContent = res.ok ? 'Connection OK' : `Error ${res.status}`
+    if (res.ok) setTestStatus('Connection OK — endpoint responded.', 'ok')
+    else setTestStatus(`HTTP ${res.status} — ${hintForStatus(res.status)}`, 'error')
   } catch (e) {
-    testBtn.textContent = 'Failed'
+    const msg = e.name === 'TimeoutError' || /timeout/i.test(e.message)
+      ? 'Timed out after 5s — host unreachable or wrong URL.'
+      : `Network error: ${e.message}. Check URL, CORS, and that the host is reachable.`
+    setTestStatus(msg, 'error')
   }
-  setTimeout(() => { testBtn.textContent = 'Test Connection'; testBtn.disabled = false }, 2000)
+  testBtn.disabled = false
 })
 
-// Save — creates a real service config via API
-document.getElementById('cfg-save').addEventListener('click', async () => {
-  const name = document.getElementById('cfg-name').value.trim()
-  const baseUrl = document.getElementById('cfg-base-url').value.trim()
-  if (!name || !baseUrl) return
+function hintForStatus(code) {
+  if (code === 401 || code === 403) return 'auth rejected — check API key.'
+  if (code === 404) return 'path not found — confirm /v1 is included in Base URL.'
+  if (code === 429) return 'rate-limited — try again later.'
+  if (code >= 500) return 'upstream error — backend may be down.'
+  return 'unexpected response.'
+}
 
+const saveError = document.getElementById('cfg-save-error')
+const saveBtn = document.getElementById('cfg-save')
+const saveEnableBtn = document.getElementById('cfg-save-enable')
+
+function setSaveError(msg, fieldId) {
+  if (!saveError) return
+  if (!msg) {
+    saveError.classList.add('hidden')
+    saveError.textContent = ''
+    document.querySelectorAll('[aria-invalid="true"]').forEach(el => el.removeAttribute('aria-invalid'))
+    return
+  }
+  saveError.classList.remove('hidden')
+  saveError.textContent = msg
+  if (fieldId) {
+    const el = document.getElementById(fieldId)
+    if (el) {
+      el.setAttribute('aria-invalid', 'true')
+      el.focus()
+    }
+  }
+}
+
+function validateConfig() {
+  const name = document.getElementById('cfg-name').value.trim()
+  if (!name) return { ok: false, msg: 'Name is required.', field: 'cfg-name' }
+  if (!/^[A-Za-z0-9_-]+$/.test(name)) return { ok: false, msg: 'Name may only contain letters, digits, underscore, hyphen.', field: 'cfg-name' }
+  const dup = services.find(s => s.name === name)
+  if (dup) return { ok: false, msg: `A service named "${name}" already exists.`, field: 'cfg-name' }
+  const deployment = document.getElementById('cfg-deployment').value
+  if (deployment === 'cloud') {
+    const baseUrl = document.getElementById('cfg-base-url').value.trim()
+    if (!baseUrl) return { ok: false, msg: 'Base URL is required for cloud deployments.', field: 'cfg-base-url' }
+    try { new URL(baseUrl) } catch { return { ok: false, msg: 'Base URL must be a valid http(s) URL (e.g. https://api.example.com/v1).', field: 'cfg-base-url' } }
+    if (!/^https?:/i.test(baseUrl)) return { ok: false, msg: 'Base URL must start with http:// or https://.', field: 'cfg-base-url' }
+  }
+  if (deployment === 'network') {
+    if (!document.getElementById('cfg-host').value.trim()) return { ok: false, msg: 'Host is required for local deployments.', field: 'cfg-host' }
+    const port = parseInt(document.getElementById('cfg-net-port').value)
+    if (!port || port < 1 || port > 65535) return { ok: false, msg: 'Port must be between 1 and 65535.', field: 'cfg-net-port' }
+  }
+  return { ok: true }
+}
+
+function syncSaveEnabled() {
+  const v = validateConfig()
+  saveBtn.disabled = !v.ok
+  if (saveEnableBtn) saveEnableBtn.disabled = !v.ok
+  saveBtn.title = v.ok ? '' : v.msg
+}
+
+;['cfg-name','cfg-base-url','cfg-host','cfg-net-port','cfg-deployment'].forEach(id => {
+  const el = document.getElementById(id)
+  if (!el) return
+  el.addEventListener('input', () => { setSaveError(null); syncSaveEnabled() })
+  el.addEventListener('change', () => { setSaveError(null); syncSaveEnabled() })
+})
+
+async function submitConfig() {
+  const v = validateConfig()
+  if (!v.ok) { setSaveError(v.msg, v.field); return false }
+  setSaveError(null)
+
+  const baseUrl = document.getElementById('cfg-base-url').value.trim()
   const body = {
-    name,
+    name: document.getElementById('cfg-name').value.trim(),
     deployment: document.getElementById('cfg-deployment').value,
     api_type: document.getElementById('cfg-api-type').value,
     priority: parseInt(document.getElementById('cfg-priority').value) || 50,
@@ -1106,6 +1211,10 @@ document.getElementById('cfg-save').addEventListener('click', async () => {
     expiration_interval: parseInt(document.getElementById('cfg-expiration').value) || 600,
   }
 
+  saveBtn.disabled = true
+  if (saveEnableBtn) saveEnableBtn.disabled = true
+  const prev = saveBtn.textContent
+  saveBtn.textContent = 'Saving…'
   try {
     const res = await fetch('/api/services', {
       method: 'POST',
@@ -1113,20 +1222,55 @@ document.getElementById('cfg-save').addEventListener('click', async () => {
       body: JSON.stringify(body),
     })
     if (!res.ok) {
-      const err = await res.json()
-      toast(err.detail || 'Failed to create service')
-      return
+      const err = await res.json().catch(() => ({}))
+      const detail = err.detail || `HTTP ${res.status}`
+      const lower = String(detail).toLowerCase()
+      let field = null
+      if (lower.includes('exist') || lower.includes('duplicate')) field = 'cfg-name'
+      else if (lower.includes('url')) field = 'cfg-base-url'
+      else if (lower.includes('port')) field = 'cfg-net-port'
+      else if (lower.includes('host')) field = 'cfg-host'
+      setSaveError(`Save failed: ${detail}`, field)
+      return false
     }
   } catch (e) {
-    toast('Failed to create service')
-    return
+    setSaveError(`Network error: ${e.message}. Form was not submitted; try again.`)
+    return false
+  } finally {
+    saveBtn.textContent = prev
+    syncSaveEnabled()
   }
+  return true
+}
 
+document.getElementById('cfg-save').addEventListener('click', async () => {
+  const ok = await submitConfig()
+  if (!ok) return
   resetConfigForm()
   document.getElementById('config-page').classList.add('hidden')
   document.getElementById('discover-main').classList.remove('hidden')
   await loadServices()
 })
+
+if (saveEnableBtn) saveEnableBtn.addEventListener('click', async () => {
+  const name = document.getElementById('cfg-name').value.trim()
+  const ok = await submitConfig()
+  if (!ok) return
+  try {
+    await fetch(`/api/services/${encodeURIComponent(name)}/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+  } catch (e) {
+    setSaveError(`Service saved but start failed: ${e.message}. You can start it from the Services list.`)
+    await loadServices()
+    return
+  }
+  resetConfigForm()
+  document.getElementById('config-page').classList.add('hidden')
+  document.getElementById('discover-main').classList.remove('hidden')
+  await loadServices()
+  discoverBtn.click()
+})
+
+syncSaveEnabled()
 
 function resetConfigForm() {
   document.getElementById('cfg-name').value = ''
@@ -1457,6 +1601,7 @@ function syncServices() {
   const autoOpt = document.createElement('option')
   autoOpt.value = '__brutus__'
   autoOpt.textContent = '⊛ Auto-route'
+  autoOpt.title = 'Pick the lowest-priority healthy peer automatically. Fails over on health-check failure.'
   serviceSelect.appendChild(autoOpt)
   // restore previous selection or saved pref
   const saved = prev || loadPrefs().service

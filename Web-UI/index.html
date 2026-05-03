@@ -108,6 +108,7 @@
         <div class="discover-right">
           <div class="discover-right-inner">
             <button id="discover-btn" class="btn discover-scan-btn">Network Scan</button>
+            <div id="scan-status" class="scan-status" role="status" aria-live="polite"></div>
             <div id="services-list" class="checklist"></div>
             <div class="discover-divider"></div>
             <div id="admin-gate" class="admin-gate">
@@ -172,7 +173,7 @@
                   </label>
                   <label>
                     Port <span class="required">*</span>
-                    <input type="number" id="cfg-net-port" placeholder="8080">
+                    <input type="number" id="cfg-net-port" min="1" max="65535" placeholder="8080">
                   </label>
                 </div>
               </fieldset>
@@ -188,7 +189,7 @@
                   <div id="cloud-advanced-fields">
                     <label>
                       Advertise Port
-                      <input type="number" id="cfg-adv-port" placeholder="8400">
+                      <input type="number" id="cfg-adv-port" min="1" max="65535" placeholder="8400">
                     </label>
                     <label>
                       Ephemeral Keys
@@ -216,8 +217,10 @@
                 </div>
               </fieldset>
 
+              <div id="cfg-save-error" class="cfg-save-error hidden" role="alert" aria-live="assertive"></div>
               <div class="config-actions">
                 <button id="cfg-test" class="btn btn-secondary hidden">Test Connection</button>
+                <span id="cfg-test-status" class="cfg-test-status hidden" role="status" aria-live="polite"></span>
                 <button id="cfg-save" class="btn">Save</button>
                 <button id="cfg-save-enable" class="btn">Save &amp; Enable</button>
                 <button id="cfg-back" class="btn btn-secondary">Back</button>
