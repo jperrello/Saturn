@@ -8,7 +8,7 @@ Find AI services on your network and start using them in under a minute.
 saturn discover
 ```
 
-This scans your local network for Saturn services. You'll see a list of available AI backends with their models, priorities, and endpoints. If nothing appears, an administrator hasn't set up Saturn on your network yet — point them to the [Administrator Guide](../admin-guide/index.md).
+This scans your local network for Saturn services. You'll see a list of available AI backends with their models, priorities, and endpoints. If nothing appears, an administrator hasn't set up Saturn on your network yet — point them to the [Administrator Guide](../configuration/service-config.md).
 
 ## 2. Get the best endpoint
 
@@ -53,4 +53,4 @@ print(response.choices[0].message.content)
 
 - [Web UI Overview](web-ui/index.md) — chat interface, model selection, and tools
 - [Troubleshooting](troubleshooting.md) — common issues and fixes
-- [Administrator Guide](../admin-guide/index.md) — setting up and managing Saturn services
+- [Administrator Guide](../configuration/service-config.md) — setting up and managing Saturn services
