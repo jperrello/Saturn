@@ -420,7 +420,7 @@ function initSaturn() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.setClearColor(0x000000, 1)
   renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.toneMappingExposure = 1.0
+  renderer.toneMappingExposure = 0.7
   container.appendChild(renderer.domElement)
 
   // post-processing
@@ -432,9 +432,9 @@ function initSaturn() {
 
   const bloom = new UnrealBloomPass(
     new THREE.Vector2(w, h),
-    1.8,   // strength
+    0.9,   // strength
     0.5,   // radius
-    0.55   // threshold
+    0.7    // threshold
   )
   composer.addPass(bloom)
 
