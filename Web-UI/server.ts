@@ -5,7 +5,19 @@ import { spawn, type Subprocess } from "bun"
 const SATURN_SERVICE = "_saturn._tcp.local"
 const SCAN_MS = 3000
 const CORS = { "Access-Control-Allow-Origin": "*" }
-const ADMIN_PASSWORD = process.env.SATURN_ADMIN_PASSWORD || "saturn"
+function adminPassword(): string {
+  if (process.env.SATURN_ADMIN_PASSWORD) return process.env.SATURN_ADMIN_PASSWORD
+  const generated = crypto.randomUUID().replace(/-/g, "").slice(0, 16)
+  console.log("")
+  console.log("  ┌─ Saturn admin password ─────────────────────────")
+  console.log(`  │  ${generated}`)
+  console.log("  │  (set SATURN_ADMIN_PASSWORD to override)")
+  console.log("  └─────────────────────────────────────────────────")
+  console.log("")
+  return generated
+}
+
+const ADMIN_PASSWORD = adminPassword()
 const HEALTH_INTERVAL = 20_000
 const BREAKER_THRESHOLD = 3
 const BREAKER_COOLDOWN = 30_000
