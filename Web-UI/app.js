@@ -1056,14 +1056,14 @@ deploySelect.addEventListener('change', () => {
   testBtn.classList.toggle('hidden', cloud)
 })
 
-// Advanced section toggle
-const advToggle = document.getElementById('advanced-toggle')
 const advFields = document.getElementById('advanced-fields')
-
-advToggle.addEventListener('click', () => {
-  const open = advFields.classList.toggle('hidden')
-  advToggle.classList.toggle('open', !open)
-})
+const advToggle = document.getElementById('advanced-toggle')
+if (advToggle) {
+  advToggle.addEventListener('click', () => {
+    const open = advFields.classList.toggle('hidden')
+    advToggle.classList.toggle('open', !open)
+  })
+}
 
 // Ephemeral keys toggle
 document.getElementById('cfg-ephemeral').addEventListener('change', (e) => {
@@ -1149,8 +1149,8 @@ function resetConfigForm() {
   cloudAdvanced.classList.remove('hidden')
   testBtn.classList.add('hidden')
   document.getElementById('ephemeral-fields').classList.add('hidden')
-  advFields.classList.add('hidden')
-  advToggle.classList.remove('open')
+  advFields?.classList.add('hidden')
+  advToggle?.classList.remove('open')
 }
 
 // Config page star field (canvas)
