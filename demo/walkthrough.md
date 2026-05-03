@@ -1,11 +1,23 @@
 # Saturn 5-minute demo
 
-*2026-05-02T22:58:20Z by Showboat 0.6.1*
+*Captured 2026-05-02T22:58:20Z by Showboat 0.6.1 against the Python
+reference implementation. The protocol is language-agnostic; curl, Go
+(`saturnd`), and JS variants of each step are shown alongside.*
+
 <!-- showboat-id: 92ed5feb-c2f6-478f-9558-ebd69f7ed2d0 -->
 
-Saturn is zero-config service discovery for OpenAI-compatible AI backends on a LAN. This walkthrough goes from a clean Saturn install to a working chat completion in six commands. No API key, no endpoint configuration.
+Saturn is the DNS-SD/mDNS service type `_saturn._tcp.local.` plus a
+TXT-record schema (priority, version, api, features, models). Any
+language that can speak mDNS and HTTP is a peer. This walkthrough goes
+from a clean install to a working OpenAI-compatible chat completion in
+six commands. No API key, no endpoint configuration.
 
-## 1. Saturn is installed
+The Python `saturn` CLI is one of three equal client examples used
+below. The captured outputs are from `saturn` because that is what
+Showboat ran; the curl and Go (`saturnd`) blocks alongside each step
+work just as well.
+
+## 1. A Saturn implementation is installed
 
 ```bash
 saturn --help | head -10
@@ -24,6 +36,15 @@ Commands:
     --timeout <secs>      Discovery timeout (default: 5.0)
 ```
 
+Equivalent in other clients:
+
+```bash
+# raw protocol — needs only mDNS tooling, no Saturn install at all
+dns-sd -B _saturn._tcp local.
+# Go daemon
+saturnd --help
+```
+
 ## 2. Ollama is running locally (no Saturn service yet)
 
 ```bash
@@ -38,9 +59,18 @@ curl -s http://localhost:11434/api/tags | python3 -m json.tool | head -5
             "model": "qwen2.5:0.5b",
 ```
 
+This step is identical for every client — Ollama is the upstream
+backend, not part of Saturn. Saturn only cares that *something* on the
+network speaks `/v1/chat/completions`.
+
 ## 3. Discover what is on the network — nothing yet
 
 ```bash
+# curl — the protocol view, before any Saturn library
+dns-sd -B _saturn._tcp local. & sleep 2; kill %1
+# Go daemon
+curl -sS http://localhost:7827/v1/agents
+# Python reference impl (captured below)
 saturn discover 2>&1 | grep -v 'Bad file' | tail -5
 ```
 
@@ -57,8 +87,14 @@ saturn stop ollama >/dev/null 2>&1 || true; saturn ollama >/tmp/saturn-demo.log 
 ```
 
 ```output
-{"pid": 82305, "port": 8080, "mdns_name": "ollama-8080"}```
+{"pid": 82305, "port": 8080, "mdns_name": "ollama-8080"}
 ```
+
+This is the only step where the implementation choice shows: each
+Saturn server has its own way to spin up. The wire-level effect is the
+same — a process that advertises `_saturn._tcp.local.` with TXT
+records and serves `/v1/*` on the advertised port. The Go saturnd
+equivalent is documented in `saturnd/README.md`.
 
 ## 5. Discover again — the proxy advertises itself via mDNS
 
@@ -79,6 +115,19 @@ Saturn: 1 service(s) discovered
       └─ priority: 50
 ```
 
+Same answer in other clients:
+
+```bash
+# curl — pure protocol
+dns-sd -L ollama-8080 _saturn._tcp local.
+# saturnd
+curl -sS http://localhost:7827/v1/agents | jq '.'
+```
+
+The TXT-record fields (`api_type`, `priority`, `capabilities`, …) are
+what Saturn-the-protocol actually defines. Every client decodes the
+same record.
+
 ## 6. Resolve the best endpoint
 
 ```bash
@@ -87,6 +136,20 @@ saturn endpoint 2>/dev/null
 
 ```output
 http://joeyair.local:8080
+```
+
+curl variant — Saturn protocol says "lower TXT-record `priority`
+wins":
+
+```bash
+dns-sd -L ollama-8080 _saturn._tcp local. \
+  | awk '/can be reached/ {print "http://" $5}'
+```
+
+saturnd variant:
+
+```bash
+curl -sS http://localhost:7827/v1/agents | jq -r '.agents | sort_by(.priority)[0].endpoint'
 ```
 
 ## 7. Hit it with an OpenAI-compatible request
@@ -119,7 +182,24 @@ curl -sS "$(saturn endpoint 2>/dev/null)/v1/chat/completions" -H "content-type: 
 }
 ```
 
-Done. mDNS discovery + OpenAI-compatible chat completion in seven steps, no API key, no endpoint config.
+JS browser variant against the same endpoint:
+
+```js
+const base = 'http://joeyair.local:8080'  // from step 6
+const r = await fetch(`${base}/v1/chat/completions`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({
+    model: 'qwen2.5:0.5b',
+    messages: [{ role: 'user', content: 'Say hello in 5 words.' }],
+    max_tokens: 32,
+  }),
+})
+console.log((await r.json()).choices[0].message.content)
+```
+
+Done. mDNS browse + TXT decode + OpenAI-compatible chat completion in
+seven steps, no API key, no endpoint config, no language lock-in.
 
 ```bash
 saturn stop ollama
