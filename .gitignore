@@ -14,6 +14,11 @@ wheels/
 # Node
 node_modules/
 
+# Beads — local interaction history can leak prompts
+.beads/interactions.jsonl
+.beads/dolt-server.*
+.beads/*.lock
+
 # Secrets
 *.env
 !.env.example
