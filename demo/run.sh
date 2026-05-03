@@ -55,9 +55,9 @@ ENDPOINT="$(saturn endpoint)"
 echo "[demo] endpoint = $ENDPOINT"
 
 step "6/6 OpenAI-compatible chat completion"
-RESP="$(curl -sS "$ENDPOINT/v1/chat/completions" \
+RESP="$(MODEL="$MODEL" curl -sS "$ENDPOINT/v1/chat/completions" \
   -H 'content-type: application/json' \
-  -d "$(python3 -c '
+  -d "$(MODEL="$MODEL" python3 -c '
 import json, os
 print(json.dumps({
   "model": os.environ["MODEL"],
