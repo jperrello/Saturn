@@ -3118,9 +3118,9 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 /* ===== Heuristics fixes (Saturn-gww.3) ===== */
 .scan-status {
-  margin-top: 6px;
-  min-height: 14px;
-  font-size: 10px;
+  margin-top: 8px;
+  min-height: 18px;
+  font-size: 12px;
   font-family: var(--mono, monospace);
   letter-spacing: 0.5px;
   color: var(--fg-muted);

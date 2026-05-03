@@ -1025,7 +1025,11 @@ showAdminState()
 
 async function tryAdminAuth() {
   const pw = document.getElementById('admin-pw').value
-  if (!pw) return
+  if (!pw) {
+    toast('Enter the admin password')
+    document.getElementById('admin-pw').focus()
+    return
+  }
   try {
     const res = await fetch('/api/admin/auth', {
       method: 'POST',
@@ -3542,7 +3546,7 @@ function renderQR(url) {
     return
   }
   container.classList.remove('empty')
-  const target = url.replace(/\/$/, '') + '/#brutus'
+  const target = url.replace(/\/$/, '') + '/#system'
   urlText.textContent = target
 
   if (typeof qrcode === 'undefined') return
