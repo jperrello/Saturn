@@ -410,7 +410,7 @@
             <div class="system-section">
               <div class="system-section-title">Backend Health</div>
               <div id="system-health-grid" class="system-health-grid">
-                <div class="system-log-empty">Run Network Scan to see backends</div>
+                <div class="system-log-empty">Run Network Scan to browse <code>_saturn._tcp.local.</code> for backends</div>
               </div>
             </div>
 
@@ -450,8 +450,8 @@
               </div>
               <h2>Remote Access Warning</h2>
               <p class="gate-text">
-                Saturn auto-routes your messages to LLM backends on your local network.<br>
-                Enabling remote access exposes these services beyond your LAN.<br>
+                Saturn discovers backends by browsing the <code>_saturn._tcp.local.</code> mDNS service type and reading routing metadata from each TXT record.<br>
+                Enabling remote access exposes those backends beyond your LAN.<br>
                 Only proceed if you trust the network you are connecting from.
               </p>
               <button id="system-accept" class="btn">I Understand — Enable Remote Access</button>
@@ -530,6 +530,7 @@
                 <div class="connector-step-num">1</div>
                 <div class="connector-step-body">
                   <div class="connector-step-title">Copy Your Saturn Credentials</div>
+                  <p class="connector-step-hint">Endpoint and key are read from the selected service's DNS-SD TXT record on this LAN. Any OpenAI-compatible client can use them directly.</p>
                   <div class="connector-field">
                     <label class="connector-label">Endpoint</label>
                     <div class="connector-copy-row">
@@ -563,7 +564,7 @@
                 <div class="connector-step-body">
                   <div class="connector-step-title">Test Reachability</div>
                   <p class="connector-verify-text">
-                    Confirm this browser can reach the Saturn endpoint.
+                    Confirm this browser can reach the endpoint advertised in the TXT record.
                   </p>
                   <div class="connector-test-row">
                     <button id="connector-test-btn" class="btn connector-test-btn">Test Connection</button>
@@ -606,7 +607,7 @@
         <!-- Manual Endpoints (SAT-pse.6) -->
         <div class="config-section">
           <div class="config-section-title">Manual Endpoints</div>
-          <div class="config-section-hint">Add non-mDNS services (cloud APIs, VPN tunnels)</div>
+          <div class="config-section-hint">Add endpoints that are not advertised on <code>_saturn._tcp.local.</code> (cloud APIs, VPN tunnels)</div>
           <div id="manual-ep-list" class="alias-list"></div>
           <div class="alias-add-row">
             <input type="text" id="ep-name" placeholder="display name" class="alias-input">
