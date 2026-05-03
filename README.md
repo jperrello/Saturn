@@ -92,6 +92,7 @@ Seven artifacts across three languages and four mDNS libraries, sharing no Satur
 | [OpenCode fork](https://github.com/jperrello/opencode-saturn) | TypeScript | multicast-dns | Agentic workflow with tool calls and streaming |
 | [Open WebUI plugin](owui_saturn.py) | Python | zeroconf | Single-file backend swap for Open WebUI |
 | [`saturn-mcp/`](saturn-mcp/README.md) | TypeScript | multicast-dns | Discovery surfaced as MCP tools |
+| [`saturnd/`](saturnd/README.md) | Go | grandcat/zeroconf | Agent-to-agent (A2A) discovery and credential injection over MCP |
 
 ---
 
