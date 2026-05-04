@@ -55,7 +55,7 @@ WEB_DIR = _webdir()
 @asynccontextmanager
 async def lifespan(app):
     try:
-        _apply_trust_policy(_load_admin_config())
+        apply_admin_config(_load_admin_config())
     except Exception:
         pass
     yield
@@ -361,9 +361,15 @@ def _filter_models(models: list[dict], spec: str) -> list[dict]:
 _admin_config: dict = {}
 
 
+def _admin_config_path() -> Path:
+    d = os.environ.get("SATURN_DATA_DIR")
+    base = Path(d) if d else Path(__file__).parent.parent / "data"
+    return base / "admin_config.json"
+
+
 def _load_admin_config() -> dict:
     global _admin_config
-    config_path = Path(__file__).parent.parent / "data" / "admin_config.json"
+    config_path = _admin_config_path()
     if config_path.exists():
         try:
             _admin_config = json.loads(config_path.read_text())
@@ -375,7 +381,7 @@ def _load_admin_config() -> dict:
 def _save_admin_config(config: dict):
     global _admin_config
     _admin_config = config
-    config_path = Path(__file__).parent.parent / "data" / "admin_config.json"
+    config_path = _admin_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps(config, indent=2))
 
@@ -548,6 +554,7 @@ async def api_discover():
             "deployment": s.deployment,
             "api_type": s.api_type,
             "models": s.models,
+            "node_id": s.node_id,
         }
         result.append(entry)
         _discovered[s.name] = entry
@@ -575,6 +582,21 @@ def _resolve(name: str) -> tuple[str, dict[str, str]]:
     # fall back to configured base_url (for cloud services like openrouter)
     config = load_service_config(name)
     if not config:
+        rejected = _known_nodes.latest_rejection(name)
+        if rejected:
+            expected = rejected.get("expected_node_id") or ""
+            seen = rejected.get("node_id") or ""
+            raise HTTPException(
+                403,
+                detail={
+                    "error": "trust_rebind_rejected",
+                    "service": name,
+                    "expected_prefix": expected[:8],
+                    "seen_prefix": seen[:8],
+                    "seen_host": rejected.get("host_seen", ""),
+                    "remediation": "Verify with the Saturn admin, then accept via Configure → Service identity → Trust this node_id.",
+                },
+            )
         raise HTTPException(404, f"Service '{name}' not found")
     headers = {}
     if config.upstream.api_key_env:
@@ -1307,11 +1329,83 @@ async def usage_history(request: Request, user_id: str = Query(default=""), days
 # --- Admin Config API ---
 
 class AdminConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     model_filter: Optional[str] = None
     max_budget: Optional[float] = None
     budget_duration: Optional[str] = None
+    admin_session_ttl_s: Optional[int] = None
+    admin_token_env: Optional[str] = None
+    runner_token_env: Optional[str] = None
+    admin_password_env: Optional[str] = None
+    bind_host: Optional[str] = None
+    runner_bind_host: Optional[str] = None
+    trusted_proxies: Optional[List[str]] = None
+    cors_origins: Optional[List[str]] = None
+    rate_rpm: Optional[int] = None
+    rate_tpm: Optional[int] = None
+    rate_concurrent_per_ip: Optional[int] = None
+    max_budget_usd: Optional[float] = None
+    budget_period: Optional[str] = None
+    per_ip_max_budget_usd: Optional[float] = None
+    public_routes: Optional[List[str]] = None
+    require_auth_on_v1: Optional[bool] = None
+    proxy_models_method: Optional[str] = None
+    redact_proxy_keys_in_logs: Optional[bool] = None
+    mcp_allowed_urls: Optional[List[str]] = None
+    mcp_auth_token_envs: Optional[dict] = None
     trust_mode: Optional[str] = None
     trusted_node_ids: Optional[List[str]] = None
+
+
+def validate_admin_config(cfg: dict) -> List[str]:
+    import ipaddress
+    import uuid as _uuid
+    errs: List[str] = []
+    dev_mode = os.environ.get("SATURN_DEV_MODE") == "1"
+    if "trusted_proxies" in cfg and cfg["trusted_proxies"] is not None:
+        for p in cfg["trusted_proxies"]:
+            try:
+                ipaddress.ip_network(p, strict=False)
+            except Exception:
+                errs.append(f"trusted_proxies entry invalid CIDR/IP: {p!r}")
+    for hostkey in ("bind_host", "runner_bind_host"):
+        if hostkey in cfg and cfg[hostkey] is not None:
+            try:
+                ipaddress.ip_address(cfg[hostkey])
+            except Exception:
+                errs.append(f"{hostkey} invalid IP literal: {cfg[hostkey]!r}")
+    if "admin_session_ttl_s" in cfg and cfg["admin_session_ttl_s"] is not None:
+        v = cfg["admin_session_ttl_s"]
+        if not isinstance(v, int) or v < 60:
+            errs.append("admin_session_ttl_s must be int >= 60")
+    for key in ("rate_rpm", "rate_tpm", "rate_concurrent_per_ip"):
+        if key in cfg and cfg[key] is not None:
+            v = cfg[key]
+            if not isinstance(v, int) or v < 1:
+                errs.append(f"{key} must be int >= 1")
+    if "trusted_node_ids" in cfg and cfg["trusted_node_ids"] is not None:
+        for nid in cfg["trusted_node_ids"]:
+            try:
+                _uuid.UUID(nid)
+            except Exception:
+                errs.append(f"trusted_node_ids entry invalid UUID: {nid!r}")
+    if "trust_mode" in cfg and cfg["trust_mode"] is not None:
+        m = cfg["trust_mode"]
+        if m not in ("tofu", "allowlist", "open"):
+            errs.append("trust_mode must be one of tofu|allowlist|open")
+        elif m == "open" and not dev_mode:
+            errs.append("trust_mode=open requires SATURN_DEV_MODE=1")
+    if "cors_origins" in cfg and cfg["cors_origins"] is not None:
+        for o in cfg["cors_origins"]:
+            if "*" in str(o) and not dev_mode:
+                errs.append("cors_origins wildcard requires SATURN_DEV_MODE=1")
+    if "proxy_models_method" in cfg and cfg["proxy_models_method"] is not None:
+        if cfg["proxy_models_method"] not in ("GET", "POST"):
+            errs.append("proxy_models_method must be GET|POST")
+    if "budget_period" in cfg and cfg["budget_period"] is not None:
+        if cfg["budget_period"] not in ("monthly", "weekly", "daily"):
+            errs.append("budget_period must be monthly|weekly|daily")
+    return errs
 
 
 def _apply_trust_policy(cfg: dict) -> None:
@@ -1321,6 +1415,34 @@ def _apply_trust_policy(cfg: dict) -> None:
     _disc.set_trust_policy(mode, allow)
 
 
+def _reclassify_discovered() -> None:
+    from saturn import discovery as _disc
+    drop = []
+    for name, d in list(_discovered.items()):
+        nid = d.get("node_id", "")
+        s = _disc.SaturnService(name=name, host=d.get("host", ""), port=d.get("port", 0), node_id=nid)
+        verdict = _disc._classify_trust(s)
+        if _disc._trust_mode != "open" and verdict not in _disc._SELECTABLE:
+            drop.append(name)
+    for name in drop:
+        _discovered.pop(name, None)
+
+
+def apply_admin_config(cfg: dict) -> None:
+    global RATE_RPM, RATE_TPM, RATE_CONCURRENT_PER_IP
+    if isinstance(cfg.get("rate_rpm"), int):
+        RATE_RPM = cfg["rate_rpm"]
+        _rpm_buckets.clear()
+    if isinstance(cfg.get("rate_tpm"), int):
+        RATE_TPM = cfg["rate_tpm"]
+        _tpm_buckets.clear()
+    if isinstance(cfg.get("rate_concurrent_per_ip"), int):
+        RATE_CONCURRENT_PER_IP = cfg["rate_concurrent_per_ip"]
+        _ip_semaphores.clear()
+    _apply_trust_policy(cfg)
+    _reclassify_discovered()
+
+
 @app.get("/api/admin/config")
 async def get_admin_config(_=Depends(require_admin)):
     return _load_admin_config()
@@ -1328,27 +1450,15 @@ async def get_admin_config(_=Depends(require_admin)):
 
 @app.post("/api/admin/config")
 async def set_admin_config(body: AdminConfig, _=Depends(require_admin)):
+    incoming = body.model_dump(exclude_unset=True)
     cfg = _load_admin_config()
-    if body.model_filter is not None:
-        cfg["model_filter"] = body.model_filter
-    if body.max_budget is not None:
-        cfg["max_budget"] = body.max_budget
-    if body.budget_duration is not None:
-        cfg["budget_duration"] = body.budget_duration
-    if body.trust_mode is not None:
-        if body.trust_mode not in ("tofu", "allowlist", "open"):
-            raise HTTPException(422, "trust_mode must be tofu|allowlist|open")
-        cfg["trust_mode"] = body.trust_mode
-    if body.trusted_node_ids is not None:
-        import uuid as _uuid
-        for nid in body.trusted_node_ids:
-            try:
-                _uuid.UUID(nid)
-            except (ValueError, TypeError):
-                raise HTTPException(422, f"invalid uuid in trusted_node_ids: {nid}")
-        cfg["trusted_node_ids"] = body.trusted_node_ids
+    merged = {**cfg, **incoming}
+    errs = validate_admin_config(merged)
+    if errs:
+        raise HTTPException(422, {"errors": errs})
+    cfg.update(incoming)
     _save_admin_config(cfg)
-    _apply_trust_policy(cfg)
+    apply_admin_config(cfg)
     return cfg
 
 
@@ -1380,12 +1490,14 @@ async def attest_known_node(body: AttestBody, _=Depends(require_admin)):
     except (ValueError, TypeError):
         raise HTTPException(422, "node_id must be a UUID")
     _known_nodes.attest(body.service, body.node_id, body.host or "")
+    _reclassify_discovered()
     return _known_nodes.load()
 
 
 @app.post("/api/admin/known-nodes/forget")
 async def forget_known_node(body: ForgetBody, _=Depends(require_admin)):
     _known_nodes.forget(body.service)
+    _reclassify_discovered()
     return _known_nodes.load()
 
 

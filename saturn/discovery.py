@@ -175,7 +175,8 @@ class SaturnDiscovery:
             known_nodes.pin(service.name, service.node_id, service.host)
             service.trust = "pinned"
         elif service.trust == "rebind_rejected" and service.node_id:
-            known_nodes.record_rejection(service.name, service.node_id, service.host, "rebind_attempt")
+            expected = known_nodes.known_node_id(service.name) or ""
+            known_nodes.record_rejection(service.name, service.node_id, service.host, "rebind_attempt", expected_node_id=expected)
         if service.node_id:
             key = f"{service.node_id}:{service.name}"
         else:

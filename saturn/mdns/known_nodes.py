@@ -36,8 +36,6 @@ def _safe_mode() -> bool:
 
 
 def load() -> dict:
-    if not _safe_mode():
-        return {"version": SCHEMA_VERSION, "nodes": {}, "rejected": []}
     if not PATH.exists():
         return {"version": SCHEMA_VERSION, "nodes": {}, "rejected": []}
     try:
@@ -60,6 +58,8 @@ def save(state: dict) -> None:
 
 
 def known_node_id(name: str) -> Optional[str]:
+    if not _safe_mode():
+        return None
     with _lock:
         entry = load()["nodes"].get(name)
         return entry["node_id"] if entry else None
@@ -85,18 +85,21 @@ def pin(name: str, node_id: str, host: str) -> None:
         save(state)
 
 
-def record_rejection(name: str, node_id: str, host: str, reason: str) -> None:
+def record_rejection(name: str, node_id: str, host: str, reason: str, expected_node_id: str = "") -> None:
     with _lock:
         state = load()
         for r in state["rejected"]:
             if r["service_name"] == name and r["node_id"] == node_id:
                 r["rejected_at"] = _now()
                 r["host_seen"] = host
+                if expected_node_id:
+                    r["expected_node_id"] = expected_node_id
                 save(state)
                 return
         state["rejected"].append({
             "service_name": name,
             "node_id": node_id,
+            "expected_node_id": expected_node_id,
             "host_seen": host,
             "rejected_at": _now(),
             "reason": reason,
@@ -104,6 +107,15 @@ def record_rejection(name: str, node_id: str, host: str, reason: str) -> None:
         if len(state["rejected"]) > MAX_REJECTED:
             state["rejected"] = state["rejected"][-MAX_REJECTED:]
         save(state)
+
+
+def latest_rejection(name: str) -> Optional[dict]:
+    with _lock:
+        state = load()
+        matches = [r for r in state["rejected"] if r["service_name"] == name]
+        if not matches:
+            return None
+        return matches[-1]
 
 
 def attest(name: str, node_id: str, host: str) -> None:
