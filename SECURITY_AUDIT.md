@@ -449,3 +449,208 @@ Code locations referenced (all on this branch):
 - `saturn/config.py:34-38` — defaults that violate invariant in 7.5(4)
 
 No live OpenRouter / DeepInfra sub-keys were minted during this audit.
+
+---
+
+## 8. X-Forwarded-For trust boundary (F-3 / qj5.16.3)
+
+The audit's headline for F-3 was "blindly trusts XFF, trivial bypass." This
+section traces every consumer of the trusted client IP, identifies what each
+one would actually leak under spoofing, and pins down the fix so it lands
+identically to CONFIG_FIELDS §A.3.
+
+### 8.1 The single chokepoint
+
+```python
+# saturn/web.py:245-249
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+```
+
+This is the only place either Saturn binary derives "who is calling me."
+It is wrong on three independent axes:
+
+1. **No trust gate.** The header is honoured regardless of who the immediate
+   peer is. Any caller — including a guest laptop on the same WiFi — can
+   set `X-Forwarded-For: 10.0.0.99` and Saturn will believe it.
+2. **Wrong end of the list.** When XFF is genuinely populated by a trusted
+   reverse proxy, the *rightmost* entry is the one the proxy itself added
+   (its view of the real peer). The leftmost is the value the originating
+   client sent — which the proxy preserves verbatim as untrusted history.
+   Saturn picks the leftmost (`split(",")[0]`), i.e. the
+   most-attacker-controlled byte in the chain.
+3. **Single-header bias.** `Forwarded` (RFC 7239) and `X-Real-IP` are
+   ignored. Not a vulnerability; just a posture gap that matters once the
+   trust gate is in place.
+
+`ServiceRunner` (`saturn/runner.py:347-421`) does **not** use XFF and has no
+rate-limit at all — F-1 covers that. F-3 lives entirely in `saturn/web.py`.
+
+### 8.2 Consumers and what each leaks under spoof
+
+Seven callsites, all funnelling through `_client_ip`:
+
+| Line  | Endpoint                  | Use of identity                                | Spoof impact |
+|-------|---------------------------|------------------------------------------------|--------------|
+| 769   | `POST /api/proxy/chat`    | per-IP `Bucket` for RPM rate limit             | unlimited free chat — primary F-3 finding |
+| 808   | `POST /api/chat`          | per-IP RPM + per-IP semaphore + global semaphore | same: budget burn, drown out other LAN users |
+| 894   | `POST /api/system/chat`   | per-IP RPM (Brutus auto-routing path)          | same |
+| 1233  | `GET /api/rate-limit/status` | report own remaining quota                  | informational; attacker can probe quotas of arbitrary IPs |
+| 1246  | `GET /api/usage`          | look up usage row (also accepts `user_id` query that bypasses XFF entirely) | read another peer's daily token totals |
+| 1266  | `POST /api/usage/report`  | record `tokens_in/out` against IP, drain TPM bucket | **integrity attack**: poison another peer's usage record; preemptively drain their TPM so legitimate calls are 429'd |
+| 1275  | `GET /api/usage/history`  | read N-day history                             | read another peer's usage history |
+
+The first three are availability/budget. Lines 1246/1266/1275 are an
+authorization bug: even after F-3 is fixed by trust-gating XFF, the
+`user_id` query param at lines 1246 and 1275 is still an unauthenticated
+read-anyone's-history surface. Flagging that as a sub-issue (8.4 below).
+
+Composition with other findings:
+- **Stacks with F-1**: even without bypassing the rate limit, an attacker
+  can hit `ServiceRunner`'s `/v1/*` directly and skip the rate limiter
+  entirely. F-3 remains a real finding because `saturn/web.py` runs on the
+  same LAN and is still exposed.
+- **Stacks with F-2**: in beacon mode the attacker bypasses Saturn entirely
+  and goes straight to the upstream — F-3 doesn't apply there. F-3 matters
+  most for proxy-mode services (parent key kept on the Saturn host).
+
+### 8.3 Trust boundary — what should be true
+
+Saturn runs in three plausible deployments:
+
+| Deployment                                  | Immediate peer of uvicorn | XFF posture                    |
+|---------------------------------------------|---------------------------|---------------------------------|
+| Local dev (`bind_host=127.0.0.1`)           | `127.0.0.1`               | ignore XFF (peer == loopback, no proxy involved) |
+| LAN-exposed bare (`bind_host=0.0.0.0`, no proxy) | LAN peer                | ignore XFF (peer is the actual client) |
+| Behind reverse proxy (caddy / nginx / cloudflared on same host) | `127.0.0.1` from proxy | trust **rightmost** XFF entry |
+| Behind a documented k8s/ingress chain (rare for Saturn) | configured ingress IPs | trust rightmost XFF entry, peeling N hops |
+
+The invariant: **XFF is honoured only when the immediate peer is in the
+admin-configured `trusted_proxies` allowlist.** Otherwise we use
+`request.client.host` as ground truth.
+
+This matches CONFIG_FIELDS §A.3 verbatim:
+
+```
+trusted_proxies: list[CIDR]   default = []   env: SATURN_TRUSTED_PROXIES
+```
+
+Empty default = "no proxy," which is the safe posture for the LAN scenario
+that motivates Saturn in the first place. Admins behind a reverse proxy
+opt in explicitly.
+
+### 8.4 Concrete fix — drop-in replacement
+
+Implementer (brutus or hardener) should replace `_client_ip` with the
+shape below. Plumb `trusted_proxies` from the admin config (CONFIG_FIELDS
+§A.3) so it lifts/reloads without a process restart when the Configure
+page persists.
+
+```python
+import ipaddress
+from typing import Iterable
+
+_trusted_nets: list[ipaddress._BaseNetwork] = []   # rebuilt on admin-config save
+
+def _set_trusted_proxies(cidrs: Iterable[str]) -> None:
+    nets = []
+    for c in cidrs:
+        try:
+            nets.append(ipaddress.ip_network(c, strict=False))
+        except ValueError:
+            logger.warning(f"trusted_proxies: ignoring invalid CIDR {c!r}")
+    global _trusted_nets
+    _trusted_nets = nets
+
+def _peer_trusted(peer: str | None) -> bool:
+    if not peer or not _trusted_nets:
+        return False
+    try:
+        addr = ipaddress.ip_address(peer)
+    except ValueError:
+        return False
+    return any(addr in net for net in _trusted_nets)
+
+def _client_ip(request: Request) -> str:
+    peer = request.client.host if request.client else None
+    if _peer_trusted(peer):
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            # rightmost entry is the closest-to-us, set by the trusted proxy
+            candidate = forwarded.rsplit(",", 1)[-1].strip()
+            try:
+                ipaddress.ip_address(candidate)
+                return candidate
+            except ValueError:
+                pass  # fall through to peer
+        real_ip = request.headers.get("x-real-ip")
+        if real_ip:
+            try:
+                ipaddress.ip_address(real_ip.strip())
+                return real_ip.strip()
+            except ValueError:
+                pass
+    return peer or "unknown"
+```
+
+Plus in admin config bootstrap (`_load_admin_config` callback):
+
+```python
+_set_trusted_proxies(_load_admin_config().get("trusted_proxies", []))
+```
+
+And in `_save_admin_config`:
+
+```python
+if "trusted_proxies" in cfg:
+    _set_trusted_proxies(cfg["trusted_proxies"])
+```
+
+### 8.5 Sub-issue uncovered while tracing — `user_id` query bypass
+
+`/api/usage` (line 1246) and `/api/usage/history` (line 1275) take an
+optional `user_id` query parameter that **completely overrides**
+`_client_ip(request)`. After F-3 lands, an attacker who can guess a peer
+IP (trivial on a small LAN — try `192.168.1.0/24`) still reads their
+usage row by passing `?user_id=192.168.1.42`. Distinct issue with its own
+fix shape (require `admin_token_env` per CONFIG_FIELDS A.5 auth matrix on
+both routes, since they leak data). Filing as new bd child below.
+
+### 8.6 Tests the implementer should add
+
+- Spoofed XFF from non-trusted peer is ignored: rate-limit key is
+  `request.client.host`. (Drive a test client whose only header is
+  `X-Forwarded-For: 9.9.9.9`; assert two requests from the same socket
+  share the same bucket.)
+- Trusted peer with XFF: rate-limit key is the **rightmost** XFF entry.
+  (Configure `trusted_proxies = ["127.0.0.1"]`, set
+  `X-Forwarded-For: 1.2.3.4, 5.6.7.8`, expect identity `5.6.7.8`.)
+- Invalid CIDR in admin config logs a warning and is skipped, does not
+  crash boot.
+- Empty `trusted_proxies` (the default) means no XFF header is ever
+  honoured — golden case for LAN-Saturn.
+
+### 8.7 Posture-ready prose for docs queue
+
+> Saturn assumes by default that the device making a request is the device
+> Saturn sees on the wire. If you front Saturn with a reverse proxy
+> (caddy, nginx, traefik, cloudflared running locally), tell Saturn whose
+> `X-Forwarded-For` header to believe by setting
+> `trusted_proxies` in the Configure page or `SATURN_TRUSTED_PROXIES` in
+> the environment, e.g. `127.0.0.1` for a same-host proxy. Without that
+> setting, Saturn ignores `X-Forwarded-For` entirely — which is the right
+> default on a bare LAN deployment, where any caller on the network could
+> otherwise impersonate any other.
+
+### 8.8 Code references
+
+- `saturn/web.py:245-249` — broken `_client_ip` to be replaced.
+- `saturn/web.py:769, 808, 894, 1233, 1246, 1266, 1275` — call sites.
+- `saturn/web.py:215-242` — `Bucket`, `_rpm_bucket`, `_tpm_bucket`,
+  `_ip_sem` (the structures keyed by `_client_ip`'s return; no change
+  needed beyond the helper itself).
+- CONFIG_FIELDS §A.3 — admin schema for `trusted_proxies`.
+- CONFIG_FIELDS §A.5 — auth matrix that closes 8.5's `user_id` bypass.
