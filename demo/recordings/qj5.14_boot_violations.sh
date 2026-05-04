@@ -6,7 +6,7 @@
 # will report ALIVE — that IS the before-state. Once §17.B.1-3 ships,
 # rerunning produces the "Saturn refuses to start unsafe" matrix.
 
-set -euo pipefail
+set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 MIN_ADMIN_TOKEN="$(printf 'x%.0s' {1..32})"
@@ -65,12 +65,21 @@ case_run "(b) bind=0.0.0.0 dev=1"   SATURN_BIND_HOST=0.0.0.0 SATURN_DEV_MODE=1 S
 
 echo
 echo "── C.1.5 beacon needs max_budget_usd ────────────────────────"
+SERVICES_DIR="$MIN_DATA/services"
+mkdir -p "$SERVICES_DIR"
+cat > "$SERVICES_DIR/probe.toml" <<TOML
+name = "probe"
+deployment = "cloud"
+api_type = "openai"
+priority = 50
+[upstream]
+base_url = "https://api.example.com/v1"
+[beacon]
+enabled = true
+provider = "openrouter"
+TOML
+case_run "(a) beacon, no budget"   SATURN_ADMIN_TOKEN="$MIN_ADMIN_TOKEN" SATURN_RUNNER_TOKEN="$MIN_RUNNER_TOKEN" SATURN_ADMIN_PASSWORD="$MIN_PASSWORD" SATURN_SERVICES_DIR="$SERVICES_DIR"
 ADMIN_CFG="$MIN_DATA/admin_config.json"
-mkdir -p "$MIN_DATA"
-cat > "$ADMIN_CFG" <<JSON
-{"beacon_enabled": true}
-JSON
-case_run "(a) beacon, no budget"   SATURN_ADMIN_TOKEN="$MIN_ADMIN_TOKEN" SATURN_RUNNER_TOKEN="$MIN_RUNNER_TOKEN" SATURN_ADMIN_PASSWORD="$MIN_PASSWORD" SATURN_ADMIN_CONFIG_PATH="$ADMIN_CFG"
 
 echo
 echo "── C.1.6 TLS pair ───────────────────────────────────────────"
