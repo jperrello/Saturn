@@ -1,200 +1,168 @@
 # Saturn
 
-Saturn is a DNS-SD/mDNS protocol (`_saturn._tcp.local.`) for zero-configuration discovery of OpenAI-compatible AI backends on a LAN. Service instances advertise PTR/SRV/TXT records; TXT metadata carries priority, version, capabilities, and (for cloud backends) an ephemeral JWT. Any process that can browse mDNS and speak HTTP is a conformant client — Python, Go, Rust, JS, or `dns-sd -B` from a terminal.
+**DNS-SD for AI. Discover and call any model on your network with one query.**
 
-Saturn moves AI access from the application layer to the network layer: a household, lab, or office runs Saturn servers once, and every device on the network gets AI access without per-app keys, per-user subscriptions, or manual endpoint configuration.
+Saturn is a protocol — mDNS/DNS-SD service type `_saturn._tcp.local.` — that lets any OpenAI-compatible AI endpoint announce itself on a LAN. Clients discover and call it with stock tools.
 
-> If you are an AI agent or LLM integrating this project, read [AGENTS.md](AGENTS.md) instead.
+```bash
+# 1. Discover Saturn endpoints on your LAN (macOS/Linux, no install)
+$ dns-sd -B _saturn._tcp .local
+Browsing for _saturn._tcp.local
+  Add  3 llama-3-8b._saturn._tcp.local.
+  Add  3 whisper-v3._saturn._tcp.local.
 
-This repository is the artifact of a master's thesis at UC Santa Cruz (Joey Perrello, advised by Adam Smith). The thesis is in submission; citations below reference the source manuscript by line number.
+# 2. Resolve and call one — same shape as OpenAI
+$ curl http://llama-3-8b.local:8080/v1/chat/completions \
+    -H 'content-type: application/json' \
+    -d '{"model":"default","messages":[{"role":"user","content":"hi"}]}'
+{"id":"...","choices":[{"message":{"content":"Hello!"}}]}
+```
 
----
+> **AI agents and LLMs:** read [AGENTS.md](AGENTS.md). **ML systems researchers:** read [docs/how-to/for-researchers.md](docs/how-to/for-researchers.md).
 
-## What the protocol asserts
-
-Saturn is a specification, not a library. The reference implementations (Python, TypeScript, Rust) interoperate with third-party mDNS stacks because the wire format — not shared code — defines the contract. Five claims supported by the thesis follow.
-
-1. **Cross-language interoperability emerges from the protocol, not a reference SDK.** Three consumers across three languages and four mDNS libraries (Python `zeroconf`, JS `multicast-dns`, Rust `mdns-sd`, macOS `dns-sd` CLI) interoperate with no Saturn-specific shared code. *Saturn.md:1036–1041; Table 4.1, lines 939–965.*
-
-2. **The developer-side configuration surface collapses by ~79%.** A cognitive walkthrough comparing per-app provisioning to Saturn discovery shows 19→4 steps for the application-developer persona; 13 of the 19 eliminated steps are billing/credential scaffolding. The asymptotic form is `12 + 19N + 7M` (traditional) vs `14 + 4N + 0M` (Saturn) over `N` developers and `M` end users. *Saturn.md:1191–1224; Fig. 5.2, lines 1086–1153.*
-
-3. **Ephemeral keys bound the dominant secret-leakage failure mode.** Meli et al. find that 81% of GitHub-leaked secrets are never revoked. A 10-minute JWT rotated every 5 minutes is dead before any scanner reaches it; the threat model shifts from internet-scale and unbounded to LAN-scoped and bounded by the rotation cycle. *Saturn.md:609–625, 1334–1344.*
-
-4. **One TXT schema covers heterogeneous auth models.** The same record set works against Ollama (no auth), DeepInfra (static JWT), and OpenRouter (rotating ephemeral JWT) with no out-of-band configuration — evidence that the schema generalizes beyond a single vendor. *Saturn.md:1022–1031.*
-
-5. **Network-infrastructure-layer deployment is concrete.** The Rust build cross-compiles to `mipsel-unknown-linux-musl` and runs on a GL-MT300N-V2 (128 MB RAM, MIPS32) integrated with OpenWRT/UCI/LuCI alongside DHCP. "DHCP for AI" is implemented literally. *Saturn.md:838–866.*
+This repository is the artifact of a master's thesis at UC Santa Cruz (Joey Perrello, advised by Adam Smith). The thesis is in submission.
 
 ---
 
-## What it does *not* claim
+## Why Saturn
 
-- **Evaluation is analytical, not empirical.** The step-reduction and threat-model arguments are derived from a single-author cognitive walkthrough and a structured threat analysis; there is no user study and no production deployment. Field evaluation is future work. *Saturn.md:1235–1250.*
-- **Enterprise WiFi with AP isolation breaks Saturn.** Networks like eduroam and many guest SSIDs block client-to-client multicast — the institutional networks where the access-equity motivation matters most. A hybrid mDNS+HTTPS-fallback path is designed but not shipped. *Saturn.md:1346–1354.*
-- **Multicast trust assumption.** Any device on the LAN can observe service advertisements, including ephemeral keys. Saturn trusts the network operator the way a printer protocol does; per-device authentication would void the zero-configuration property.
-
----
-
-## Protocol
-
-### Service advertisement
-
-Services register under `_saturn._tcp.local.` with the standard DNS-SD triple (PTR, SRV, TXT). TXT fields:
-
-| Field | Status | Description |
-|---|---|---|
-| `version` | required | Protocol version (`1`) |
-| `api_type` | required | `openai`, `ollama`, etc. |
-| `deployment` | required | `local`, `cloud`, `network` |
-| `priority` | required | Numeric; lower preferred |
-| `api_base` | conditional | Endpoint URL (cloud) |
-| `ephemeral_key` | conditional | JWT (cloud) |
-| `rotation_interval` | optional | Seconds (default 300) |
-| `features` | optional | Comma-separated capabilities |
-
-DNS-SD imposes a 255-byte limit per TXT string. JWTs fit; X.509 certificates do not — a constraint that shapes the credential design.
-
-### Discovery
-
-1. Browse `_saturn._tcp.local.` for PTR records.
-2. Resolve SRV + TXT for each instance.
-3. Sort by priority; pick the lowest healthy.
-4. Use `api_base` (cloud) or construct from SRV (local).
-
-### Endpoints
-
-All services expose three OpenAI-compatible routes:
-
-- `GET /v1/health`
-- `GET /v1/models`
-- `POST /v1/chat/completions` (SSE streaming supported)
-
-### Beacons
-
-A Saturn Beacon dispenses credentials without proxying inference traffic:
-
-1. Mint a scoped JWT against a cloud provider with a 10-minute expiration.
-2. Embed it in the `ephemeral_key` TXT field.
-3. Rotate every 5 minutes with an overlap window where current and next keys both validate.
-4. Clients read the key and call the upstream API directly.
-
-The beacon never sees prompt or completion bytes.
+- **Zero-config.** No accounts, no per-app keys, no manual endpoint URLs. The same mechanism your laptop already uses to find printers.
+- **Transport-agnostic.** Anything that can browse mDNS and speak HTTP is a conformant client — `dns-sd`, `avahi-browse`, Go, Python, Rust, TS, Lua.
+- **OpenAI-compatible by default.** Discovered endpoints expose `/v1/health`, `/v1/models`, `/v1/chat/completions`. Drop the URL into any tool that takes a `base_url`.
 
 ---
 
-## Reference implementations
+## Quickstart in three other languages
 
-Seven artifacts across three languages and four mDNS libraries, sharing no Saturn-specific code:
+=== "Go"
 
-| Implementation | Language | mDNS library | Demonstrates |
+    ```bash
+    $ cd saturnd && go build -o saturnd ./cmd/saturnd
+    $ ./saturnd                                # browse + serve on :7827
+    $ curl http://localhost:7827/v1/agents     # discovered Saturn instances
+    ```
+
+=== "Python"
+
+    ```bash
+    $ pip install saturn-ai
+    $ saturn discover                          # print every advertised service
+    $ curl $(saturn endpoint)/v1/models        # call the highest-priority one
+    ```
+
+=== "TypeScript"
+
+    ```ts
+    import { createSaturn } from "ai-sdk-provider-saturn";
+    const saturn = createSaturn();
+    const services = await saturn.discover({ timeout: 2000 });
+    console.log(services[0].endpoint);
+    ```
+
+Full per-language details: [docs/implementations/](docs/implementations/index.md).
+
+---
+
+## Implementations
+
+Reference clients across five languages and four mDNS libraries, sharing no Saturn-specific code. Interoperability comes from the wire format alone.
+
+| Implementation | Language | mDNS library | What it does |
 |---|---|---|---|
-| [`saturn/`](saturn/README.md) | Python | zeroconf | Core package: discovery, servers, beacons, CLI |
-| [`ai-sdk-provider-saturn/`](ai-sdk-provider-saturn/README.md) | TypeScript | multicast-dns | AI SDK provider with circuit breaking and failover |
-| [`vlc_extension/`](vlc_extension/README.md) | Lua + Python | dns-sd CLI | Bridge pattern into a non-AI-native host application |
-| [`saturn-router/`](saturn-router/openwrt/README.md) | Rust | mdns-sd | Router-edge deployment on MIPS32 / 128 MB RAM |
-| [OpenCode fork](https://github.com/jperrello/opencode-saturn) | TypeScript | multicast-dns | Agentic workflow with tool calls and streaming |
-| [Open WebUI plugin](owui_saturn.py) | Python | zeroconf | Single-file backend swap for Open WebUI |
-| [`saturn-mcp/`](saturn-mcp/README.md) | TypeScript | multicast-dns | Discovery surfaced as MCP tools |
-| [`saturnd/`](saturnd/README.md) | Go | grandcat/zeroconf | Agent-to-agent (A2A) discovery and credential injection over MCP |
+| [`saturnd/`](saturnd/README.md) | Go | `grandcat/zeroconf` | Standalone discovery daemon; A2A/MCP surface |
+| [`saturn/`](saturn/README.md) | Python | `python-zeroconf` | Reference package: discovery, server, beacon, CLI, Web UI |
+| [`saturn-router/`](saturn-router/openwrt/README.md) | Rust | `mdns-sd` | Router-edge build (~2 MB, runs on a $20 OpenWRT MIPS box) |
+| [`ai-sdk-provider-saturn/`](ai-sdk-provider-saturn/README.md) | TypeScript | `multicast-dns` | Vercel AI SDK provider with circuit breaking + failover |
+| [`vlc_extension/`](vlc_extension/README.md) | Lua + Python | `dns-sd` CLI | Bridges Saturn into a non-AI-native host application |
+| [`saturn-mcp/`](saturn-mcp/README.md) | TypeScript | `multicast-dns` | Discovery surfaced as MCP tools |
+| [Open WebUI plugin](owui_saturn.py) | Python | `python-zeroconf` | Single-file backend swap for Open WebUI |
+| [OpenCode fork](https://github.com/jperrello/opencode-saturn) | TypeScript | `multicast-dns` | Agentic workflow with tool calls and streaming |
 
 ---
 
-## Quickstart
+## TXT record (the wire artifact)
 
-Saturn is a wire protocol; the examples below progress from the rawest tools up. All three reach the same `_saturn._tcp.local.` advertisement.
+Saturn carries everything a client needs in one DNS-SD TXT record:
 
-### From the shell — `dns-sd` + `curl`
-
-No Saturn binary on the client side. Anything that ships with Bonjour or Avahi can browse:
-
-```bash
-dns-sd -B _saturn._tcp local.                        # macOS / Bonjour
-avahi-browse -rtp _saturn._tcp                       # Linux / Avahi
+```
+version=1                                 # protocol version — required
+api_type=openai                           # api shape — required
+deployment=cloud                          # local | cloud | network — required
+priority=10                               # lower preferred — required
+api_base=https://openrouter.ai/api/v1     # cloud only
+ephemeral_key=eyJhbGc...                  # short-lived JWT, cloud only
+rotation_interval=300                     # seconds; default 300
+features=chat,tools,vision                # capability hints
 ```
 
-Resolve an instance, read TXT, and call the OpenAI-compatible endpoint directly:
+Each TXT string MUST be ≤ 255 bytes ([RFC 6763 §6.1](https://datatracker.ietf.org/doc/html/rfc6763#section-6.1)). JWTs fit; X.509 certificates do not — a constraint that shapes the credential design.
 
-```bash
-dns-sd -L "ollama" _saturn._tcp local.               # SRV + TXT for instance "ollama"
-curl http://<host>:<port>/v1/models
-```
+Full schema and stability levels: [docs/reference/protocol/txt-keys.md](docs/reference/protocol/txt-keys.md).
 
-### From Go — `saturnd`
+---
 
-The Go daemon (`saturnd/`) browses mDNS, parses TXT, and exposes discovered backends over HTTP/MCP. After `go build -o saturnd ./cmd/saturnd` in `saturnd/`:
+## Beacons and ephemeral keys
 
-```bash
-./saturnd                                            # browse + serve on :7827
-curl http://localhost:7827/v1/agents                 # discovered Saturn instances
-```
+A Saturn **beacon** dispenses credentials without proxying inference traffic:
 
-`saturnd` shares no code with the Python package; the protocol is the contract.
+1. Mint a scoped sub-key against a cloud provider with a short expiration.
+2. Embed it in the `ephemeral_key` TXT field.
+3. Rotate periodically; clients re-read TXT.
+4. Clients call the upstream API directly — the beacon never sees prompt or completion bytes.
 
-### From Python — `saturn`
+This bounds the dominant secret-leakage failure mode: [Meli et al.](https://www.ndss-symposium.org/wp-content/uploads/2019/02/ndss2019_04B-3_Meli_paper.pdf) found 81% of GitHub-leaked secrets are never revoked. A short-lived sub-key is dead before any scanner reaches it.
 
-The reference Python package wraps the same browse/resolve loop:
+> **Security posture.** Saturn's beacon mode is designed for trusted local networks — the network you'd plug a printer into. The sub-key's per-key spending cap is the actual security boundary; set `beacon.max_budget_usd` low if your threat model includes any device on the LAN. Anyone on the local link can sniff the sub-key. If those constraints don't fit, use **proxy mode** instead: Saturn keeps the parent key server-side and proxies traffic through its own authenticated `/v1/*` endpoints.
 
-```bash
-git clone https://github.com/jperrello/Saturn.git && cd Saturn
-pip install -e .
-saturn ollama                                        # advertise an Ollama backend
-saturn discover                                      # browse and print TXT
-curl $(saturn endpoint)/v1/models                    # call the highest-priority service
-```
+Full threat model and reverse-proxy / `X-Forwarded-For` notes: [docs/reference/protocol/security.md](docs/reference/protocol/security.md).
 
-### Cloud backends
+---
 
-`saturn openrouter` and `saturn deepinfra` require provider credentials in the environment (`OPENROUTER_API_KEY`, `DEEPINFRA_API_KEY`). Copy [`.env.example`](.env.example) to `.env` and fill in the relevant key, or `export` it directly. The proxy starts even without them; `/v1/chat/completions` will return 401 from the upstream until a key is set. See `saturn/services/*.toml` for the full set of bundled service definitions.
+## Roles
 
-### Router deployment
+Saturn names three roles and concentrates configuration in exactly one of them.
 
-The Rust binary cross-compiles to `mipsel-unknown-linux-musl` and ships with TLS support (~2 MB). Manual install and OpenWRT integration notes are in [`saturn-router/openwrt/README.md`](saturn-router/openwrt/README.md).
+- **Administrator** — deploys services, sets priorities, manages credentials. The only role that touches configuration.
+- **Application developer** — calls `discover()`; receives services with URLs and credentials populated. No auth logic, no billing integration.
+- **End user** — connects to the network. Nothing else.
 
-### Platform notes
+The cognitive walkthrough in the thesis shows the application-developer step count drops 19 → 4 (−79%) and the end-user count drops 7 → 0. Methodology, asymptotic form, and threats to validity: [docs/how-to/for-researchers.md](docs/how-to/for-researchers.md).
+
+---
+
+## What Saturn is not
+
+- **Not a Python package.** The Python reference implementation is one of seven; the protocol is the contract.
+- **Not field-evaluated.** The step-reduction and threat-model arguments are derived from a single-author cognitive walkthrough and a structured threat analysis. There is no user study and no production deployment yet.
+- **Not safe on AP-isolated networks.** Enterprise WiFi (eduroam, many guest SSIDs) blocks client-to-client multicast. A hybrid mDNS+HTTPS-fallback path is designed but not shipped.
+- **Not authenticated per-device.** Any device on the LAN can observe service advertisements. Saturn trusts the network operator the way a printer protocol does.
+
+---
+
+## Conformance
+
+A new Saturn implementation needs five things:
+
+1. Browse `_saturn._tcp.local.` with any DNS-SD library.
+2. Resolve SRV+TXT for instances.
+3. Validate `version=1` and parse the [TXT keys](docs/reference/protocol/txt-keys.md).
+4. Sort by `priority`, pick the lowest healthy.
+5. Send HTTP requests to `api_base` (or the SRV `host:port`) per the [HTTP API](docs/reference/protocol/http-api.md).
+
+That is the entire protocol surface. → [Spec v0.2](docs/spec/v0.2/wire-format.md)
+
+---
+
+## Platform notes
 
 - **macOS.** `dns-sd` is part of the system; nothing to install.
-- **Linux.** `sudo apt install avahi-utils`. Saturn requires Avahi ≥ 0.9-rc3; older builds are exposed to CVE-2025-68276 / 68468 / 68471 (remote DoS and memory corruption from crafted mDNS packets). Ubuntu 24.04 LTS is patched.
+- **Linux.** `sudo apt install avahi-utils`. Saturn requires Avahi ≥ 0.9-rc3; older builds are exposed to CVE-2025-68276 / 68468 / 68471. Ubuntu 24.04 LTS is patched.
 - **Windows.** Install [Bonjour Print Services](https://support.apple.com/kb/DL999). If `saturn` is not on `PATH`, use `python -m saturn`.
 
 ---
 
-## Roles and where complexity lives
+## Docs · Contributing · License
 
-Saturn names three roles and concentrates configuration in exactly one of them.
-
-- **Administrator** — deploys services, selects backends, sets priorities, manages credentials. The only role that touches configuration. Provisions the entire network once.
-- **Application developer** — calls `discover()`; receives services with URLs and credentials populated. No auth logic, no configuration UI, no billing integration.
-- **End user** — connects to the network. Nothing else.
-
-Centralizing complexity in the administrator is what produces the asymptotic step reduction in claim 2.
-
----
-
-## Evaluation summary
-
-Cognitive walkthrough, per persona:
-
-| Persona | Traditional | Saturn | Δ |
-|---|---:|---:|---:|
-| Administrator | 12 | 14 | +17% |
-| Application developer | 19 | 4 | **−79%** |
-| End user | 7 | 0 | **−100%** |
-| **Total** | **38** | **18** | **−53%** |
-
-At `N = 10` developers and `M = 100` end users: 902 traditional steps → 54 Saturn steps (−94%). Methodology and the threats to validity are documented in the thesis. *Saturn.md:1191–1224, 1235–1250.*
-
----
-
-## Troubleshooting
-
-```bash
-dns-sd -B _saturn._tcp local.   # macOS / Bonjour browse
-avahi-browse -r _saturn._tcp    # Linux / Avahi
-```
-
-If neither browse shows the server: confirm UDP 5353 is unblocked, the server log includes `Service registered`, and the host is not behind AP isolation.
-
----
-
-## Contributing
-
-PRs are welcome. The thesis is in submission; contributions merged after **2026-03-20** will not be reflected in the published document.
+- Full documentation: **[docs/](docs/index.md)** (Diátaxis-shaped: Quickstart / Tutorial / How-To / Concepts / Reference / Implementations / Spec).
+- Contributions merged after **2026-03-20** will not be reflected in the published thesis document.
+- License: see [LICENSE](LICENSE).
