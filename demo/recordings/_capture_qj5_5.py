@@ -15,12 +15,12 @@ def main():
     service.install(NAME, priority=40)
     service.start(NAME)
     try:
-        with web.serve() as origin, sync_playwright() as p:
+        with web.serve() as srv, sync_playwright() as p:
             br = p.chromium.launch()
             ctx = br.new_context(viewport={"width": 1440, "height": 900},
                                  device_scale_factor=2)
             page = ctx.new_page()
-            page.goto(origin)
+            page.goto(srv["origin"])
             page.wait_for_load_state("networkidle")
             tab = page.query_selector('[data-tab="chat"]')
             if tab: tab.click()

@@ -1,5 +1,6 @@
 import contextlib
 import os
+import secrets
 import signal
 import socket
 import subprocess
@@ -17,12 +18,14 @@ def _free():
 
 
 @contextlib.contextmanager
-def serve(port=None, timeout=20.0):
+def serve(port=None, timeout=20.0, admin_token=None):
     port = port or _free()
+    tok = admin_token or secrets.token_urlsafe(24)
     log = open(f"/tmp/saturn-web-{port}.log", "wb")
+    env = {**os.environ, "SATURN_ADMIN_TOKEN": tok}
     proc = subprocess.Popen(
         ["python3", "-m", "saturn", "web", "--port", str(port)],
-        stdout=log, stderr=log, preexec_fn=os.setsid,
+        stdout=log, stderr=log, preexec_fn=os.setsid, env=env,
     )
     origin = f"http://127.0.0.1:{port}"
     deadline = time.time() + timeout
@@ -38,9 +41,22 @@ def serve(port=None, timeout=20.0):
         os.killpg(proc.pid, signal.SIGTERM)
         raise TimeoutError(f"saturn web did not come up on {port}")
     try:
-        yield origin
+        yield {"origin": origin, "token": tok}
     finally:
         try: os.killpg(proc.pid, signal.SIGTERM)
         except ProcessLookupError: pass
         try: proc.wait(timeout=5)
         except subprocess.TimeoutExpired: os.killpg(proc.pid, signal.SIGKILL)
+
+
+def admin_request(origin, path, token, method="GET", body=None):
+    import json
+    url = f"{origin.rstrip('/')}{path}"
+    data = json.dumps(body).encode() if body is not None else None
+    headers = {"Authorization": f"Bearer {token}"}
+    if data is not None: headers["content-type"] = "application/json"
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    with urllib.request.urlopen(req, timeout=15) as r:
+        raw = r.read()
+        if not raw: return r.status, None
+        return r.status, json.loads(raw)

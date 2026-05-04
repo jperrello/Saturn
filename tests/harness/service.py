@@ -1,6 +1,7 @@
 import json
 import os
 import pathlib
+import secrets
 import signal
 import subprocess
 import time
@@ -14,6 +15,11 @@ import tomli_w
 ROOT = pathlib.Path.home() / ".saturn"
 CONFIG = ROOT / "services"
 RUN = ROOT / "run"
+TOKENS = {}
+
+
+def token(name):
+    return TOKENS.get(name)
 
 
 def install(name, **fields):
@@ -24,7 +30,7 @@ def install(name, **fields):
         "api_type": "ollama",
         "priority": 50,
         "upstream": {"base_url": "http://localhost:11434/v1"},
-        "server": {"port": 0, "module": "saturn.servers.ollama"},
+        "server": {"port": 0},
         "beacon": {"enabled": False},
     }
     for k, v in fields.items():
@@ -60,24 +66,29 @@ def delete(name):
     if path.exists(): path.unlink()
 
 
-def start(name, timeout=15.0):
+def start(name, timeout=15.0, token_value=None):
     stop(name)
     log = open(f"/tmp/saturn-{name}.log", "wb")
+    tok = token_value or secrets.token_urlsafe(24)
+    TOKENS[name] = tok
+    env = {**os.environ, "SATURN_RUNNER_TOKEN": tok}
     proc = subprocess.Popen(["saturn", "run", name], stdout=log, stderr=log,
-                            preexec_fn=os.setsid)
+                            preexec_fn=os.setsid, env=env)
     pidfile = RUN / f"{name}.json"
     deadline = time.time() + timeout
     while time.time() < deadline:
         if pidfile.exists():
             with open(pidfile) as f:
                 meta = json.load(f)
-            return {"pid": proc.pid, "port": meta.get("port"), "pidfile": str(pidfile)}
+            return {"pid": proc.pid, "port": meta.get("port"),
+                    "pidfile": str(pidfile), "token": tok}
         time.sleep(0.2)
     raise TimeoutError(f"{name} did not register within {timeout}s")
 
 
 def stop(name):
     subprocess.run(["saturn", "stop", name], capture_output=True, check=False)
+    TOKENS.pop(name, None)
 
 
 def discover(timeout=None):

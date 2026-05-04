@@ -34,6 +34,7 @@ def main(argv=None):
     s_chat.add_argument("--endpoint", required=True)
     s_chat.add_argument("--model", required=True)
     s_chat.add_argument("--prompt", required=True)
+    s_chat.add_argument("--token", help="bearer token for runner /v1/*")
     s_chat.add_argument("--max-tokens", type=int, default=64)
     s_chat.add_argument("--temperature", type=float, default=None)
 
@@ -73,7 +74,8 @@ def main(argv=None):
     if a.cmd == "chat":
         kwargs = {"max_tokens": a.max_tokens}
         if a.temperature is not None: kwargs["temperature"] = a.temperature
-        text, usage, _ = chat.reply(a.endpoint, a.model, a.prompt, **kwargs)
+        text, usage, _ = chat.reply(a.endpoint, a.model, a.prompt,
+                                    token=a.token, **kwargs)
         return _print({"reply": text, "usage": usage})
     if a.cmd == "openrouter":
         if a.op == "list": return _print(openrouter.list())

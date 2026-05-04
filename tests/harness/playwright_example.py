@@ -11,16 +11,16 @@ def main():
     service.install(name, priority=40)
     meta = service.start(name)
     try:
-        with web.serve() as origin, sync_playwright() as p:
+        with web.serve() as srv, sync_playwright() as p:
             browser = p.chromium.launch()
             page = browser.new_page()
-            page.goto(origin)
+            page.goto(srv["origin"])
             page.wait_for_load_state("networkidle")
             title = page.title()
             chat_tab = page.query_selector('[data-tab="chat"]')
             page.screenshot(path="/tmp/saturn-harness-pw.png", full_page=True)
             print(f"OK: title={title!r} chat_tab={'yes' if chat_tab else 'no'} "
-                  f"shot=/tmp/saturn-harness-pw.png")
+                  f"admin_token={srv['token'][:6]}… shot=/tmp/saturn-harness-pw.png")
             browser.close()
     finally:
         service.stop(name); service.delete(name)

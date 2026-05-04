@@ -57,6 +57,23 @@ python3 -m tests.harness openrouter revoke <hash>
 `OPENROUTER_PROVISIONING_KEY` is read from env or `.env` at the repo
 root. Never commit `.env`.
 
+## Auth (post qj5.16.1 / qj5.16.2)
+
+Both surfaces require bearer tokens:
+
+- **Runner `/v1/*`** — `SATURN_RUNNER_TOKEN` (per-process). The harness
+  generates one in `service.start()` and returns it in the start
+  metadata. Pass `token=meta["token"]` to `chat.reply` / `chat.health`.
+- **Web admin `/api/{services,admin,system,mcp}/*`** — `SATURN_ADMIN_TOKEN`.
+  `web.serve()` generates one and yields `{"origin", "token"}`. Use
+  `web.admin_request(origin, path, token, ...)` for admin calls.
+
+Default `service.install()` writes a config with no `server.module`,
+i.e. the default Saturn runner — that path is the auth-protected one.
+Configs that pin a custom `server.module` (e.g. `saturn.servers.ollama`)
+bypass runner-level auth; harness tests should avoid them when
+verifying the auth boundary.
+
 ## Python API (preferred for hardener tests)
 
 ```python
@@ -65,15 +82,18 @@ from tests.harness import chat, ollama, openrouter, service, web
 ollama.ensure("qwen2.5:0.5b")
 
 service.install("demo-foo", priority=25)
-meta = service.start("demo-foo")          # {'pid', 'port', 'pidfile'}
+meta = service.start("demo-foo")          # {'pid','port','pidfile','token'}
 ep   = f"http://127.0.0.1:{meta['port']}"
 
-text, usage, raw = chat.reply(ep, "qwen2.5:0.5b", "hi", max_tokens=8)
+# /v1/* requires bearer
+text, usage, raw = chat.reply(ep, "qwen2.5:0.5b", "hi",
+                              token=meta["token"], max_tokens=8)
 assert usage["completion_tokens"] <= 8
 
-with web.serve() as origin:                # ephemeral Saturn web UI
+with web.serve() as srv:                   # ephemeral Saturn web UI
+    origin, admin = srv["origin"], srv["token"]
+    status, services = web.admin_request(origin, "/api/services", admin)
     # drive playwright against `origin` here
-    pass
 
 key = openrouter.create("one-shot", limit=0.05)
 openrouter.revoke(key["data"]["hash"])
