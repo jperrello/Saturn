@@ -43,10 +43,16 @@ def serve(port=None, timeout=20.0, admin_token=None):
     try:
         yield {"origin": origin, "token": tok}
     finally:
-        try: os.killpg(proc.pid, signal.SIGTERM)
-        except ProcessLookupError: pass
+        try: os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            try: proc.terminate()
+            except ProcessLookupError: pass
         try: proc.wait(timeout=5)
-        except subprocess.TimeoutExpired: os.killpg(proc.pid, signal.SIGKILL)
+        except subprocess.TimeoutExpired:
+            try: os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                try: proc.kill()
+                except ProcessLookupError: pass
 
 
 def admin_request(origin, path, token, method="GET", body=None):
