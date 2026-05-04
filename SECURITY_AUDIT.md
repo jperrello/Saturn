@@ -1087,3 +1087,144 @@ the implementer lands both routes in one PR.
 - `Web-UI/app.js:2683-2693, 2716-2728` — manual endpoint storage shape
   (already does not carry an `api_key`; no UI change needed).
 - CONFIG_FIELDS §A.6 — proxy hygiene admin policies.
+
+---
+
+## 12. `/api/proxy/models` query-string `api_key` (F-6 / qj5.16.7)
+
+§11 covers the body-field sibling on `/api/proxy/chat`. This section is
+the query-string sibling on `/api/proxy/models`. The structural defect
+and the fix are isomorphic; the differences are entirely about the
+**leak channels** a query string opens that a body field doesn't.
+
+### 12.1 The shape today
+
+```python
+# saturn/web.py:726-743
+@app.get("/api/proxy/models")
+async def proxy_models(base_url: str = Query(...), api_key: str = Query(default="")):
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    base = base_url.rstrip("/")
+    async with httpx.AsyncClient(timeout=10) as client:
+        try:
+            r = await client.get(f"{base}/models", headers=headers)
+            r.raise_for_status()
+        except httpx.HTTPError as e:
+            raise HTTPException(502, f"Failed to fetch models: {e}")
+    ...
+```
+
+### 12.2 Who populates `api_key` today
+
+Same answer as §11.2: nobody.
+
+- The only caller is `Web-UI/app.js:1676`, which builds the URL as
+  `/api/proxy/models?base_url=${encodeURIComponent(ep.url)}` — with no
+  `api_key`. (This is the manual-endpoint model-list refresh; the
+  endpoint shape stored in localStorage is `{name, url, api_type}`.)
+- No `saturn/tests/` test exercises the parameter.
+- No external consumer (`saturn-mcp/`, `saturn-router/`, `saturnd/`,
+  `ai-sdk-provider-saturn/`) calls `/api/proxy/models`.
+
+Dormant capability, identical posture to F-5.
+
+### 12.3 Why a query-string secret is worse than a body secret
+
+Even though no shipping path populates it today, the query-string shape
+exposes secrets across **more leak channels** than the body field does
+(§11.3). For F-6 specifically:
+
+| Channel                              | Body field (`/api/proxy/chat`) | Query string (`/api/proxy/models`) |
+|--------------------------------------|--------------------------------|-------------------------------------|
+| Default uvicorn access log (stdout)  | not captured                   | **captured** (URL with query is the access-log key) |
+| Browser history                      | not captured                   | **captured** (GET URLs are stored) |
+| HTTP `Referer` header on subsequent links | not captured              | **captured** (browsers attach the full GET URL as the Referer of any link clicked from the rendered page) |
+| Reverse-proxy / load-balancer access logs | usually redacted          | **captured by default everywhere** |
+| Bug-tracker / Sentry traceback attachments | usually redacted        | **captured** (URL shows in the request line of every error frame) |
+| Saved bookmarks, copy-pasted links   | not applicable                 | **captured** (URL is the artefact users share) |
+
+GET-with-secret-in-query is a known anti-pattern for exactly this
+reason; OWASP, RFC 9110 §15, and most cloud-vendor security guides call
+it out explicitly. The fact that no UI populates the field today only
+narrows the *current* exposure — anyone who reads the route signature
+and `curl`s it with a real key has just leaked it across all six
+channels above.
+
+### 12.4 Recommended fix — same as §11.4
+
+Drop the `api_key` query parameter; read the inbound `Authorization`
+header verbatim if present. GET endpoints should never have accepted
+secrets via query.
+
+```python
+@app.get("/api/proxy/models")
+async def proxy_models(request: Request, base_url: str = Query(...)):
+    headers = {}
+    incoming = request.headers.get("authorization")
+    if incoming and incoming.lower().startswith("bearer "):
+        headers["Authorization"] = incoming
+    base = base_url.rstrip("/")
+    async with httpx.AsyncClient(timeout=10) as client:
+        try:
+            r = await client.get(f"{base}/models", headers=headers)
+            r.raise_for_status()
+        except httpx.HTTPError as e:
+            raise HTTPException(502, "Failed to fetch models")     # also: don't leak the upstream URL/exception message into the error body
+    ...
+```
+
+Two further small hardenings worth bundling:
+
+1. **Sanitise the 502 message.** Today
+   `f"Failed to fetch models: {e}"` puts the upstream URL — and any
+   reflected token if httpx echoes the request line — into the response
+   body. Drop the `{e}` interpolation; log it server-side only.
+2. **Optional `POST /api/proxy/models` alias.** If admins need to refresh
+   models on an authenticated upstream interactively, expose an
+   equivalent `POST` form so the secret rides a body or header rather
+   than a URL. Same handler, same auth dependency. CONFIG_FIELDS §A.6
+   already lists `proxy_models_method = "POST"` as the default once this
+   route is rebuilt; this is the implementation note.
+
+### 12.5 Co-landable with §11
+
+The implementer should land §11.4 + §11.5 + §12.4 in one PR. They share:
+
+- The same auth dependency (admin token gate from F-4 / CONFIG_FIELDS A.5).
+- The same passthrough-Authorization shape.
+- The same `Web-UI/app.js` reality (no UI change required — neither
+  manual endpoint flow ever sent a key).
+
+Splitting them into two PRs costs review surface without buying anything.
+
+### 12.6 Tests the implementer should add
+
+- `GET /api/proxy/models?base_url=...&api_key=foo` returns 422 (Pydantic
+  rejects the unknown query parameter once it's removed and the
+  signature is tightened).
+- `GET /api/proxy/models` with a passthrough `Authorization: Bearer X`
+  forwards `X` to the upstream.
+- An upstream 401 surfaces as a 502 with a constant string body — the
+  upstream URL and exception message do not appear in the response.
+- After F-4 lands: unauthenticated `GET /api/proxy/models` returns 401.
+
+### 12.7 Posture-ready prose for the docs queue
+
+> Saturn never reads API keys from URLs. The `/api/proxy/models` route
+> exists to list models on an arbitrary upstream — when the upstream
+> requires authentication, send the credential in an `Authorization:
+> Bearer <token>` header on your request, and Saturn will forward it.
+> URLs end up in browser history, server access logs, and the `Referer`
+> header on outbound links; secrets in URLs leak across all three. The
+> route's GET signature accepts only the upstream `base_url`.
+
+### 12.8 Code references
+
+- `saturn/web.py:726-743` — `/api/proxy/models` route (delete `api_key`
+  query, read Authorization header, sanitise 502 body).
+- `Web-UI/app.js:1676` — sole caller, sends no key; needs no change.
+- CONFIG_FIELDS §A.6 — `proxy_models_method`, `redact_proxy_keys_in_logs`.
+- SECURITY_AUDIT.md §11 — sibling fix on `/api/proxy/chat`; co-landable
+  in one PR.
