@@ -1,6 +1,17 @@
 # Aider
 
-Saturn integrates with [Aider](https://aider.chat), the AI pair programming tool. The `saturn aider` command discovers services on your network and launches Aider with the correct endpoint and model — no API keys or configuration needed.
+Saturn integrates with [Aider](https://aider.chat), the AI pair programming tool. The `saturn aider` command browses `_saturn._tcp.local.`, picks an instance by priority, and launches Aider with `OPENAI_BASE_URL` / `OPENAI_API_KEY` already populated — no API keys or configuration needed on the user's side.
+
+## What it does on the wire
+
+```bash
+$ dns-sd -B _saturn._tcp .local                 # browse
+$ dns-sd -L "<instance>" _saturn._tcp local.    # resolve
+$ curl http://<host>:<port>/v1/models           # enumerate models
+# ↓ then exec aider with OPENAI_BASE_URL / OPENAI_API_KEY set
+```
+
+Everything below is the Python wrapper for those steps.
 
 ## Prerequisites
 

@@ -17,7 +17,7 @@ Normative reference for every key Saturn defines in its TXT record. Each entry i
 
 Every TXT string MUST be ≤ 255 bytes ([RFC 6763 §6.1](https://datatracker.ietf.org/doc/html/rfc6763#section-6.1)). Browsers MUST ignore unknown keys (forward compatibility).
 
-> Key stability above is the writer's reading of the spec pending oracle confirmation; cross-check against [`spec/v0.2/wire-format.md`](../../spec/v0.2/wire-format.md).
+> **Status: draft — pending spec sign-off.** RFC 3119 stability levels (MUST / SHOULD / MAY) above are the writer's first formalization. The thesis (Saturn.md:568–603) and the v2 redesign draft ([`spec/v0.2/wire-format.md`](../../spec/v0.2/wire-format.md):504–526) both use informal "Required / Conditional / No". Treat the column as a proposal until the spec adopts it.
 
 ---
 

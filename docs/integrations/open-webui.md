@@ -1,6 +1,17 @@
 # Open WebUI
 
-[Open WebUI](https://github.com/open-webui/open-webui) is a web-based chat interface for LLMs. Saturn endpoints are OpenAI-compatible, so Open WebUI can connect directly.
+[Open WebUI](https://github.com/open-webui/open-webui) is a web-based chat interface for LLMs. Saturn endpoints expose OpenAI-compatible HTTP, so Open WebUI connects directly with no Saturn-specific code.
+
+## Get a URL
+
+```bash
+$ dns-sd -B _saturn._tcp .local            # macOS / Bonjour
+$ avahi-browse -rtp _saturn._tcp           # Linux / Avahi
+$ saturn endpoint                          # Python helper — picks highest-priority
+http://macbook.local:11434
+```
+
+Paste the result into the connection form below.
 
 ## Setup
 

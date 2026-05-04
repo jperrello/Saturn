@@ -1,6 +1,17 @@
 # MCP Server
 
-Saturn provides a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that gives AI assistants direct access to the Saturn network. It exposes tools for discovering services, listing models, and sending chat completions.
+Saturn provides a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that lets any MCP-aware host browse the Saturn LAN with no Saturn-specific code. It exposes tools for discovery, model enumeration, and chat completion.
+
+## What it does on the wire
+
+When the host calls the `discover_saturn_services` tool, the server runs the equivalent of:
+
+```bash
+$ dns-sd -B _saturn._tcp .local
+$ dns-sd -L "<instance>" _saturn._tcp local.
+```
+
+…and returns the results to the host as JSON. No host-side mDNS library required.
 
 ## Install
 
@@ -73,7 +84,7 @@ Edit your config file:
 
 The `saturn://services` resource returns all discoverable services as JSON.
 
-For full parameter details, see the [MCP Tools Reference](../developer-guide/mcp-tools.md).
+For full parameter details, see the [MCP Tools Reference](../reference/clients/mcp-tools.md).
 
 ## Example prompts
 

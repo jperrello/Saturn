@@ -1,6 +1,17 @@
 # Jan
 
-[Jan](https://jan.ai) is a local-first AI client. Saturn services appear as OpenAI-compatible endpoints, so Jan can connect without any Saturn-specific configuration.
+[Jan](https://jan.ai) is a local-first AI client. Saturn services expose OpenAI-compatible endpoints, so Jan can connect without any Saturn-specific code or library — point it at a discovered URL and you're done.
+
+## Get a URL
+
+```bash
+$ dns-sd -B _saturn._tcp .local            # macOS / Bonjour
+$ avahi-browse -rtp _saturn._tcp           # Linux / Avahi
+$ saturn endpoint                          # Python helper — picks highest-priority
+http://macbook.local:11434
+```
+
+Any of the above works. The result is what you paste into Jan.
 
 ## Setup
 

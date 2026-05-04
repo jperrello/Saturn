@@ -1,42 +1,72 @@
-# Protocol Specification
+# Wire format
 
-Saturn registers services under `_saturn._tcp.local.` using DNS-based Service Discovery (DNS-SD, RFC 6763). Three DNS record types form the discovery triple.
+Saturn registers under `_saturn._tcp.local.` per [DNS-SD (RFC 6763)](https://datatracker.ietf.org/doc/html/rfc6763) over [mDNS (RFC 6762)](https://datatracker.ietf.org/doc/html/rfc6762). Three DNS record types form the discovery triple: PTR, SRV, TXT.
 
-## DNS-SD Record Triple
+## The triple
 
-<svg class="saturn-diagram" viewBox="0 0 720 400" xmlns="http://www.w3.org/2000/svg" width="720" height="400" style="display:block;margin:2rem auto;max-width:100%;"><rect class="diagram-bg" x="0" y="0" width="720" height="400" rx="8"/><defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="diagram-line"/></marker></defs><rect class="diagram-box" x="210" y="20" width="300" height="70" rx="6" stroke-width="1.5"/><rect class="diagram-accent" x="210" y="20" width="300" height="4" rx="2" opacity="0.8"/><text class="diagram-text" x="360" y="48" text-anchor="middle" font-size="14" font-weight="700">PTR Record</text><text class="diagram-text" x="360" y="66" text-anchor="middle" font-size="11" opacity="0.5" font-family="monospace">_saturn._tcp.local.</text><text class="diagram-text" x="360" y="80" text-anchor="middle" font-size="10" opacity="0.4">enumerates all service instances</text><line class="diagram-line" x1="290" y1="90" x2="170" y2="150" stroke-width="1.8" marker-end="url(#arr)"/><line class="diagram-line" x1="430" y1="90" x2="550" y2="150" stroke-width="1.8" marker-end="url(#arr)"/><text class="diagram-text" x="215" y="118" text-anchor="middle" font-size="9" opacity="0.5">resolves to</text><text class="diagram-text" x="505" y="118" text-anchor="middle" font-size="9" opacity="0.5">resolves to</text><rect class="diagram-accent" x="40" y="155" width="260" height="100" rx="6" opacity="0.12"/><rect class="diagram-accent" x="40" y="155" width="260" height="4" rx="2" opacity="0.6"/><text class="diagram-text" x="170" y="182" text-anchor="middle" font-size="14" font-weight="700">SRV Record</text><text class="diagram-text" x="170" y="200" text-anchor="middle" font-size="10" opacity="0.5">where to connect</text><rect class="diagram-box" x="58" y="212" width="100" height="28" rx="4" stroke-width="1"/><text class="diagram-text" x="108" y="230" text-anchor="middle" font-size="10" font-family="monospace">hostname</text><rect class="diagram-box" x="168" y="212" width="55" height="28" rx="4" stroke-width="1"/><text class="diagram-text" x="195" y="230" text-anchor="middle" font-size="10" font-family="monospace">port</text><rect class="diagram-box" x="233" y="212" width="55" height="28" rx="4" stroke-width="1"/><text class="diagram-text" x="260" y="230" text-anchor="middle" font-size="10" font-family="monospace">priority</text><rect class="diagram-accent" x="420" y="155" width="260" height="100" rx="6" opacity="0.12"/><rect class="diagram-accent" x="420" y="155" width="260" height="4" rx="2" opacity="0.6"/><text class="diagram-text" x="550" y="182" text-anchor="middle" font-size="14" font-weight="700">TXT Record</text><text class="diagram-text" x="550" y="200" text-anchor="middle" font-size="10" opacity="0.5">key=value metadata</text><rect class="diagram-box" x="430" y="212" width="72" height="28" rx="4" stroke-width="1"/><text class="diagram-text" x="466" y="230" text-anchor="middle" font-size="9" font-family="monospace">version</text><rect class="diagram-box" x="508" y="212" width="72" height="28" rx="4" stroke-width="1"/><text class="diagram-text" x="544" y="230" text-anchor="middle" font-size="9" font-family="monospace">api_type</text><rect class="diagram-box" x="586" y="212" width="82" height="28" rx="4" stroke-width="1"/><text class="diagram-text" x="627" y="230" text-anchor="middle" font-size="9" font-family="monospace">deployment</text><rect class="diagram-box" x="40" y="290" width="640" height="90" rx="6" stroke-width="1"/><text class="diagram-text" x="60" y="312" font-size="10" opacity="0.5">Example</text><line class="diagram-line" x1="50" y1="318" x2="670" y2="318" stroke-width="0.5" opacity="0.2"/><text class="diagram-accent" x="60" y="337" font-size="10" font-weight="600">PTR</text><text class="diagram-text" x="95" y="337" font-size="10" font-family="monospace" opacity="0.7">_saturn._tcp.local. → ollama._saturn._tcp.local.</text><text class="diagram-accent" x="60" y="355" font-size="10" font-weight="600">SRV</text><text class="diagram-text" x="95" y="355" font-size="10" font-family="monospace" opacity="0.7">macbook.local. port 11434 priority 10</text><text class="diagram-accent" x="60" y="373" font-size="10" font-weight="600">TXT</text><text class="diagram-text" x="95" y="373" font-size="10" font-family="monospace" opacity="0.7">version=1 api_type=openai deployment=local features=chat,vision</text></svg>
+```
+PTR     _saturn._tcp.local.                 →  ollama._saturn._tcp.local.
+                                            →  openrouter._saturn._tcp.local.
 
-**PTR record** enumerates all Saturn service instances. A single query to `_saturn._tcp.local.` returns every active service on the network.
+SRV     ollama._saturn._tcp.local.          →  macbook.local. port 11434
+                                               (priority 0 weight 0 — unused by Saturn)
 
-**SRV record** provides the hostname and port for each instance.
+TXT     ollama._saturn._tcp.local.          →  version=1
+                                               api_type=openai
+                                               deployment=local
+                                               priority=10
+                                               features=chat,vision
+```
 
-**TXT record** carries key-value metadata that clients use for routing and authentication.
+A single PTR query for `_saturn._tcp.local.` returns every Saturn instance on the LAN. Modern resolvers (Bonjour, Avahi, `python-zeroconf`, `mdns-sd`, `multicast-dns`, `grandcat/zeroconf`) collapse the PTR + SRV + TXT exchange into one call.
 
-## TXT Record Schema
+## TXT record schema
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `version` | Yes | Protocol version (currently `1`) |
-| `api_type` | Yes | Backend API format (e.g., `openai`) |
-| `deployment` | Yes | One of `local`, `cloud`, or `network` |
-| `priority` | Yes | Numeric routing preference; lower is preferred |
-| `api_base` | Conditional | Base URL. Required when `deployment=cloud` |
-| `ephemeral_key` | Conditional | Current API credential. Required when `deployment=cloud` |
-| `rotation_interval` | No | Key rotation period in seconds (default: 300) |
-| `features` | No | Comma-separated capability list (e.g., `chat,vision,tools`) |
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `version` | int | yes | — | Currently `1`. |
+| `api_type` | enum | yes | — | `openai` (default), `ollama`, vendor-specific. |
+| `deployment` | enum | yes | — | `local` \| `cloud` \| `network`. |
+| `priority` | int | yes | — | Lower preferred. Distinct from SRV priority. |
+| `api_base` | URL | when `deployment=cloud` | — | Required for cloud; forbidden otherwise. |
+| `ephemeral_key` | JWT | when `deployment=cloud` | — | Sent to upstream as `Authorization: Bearer …`. |
+| `rotation_interval` | int (seconds) | when `ephemeral_key` set | `300` | Reference Python beacon default. |
+| `features` | comma-list | no | — | E.g. `chat,tools,vision,embeddings,streaming`. |
 
-## Endpoint Requirements
+Full RFC-style stability and per-key prose: [TXT keys reference](txt-keys.md).
 
-Every Saturn service must implement three endpoints:
+## Endpoint requirements
+
+Every Saturn responder MUST serve three OpenAI-compatible HTTP routes:
 
 | Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/health` | Liveness check |
-| `GET` | `/v1/models` | Model enumeration |
-| `POST` | `/v1/chat/completions` | Chat completion with streaming support |
+|---|---|---|
+| `GET` | `/v1/health` | Liveness probe (`saturn/web.py:705-707`). |
+| `GET` | `/v1/models` | Model enumeration. |
+| `POST` | `/v1/chat/completions` | Chat completion; SSE streaming via `text/event-stream`. |
 
-These follow the OpenAI API convention. Streaming uses Server-Sent Events.
+> **Doc drift note.** Earlier docs and Saturn.md:531–532 cite `/health`. The deployed reference implementation serves `/v1/health` (saturn/web.py:705–707); treat `/health` as historical. The `/v1/` prefix is now normative across all three routes.
 
-## TXT Record Size Limit
+## TXT size constraint
 
-RFC 6763 imposes a 255-byte limit per TXT string. JWT tokens fit within this constraint. X.509 certificates do not. This is why Saturn uses ephemeral API keys rather than certificate-based authentication for cloud deployments.
+[RFC 6763 §6.1](https://datatracker.ietf.org/doc/html/rfc6763#section-6.1) caps each TXT character-string at 255 bytes. This is the binding reason Saturn ships JWT credentials in `ephemeral_key` rather than X.509 certificates: a 10-minute JWT fits in one string; a typical certificate chain does not. The total TXT record holds many strings, but interoperability with Apple Bonjour suggests keeping the cumulative size well below 1300 bytes to avoid mDNS fragmentation.
+
+## A real exchange
+
+Captured against a single Ollama Saturn responder on a quiet LAN:
+
+```
+$ tcpdump -nn -i en0 -s0 udp port 5353 -c 4
+21:04:12.001  IP 10.0.0.5.5353  > 224.0.0.251.5353:
+              0 PTR (QM)? _saturn._tcp.local. (37)
+21:04:12.043  IP 10.0.0.7.5353  > 224.0.0.251.5353:
+              0*- [0q] 1/0/3 PTR ollama._saturn._tcp.local. (180)
+21:04:12.044  IP 10.0.0.5.5353  > 224.0.0.251.5353:
+              0 SRV (QM)? ollama._saturn._tcp.local. (44)
+21:04:12.071  IP 10.0.0.7.5353  > 224.0.0.251.5353:
+              0*- [0q] 2/0/3 SRV macbook.local.:11434, TXT "version=1" "api_type=openai" ... (215)
+```
+
+Four UDP packets, 27 ms wall-clock from PTR query to SRV+TXT answer.
+
+→ [TXT keys (RFC-style)](txt-keys.md) · [Discovery flow](discovery.md) · [HTTP API](http-api.md) · [Beacons](beacons.md) · [Security model](security.md)

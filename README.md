@@ -65,7 +65,7 @@ Full per-language details: [docs/implementations/](docs/implementations/index.md
 
 ## Implementations
 
-Reference clients across five languages and four mDNS libraries, sharing no Saturn-specific code. Interoperability comes from the wire format alone.
+Seven reference clients across five languages and four mDNS libraries, sharing no Saturn-specific code. Interoperability comes from the wire format alone (Saturn.md:976).
 
 | Implementation | Language | mDNS library | What it does |
 |---|---|---|---|
@@ -76,7 +76,8 @@ Reference clients across five languages and four mDNS libraries, sharing no Satu
 | [`vlc_extension/`](vlc_extension/README.md) | Lua + Python | `dns-sd` CLI | Bridges Saturn into a non-AI-native host application |
 | [`saturn-mcp/`](saturn-mcp/README.md) | TypeScript | `multicast-dns` | Discovery surfaced as MCP tools |
 | [Open WebUI plugin](owui_saturn.py) | Python | `python-zeroconf` | Single-file backend swap for Open WebUI |
-| [OpenCode fork](https://github.com/jperrello/opencode-saturn) | TypeScript | `multicast-dns` | Agentic workflow with tool calls and streaming |
+
+A post-thesis [OpenCode fork](https://github.com/jperrello/opencode-saturn) (TypeScript, `multicast-dns`) demonstrates agentic workflow with tool calls and streaming; it lives outside the monorepo and is not part of the canonical seven.
 
 ---
 
@@ -107,7 +108,7 @@ A Saturn **beacon** dispenses credentials without proxying inference traffic:
 
 1. Mint a scoped sub-key against a cloud provider with a short expiration.
 2. Embed it in the `ephemeral_key` TXT field.
-3. Rotate periodically; clients re-read TXT.
+3. Rotate periodically; clients re-read TXT. The reference Python beacon uses a 10-minute key lifetime with a 5-minute rotation interval *by default* — these are reference-implementation defaults, not protocol invariants. Saturn.md:614–615.
 4. Clients call the upstream API directly — the beacon never sees prompt or completion bytes.
 
 This bounds the dominant secret-leakage failure mode: [Meli et al.](https://www.ndss-symposium.org/wp-content/uploads/2019/02/ndss2019_04B-3_Meli_paper.pdf) found 81% of GitHub-leaked secrets are never revoked. A short-lived sub-key is dead before any scanner reaches it.
@@ -155,7 +156,7 @@ That is the entire protocol surface. → [Spec v0.2](docs/spec/v0.2/wire-format.
 
 ## Platform notes
 
-- **macOS.** `dns-sd` is part of the system; nothing to install.
+- **macOS.** `dns-sd` is part of the system; nothing to install. **Beacon caveat:** if you run a Saturn beacon on a laptop, keep it awake (`caffeinate -i saturn run <name>`) — the Bonjour Sleep Proxy can serve a stale TXT after the host sleeps and the published `ephemeral_key` expires. See [docs/concepts/mdns-background.md#addendum-bonjour-sleep-proxy-and-beacon-hosts](docs/concepts/mdns-background.md#addendum-bonjour-sleep-proxy-and-beacon-hosts).
 - **Linux.** `sudo apt install avahi-utils`. Saturn requires Avahi ≥ 0.9-rc3; older builds are exposed to CVE-2025-68276 / 68468 / 68471. Ubuntu 24.04 LTS is patched.
 - **Windows.** Install [Bonjour Print Services](https://support.apple.com/kb/DL999). If `saturn` is not on `PATH`, use `python -m saturn`.
 

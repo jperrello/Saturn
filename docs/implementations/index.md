@@ -1,6 +1,8 @@
 # Implementations
 
-Saturn ships seven reference implementations across five languages and four mDNS libraries. None share Saturn-specific code; conformance is the wire format.
+Saturn ships seven reference implementations across five languages and four mDNS libraries (Saturn.md:976). None share Saturn-specific code; conformance is the wire format.
+
+A post-thesis [OpenCode fork](https://github.com/jperrello/opencode-saturn) (TypeScript) is also Saturn-aware but lives outside the monorepo and is not counted among the canonical seven.
 
 ## Feature matrix
 

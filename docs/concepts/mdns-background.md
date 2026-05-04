@@ -1471,3 +1471,20 @@ deployment environments apply security updates.
 
 - W. Richard Stevens, *Unix Network Programming Vol. 1*, Chapter 21 — Multicasting. Definitive
   treatment of multicast socket programming: `ip_mreq`, IGMP, multicast routing.
+
+---
+
+## Addendum: Bonjour Sleep Proxy and beacon hosts
+
+Material implication for Saturn beacon deployments, lifted from `SECURITY_AUDIT.md §16.6`.
+
+> Saturn's beacon mode rotates credentials every few minutes by design — the published key in the mDNS TXT record is short-lived precisely because it's broadcast on the LAN. Rotation only happens while the Saturn host is awake. If you run a beacon on a laptop that may sleep, the rotation pauses while the laptop sleeps; the credential the LAN sees can go stale, and on macOS the Bonjour Sleep Proxy may continue serving that stale TXT after the credential has expired upstream. Clients then read a dead key and get authentication errors.
+>
+> Two safe configurations:
+>
+> 1. **Run beacons on always-on hosts** — desktops, Raspberry Pi, NAS, lab servers. This is what beacon mode is designed for.
+> 2. **If you must run a beacon on a laptop, keep it awake while the beacon is running.** Saturn offers to do this for you on first run; if you decline, run `caffeinate -i saturn run <name>` on macOS or `systemd-inhibit` on Linux.
+>
+> Proxy-mode services (the default) are not affected — the Saturn host is in the data path, so if it sleeps the service simply disappears from the LAN until it wakes, with no stale-credential failure mode.
+
+Sourcing: Apple SPS behaviour per [TN2353](https://developer.apple.com/library/archive/technotes/tn2353/_index.html) and Stuart Cheshire's Bonjour overview talks. The "no third-party update push" property is structural, rooted in [RFC 6762 §17](https://datatracker.ietf.org/doc/html/rfc6762#section-17). The "SPS extends past TTL while the host is asleep" observation is on-the-wire empirical, not contractual — which is why the in-flight Saturn-side fix (qj5.16.14) is to unregister on sleep-notification (`NSWorkspaceWillSleepNotification`) rather than rely on TTL.
