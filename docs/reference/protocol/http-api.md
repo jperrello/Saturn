@@ -1,291 +1,181 @@
-# REST API Reference
+# HTTP API
 
-The Saturn Web UI (`saturn web`) exposes a REST API on port 3000 (default). All endpoints are under `/api/`.
+Two distinct surfaces ship under the same TCP port. Don't confuse them.
 
-## Services
+| Surface | Routes | Audience | Stability |
+|---|---|---|---|
+| **Saturn protocol** | `/v1/health`, `/v1/models`, `/v1/chat/completions` | Any conformant Saturn client | **Normative** — required for protocol conformance |
+| Reference Python Web-UI | `/api/*` (services, discover, brutus, mcp, admin, …) | The bundled Web-UI in `saturn-ai` | Implementation-specific; not part of the protocol |
 
-### `GET /api/services`
-
-List all configured services (built-in and user-created) with runtime status.
-
-**Response:** Array of service objects with `name`, `deployment`, `api_type`, `priority`, `status` (running/stopped), `pid`, `port`, and `mdns_name`.
-
-### `POST /api/services`
-
-Create a new service configuration.
-
-**Body:**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | string | yes | Service name |
-| `deployment` | string | yes | `cloud`, `local`, or `network` |
-| `api_type` | string | yes | `openai`, `ollama`, or `anthropic` |
-| `priority` | int | no | Routing priority (lower = preferred) |
-| `base_url` | string | no | Upstream API URL |
-| `api_key_env` | string | no | Environment variable containing API key |
-| `port` | int | no | Port to bind |
-| `beacon_enabled` | bool | no | Enable beacon mode |
-| `beacon_provider` | string | no | Beacon provider name |
-| `rotation_interval` | int | no | Key rotation interval (seconds) |
-| `expiration_interval` | int | no | Key expiration interval (seconds) |
-
-### `POST /api/services/{name}/start`
-
-Start a service by name. Optionally override `host` and `port` in the request body.
-
-### `POST /api/services/{name}/stop`
-
-Stop a running service by name. Sends SIGTERM, waits up to 3 seconds.
-
-### `DELETE /api/services/{name}`
-
-Delete a user-created service configuration. Refuses to delete built-in services or currently running services.
+A non-Python implementation MUST serve the three protocol routes and MAY ignore the Web-UI routes entirely.
 
 ---
 
-## Discovery
+## Saturn protocol — `/v1/*`
 
-### `GET /api/discover`
+The contract every Saturn responder MUST honor. OpenAI-compatible by design — drop the discovered URL into any tool that accepts a `base_url`.
 
-Run mDNS/DNS-SD discovery (5-second timeout, 1-second settle). Returns an array of discovered services on the network.
+### `GET /v1/health`
 
-**Response:** Array of objects with `name`, `host`, `port`, `priority`, `deployment`, `api_type`, and `models`.
+Liveness probe. Source: `saturn/web.py:705-707`.
 
----
-
-## Models
-
-### `GET /api/models/all`
-
-Aggregate models from all sources: discovered services, running configured services, and cloud services. Applies the admin model filter if set.
-
-**Response:** Array of model objects with `id`, `service`, `endpoint`, and metadata.
-
-### `GET /api/models?service={name}`
-
-List models from a specific named service.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `service` | string | yes | Service name |
-
-### `GET /api/proxy/models?base_url={url}`
-
-Proxy a model list request to an external endpoint (avoids CORS issues).
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `base_url` | string | yes | External API base URL |
-| `api_key` | string | no | API key for the external endpoint |
-
----
-
-## Chat Completions
-
-All chat endpoints support streaming via Server-Sent Events (`text/event-stream`).
-
-### `POST /api/chat`
-
-Send a chat completion to a named service. Rate-limited per client IP.
-
-**Body:**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `service` | string | yes | Target service name |
-| `model` | string | yes | Model to use |
-| `messages` | array | yes | Chat messages (`role` + `content`) |
-| `temperature` | float | no | Sampling temperature |
-| `max_tokens` | int | no | Maximum tokens to generate |
-| `top_p` | float | no | Nucleus sampling |
-| `top_k` | int | no | Top-k sampling |
-| `frequency_penalty` | float | no | Frequency penalty |
-| `presence_penalty` | float | no | Presence penalty |
-| `repeat_penalty` | float | no | Repetition penalty (Ollama) |
-| `repeat_last_n` | int | no | Lookback window for repeat penalty (Ollama) |
-| `min_p` | float | no | Min-p sampling (Ollama) |
-| `seed` | int | no | Random seed |
-| `stop` | list | no | Stop sequences |
-| `mirostat` | int | no | Mirostat sampling mode (Ollama) |
-| `mirostat_tau` | float | no | Mirostat target entropy (Ollama) |
-| `mirostat_eta` | float | no | Mirostat learning rate (Ollama) |
-| `num_ctx` | int | no | Context window size (Ollama) |
-| `num_batch` | int | no | Batch size (Ollama) |
-| `keep_alive` | string | no | Model keep-alive duration (Ollama) |
-| `tfs_z` | float | no | Tail-free sampling z (Ollama) |
-| `typical_p` | float | no | Typical-p sampling (Ollama) |
-| `response_format` | object | no | Response format constraint |
-| `thinking` | string | no | Extended thinking mode |
-
-**Response headers:**
-
-- `X-Saturn-Tokens-Remaining` -- remaining tokens in the per-IP TPM budget
-
-### `POST /api/proxy/chat`
-
-Proxy a chat completion to an arbitrary URL. Same body fields as `/api/chat` plus:
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `base_url` | string | yes | Target API base URL |
-| `api_type` | string | no | API format (`openai`, `ollama`, `anthropic`) |
-| `api_key` | string | no | API key |
-
-### `POST /api/brutus/chat`
-
-Intelligent auto-routing chat. Automatically selects the best available backend with circuit-breaker failover.
-
-Same message and generation parameters as `/api/chat`, but no `service` or `model` field -- Brutus selects them automatically.
-
-**Response headers:**
-
-- `X-Brutus-Service` -- which service handled the request
-- `X-Brutus-Model` -- which model was used
-- `X-Brutus-Skipped` -- services skipped (circuit breaker open)
-- `X-Brutus-Latency` -- routing latency
-
----
-
-## Brutus (Auto-routing)
-
-### `GET /api/brutus/status`
-
-Returns the full Brutus routing system status: all backends with circuit breaker state (failures, open, cooldown), tunnel status, and the last 20 routing log entries.
-
-### `GET /api/brutus/url`
-
-Returns the public URL for this Saturn instance. If a Cloudflare tunnel is active, returns the tunnel URL; otherwise returns the LAN IP.
-
-**Response:** `{ "url": "...", "mode": "tunnel" | "lan" }`
-
----
-
-## Tunnels
-
-### `GET /api/brutus/tunnel/status`
-
-Returns the current Cloudflare tunnel status (`running`/`stopped`) and URL.
-
-### `POST /api/brutus/tunnel/start`
-
-Start a Cloudflare tunnel (`cloudflared tunnel --url http://localhost:3000`). Waits for the tunnel URL and DNS propagation (up to 30 seconds).
-
-Requires `cloudflared` installed and available in PATH.
-
-### `POST /api/brutus/tunnel/stop`
-
-Stop the running Cloudflare tunnel.
-
----
-
-## MCP Integration
-
-### `GET /api/mcp/servers`
-
-List configured MCP servers.
-
-### `POST /api/mcp/servers`
-
-Add a new MCP server.
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `url` | string | yes | MCP server URL |
-| `name` | string | no | Display name |
-| `auth_token` | string | no | Authentication token |
-
-### `DELETE /api/mcp/servers/{name}`
-
-Remove an MCP server by name.
-
-### `GET /api/mcp/tools`
-
-List all tools from all configured MCP servers.
-
-### `POST /api/mcp/tools/call`
-
-Call a tool on a specific MCP server.
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `server` | string | yes | MCP server name |
-| `tool` | string | yes | Tool name |
-| `arguments` | object | no | Tool arguments |
-
----
-
-## Rate Limiting
-
-### `GET /api/rate-limit/status`
-
-Returns the current rate limit state for the calling IP.
-
-**Response:**
-
-```json
-{
-  "rpm": { "remaining": 28, "limit": 30 },
-  "tpm": { "remaining": 95000, "limit": 100000 },
-  "concurrent": { "active": 1, "limit": 3 },
-  "global_concurrent": { "limit": 10 }
-}
+```bash
+$ curl http://macbook.local:11434/v1/health
+{"status":"ok"}
 ```
 
+`200 OK` indicates the responder is up and willing to serve `/v1/models` and `/v1/chat/completions`. Browsers SHOULD probe this before routing the first request and use the result as the failover signal.
+
+> **Doc-drift note.** Earlier docs and Saturn.md:531–532 cite `/health`. The deployed reference implementation serves `/v1/health`; treat `/health` as historical and prefer the `/v1/`-prefixed path.
+
+### `GET /v1/models`
+
+Returns the list of models the responder can serve. Body matches the [OpenAI model-list shape](https://platform.openai.com/docs/api-reference/models/list).
+
+```bash
+$ curl http://macbook.local:11434/v1/models
+{"object":"list","data":[
+  {"id":"llama3.2","object":"model","owned_by":"ollama"},
+  {"id":"qwen2.5","object":"model","owned_by":"ollama"}
+]}
+```
+
+For cloud responders advertising `deployment=cloud`, send the `ephemeral_key` from TXT as `Authorization: Bearer <key>`.
+
+### `POST /v1/chat/completions`
+
+Chat completion. Body and response follow the [OpenAI chat-completions shape](https://platform.openai.com/docs/api-reference/chat). Streaming via Server-Sent Events when `stream: true`.
+
+```bash
+$ curl http://macbook.local:11434/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d '{
+      "model": "llama3.2",
+      "messages": [{"role":"user","content":"hi"}],
+      "stream": false
+    }'
+{"id":"chatcmpl-...","choices":[{"message":{"role":"assistant","content":"Hello!"}}], ...}
+```
+
+Streaming response (`stream: true`):
+
+```
+data: {"id":"...","choices":[{"delta":{"content":"Hel"}}]}
+
+data: {"id":"...","choices":[{"delta":{"content":"lo!"}}]}
+
+data: [DONE]
+```
+
+Standard sampling parameters (`temperature`, `max_tokens`, `top_p`, `top_k`, `frequency_penalty`, `presence_penalty`, `seed`, `stop`) pass through unchanged. Backend-specific parameters (Ollama: `num_ctx`, `keep_alive`, `mirostat*`, `tfs_z`; Anthropic: `thinking`) pass through to the upstream when the responder's `api_type` matches.
+
+### Authentication on protocol routes
+
+When the responder advertises `deployment=cloud`, send the TXT `ephemeral_key` as a Bearer token:
+
+```bash
+$ curl https://openrouter.ai/api/v1/chat/completions \
+    -H "Authorization: Bearer $EPHEMERAL_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{...}'
+```
+
+For `deployment=local` and `deployment=network`, no auth is required at the protocol layer — the LAN is the trust boundary. Operators who need stronger guarantees front Saturn with a TLS-terminating reverse proxy and gate it with `SATURN_RUNNER_TOKEN`. → [Security model](security.md)
+
 ---
 
-## Usage Tracking
+## Reference Python Web-UI — `/api/*`
 
-### `GET /api/usage`
+The bundled Web-UI in `saturn-ai` exposes a REST surface on port 3000 (default) for service management, the chat UI, MCP integration, tunnels, and admin operations. **None of this is part of the Saturn protocol.** Other implementations are free to expose the same operations on different routes (or not at all).
 
-Get today's token usage stats.
+### Authentication
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `user_id` | string | caller's IP | User to query |
+Per CONFIG_FIELDS §A.2, every `/api/*` route except the small public set requires:
 
-### `POST /api/usage/report`
+```
+Authorization: Bearer $SATURN_ADMIN_TOKEN
+```
 
-Record token usage for the calling IP.
+`SATURN_ADMIN_TOKEN` has no default; Saturn refuses to start without it. The Web-UI form login (`POST /api/admin/auth`) takes the human-typed `SATURN_ADMIN_PASSWORD` and exchanges it for a signed session cookie (default 8 h TTL) — separate surface from the bearer token. → [Environment variables](../../configuration/env-vars.md)
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `tokens_in` | int | Input tokens consumed |
-| `tokens_out` | int | Output tokens consumed |
+### Services
 
-### `GET /api/usage/history`
+| Route | Purpose |
+|---|---|
+| `GET /api/services` | List configured services with runtime status (`pid`, `port`, `mdns_name`). |
+| `POST /api/services` | Create a service config. Body: `name`, `deployment`, `api_type`, optional `priority`, `base_url`, `api_key_env`, `port`, `beacon_*`, `rotation_interval`, `expiration_interval`. |
+| `POST /api/services/{name}/start` | Start a service. May override `host` and `port` in body. |
+| `POST /api/services/{name}/stop` | Stop a service. SIGTERM, 3 s wait. |
+| `DELETE /api/services/{name}` | Delete a user-created service. Refuses built-in or running services. |
 
-Get historical usage data.
+### Discovery and models
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `user_id` | string | caller's IP | User to query |
-| `days` | int | `7` | Number of days of history |
+| Route | Purpose |
+|---|---|
+| `GET /api/discover` | Run mDNS discovery (5 s timeout, 1 s settle). Returns the same shape as a fresh `dns-sd -B` + resolve. |
+| `GET /api/models/all` | Aggregate models across discovered, configured, and cloud services. Applies admin model filter. |
+| `GET /api/models?service={name}` | Models from a single named service. |
+| `GET /api/proxy/models?base_url={url}` | List models on an arbitrary upstream. **Do not pass `api_key` in the URL** — send `Authorization: Bearer <token>` on the request and Saturn forwards it (SECURITY_AUDIT.md §12.7, §11.4). |
 
----
+### Chat completions (Web-UI surface)
 
-## Admin
+| Route | Purpose |
+|---|---|
+| `POST /api/chat` | Chat completion through a named Saturn service. Rate-limited per client IP. |
+| `POST /api/proxy/chat` | Chat completion against an arbitrary upstream. Body: `base_url`, `api_type`, plus the standard chat fields. **No `api_key` body field** — register the upstream as a Saturn service (with `api_key_env`) or send `Authorization: Bearer <token>` on the request (SECURITY_AUDIT.md §11.4, §11.8). |
+| `POST /api/brutus/chat` | Auto-routed chat with circuit-breaker failover. Returns `X-Brutus-Service`, `X-Brutus-Model`, `X-Brutus-Skipped`, `X-Brutus-Latency` headers. |
 
-### `POST /api/admin/auth`
+`/api/chat` accepts the standard OpenAI sampling fields and the backend-specific fields documented in the protocol section above. `X-Saturn-Tokens-Remaining` reports the per-IP TPM budget; `X-Saturn-Resolved-Config` reports the config Saturn actually applied (token cap, temperature, model, system prompt) — visible-receipt-of-applied-settings is intentional UX (RUN_BRIEF_MAY04 Bucket 3c).
 
-Authenticate as admin.
+### Brutus (auto-routing)
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `password` | string | Admin password |
+| Route | Purpose |
+|---|---|
+| `GET /api/brutus/status` | Backend states (failures, open/closed circuit, cooldown), tunnel status, last 20 routing log entries. |
+| `GET /api/brutus/url` | Public URL for this Saturn instance (tunnel URL if active, else LAN IP). Returns `{"url": "...", "mode": "tunnel"|"lan"}`. |
 
-Returns `{"ok": true}` on success, 401 on failure.
+### Tunnels (Cloudflare)
 
-### `GET /api/admin/config`
+| Route | Purpose |
+|---|---|
+| `GET /api/brutus/tunnel/status` | `running`/`stopped` + URL. |
+| `POST /api/brutus/tunnel/start` | Start `cloudflared tunnel --url http://localhost:3000`. Waits up to 30 s for DNS propagation. |
+| `POST /api/brutus/tunnel/stop` | Stop the tunnel. |
 
-Get the current admin configuration.
+All three require `Authorization: Bearer $SATURN_ADMIN_TOKEN`. → [Tunnels guide](../../configuration/tunnels.md)
 
-### `POST /api/admin/config`
+### MCP integration
 
-Update admin configuration.
+| Route | Purpose |
+|---|---|
+| `GET /api/mcp/servers` | List configured MCP servers. |
+| `POST /api/mcp/servers` | Add an MCP server. Body: `url`, optional `name`, `auth_token`. |
+| `DELETE /api/mcp/servers/{name}` | Remove. |
+| `GET /api/mcp/tools` | List tools across all configured MCP servers. |
+| `POST /api/mcp/tools/call` | Body: `server`, `tool`, optional `arguments`. |
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `model_filter` | string | Comma-separated model filter substrings |
-| `max_budget` | float | Maximum token budget |
-| `budget_duration` | string | Budget reset duration |
+### Rate limiting
+
+| Route | Purpose |
+|---|---|
+| `GET /api/rate-limit/status` | Current per-IP rate-limit state: `rpm`, `tpm`, `concurrent`, `global_concurrent`. |
+
+### Usage tracking
+
+| Route | Purpose |
+|---|---|
+| `GET /api/usage` | Today's token totals. The `user_id` query parameter is **admin-only** (was a query bypass — `SECURITY_AUDIT.md §9`); without admin auth, returns the caller's own totals only. |
+| `POST /api/usage/report` | Record token usage for the calling IP. Body: `tokens_in`, `tokens_out`. |
+| `GET /api/usage/history` | Historical usage. `user_id` admin-only; `days` defaults to 7. |
+
+> Saturn keeps a small daily counter of how many tokens each LAN peer consumes through it — not what they asked or what came back, just totals. Per-peer queries require `SATURN_ADMIN_TOKEN`; the chat UI shows each user their own running session total. (`SECURITY_AUDIT.md §9.7`)
+
+### Admin
+
+| Route | Purpose |
+|---|---|
+| `POST /api/admin/auth` | Exchange `SATURN_ADMIN_PASSWORD` for a signed session cookie. Returns `{"ok": true}` on success, 401 on failure. |
+| `GET /api/admin/config` | Current admin configuration (model filter, budgets, `trusted_proxies`, etc.). |
+| `POST /api/admin/config` | Update admin configuration. Schema: CONFIG_FIELDS §A. |
+
+→ [Wire format](wire-format.md) · [Discovery flow](discovery.md) · [Beacons](beacons.md) · [Security model](security.md) · [Environment variables](../../configuration/env-vars.md)

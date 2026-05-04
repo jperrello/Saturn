@@ -27,7 +27,7 @@ Navigate to **System > Remote** in the Web UI. Click the tunnel start button. Sa
 
 ```bash
 curl -X POST http://localhost:3000/api/brutus/tunnel/start \
-  -H "Authorization: Bearer $SATURN_ADMIN_PASSWORD"
+  -H "Authorization: Bearer $SATURN_ADMIN_TOKEN"
 ```
 
 Saturn launches `cloudflared`, then polls for up to 30 seconds waiting for the tunnel URL and DNS propagation. The response includes the public URL:
@@ -47,7 +47,7 @@ In the Web UI, the QR code appears automatically in the System > Remote tab. Via
 
 ```bash
 curl http://localhost:3000/api/brutus/tunnel/status \
-  -H "Authorization: Bearer $SATURN_ADMIN_PASSWORD"
+  -H "Authorization: Bearer $SATURN_ADMIN_TOKEN"
 ```
 
 ## Stopping a tunnel
@@ -60,7 +60,7 @@ Click the tunnel stop button in **System > Remote**.
 
 ```bash
 curl -X POST http://localhost:3000/api/brutus/tunnel/stop \
-  -H "Authorization: Bearer $SATURN_ADMIN_PASSWORD"
+  -H "Authorization: Bearer $SATURN_ADMIN_TOKEN"
 ```
 
 ## Notes
@@ -71,4 +71,4 @@ curl -X POST http://localhost:3000/api/brutus/tunnel/stop \
 - The tunnel exposes only the Saturn Web UI port, not the entire machine.
 
 !!! warning
-    Anyone with the tunnel URL can access your Saturn instance. The admin password (`SATURN_ADMIN_PASSWORD`) protects admin endpoints, but the chat interface is open. Change the default password before starting a tunnel.
+    Anyone with the tunnel URL can reach your Saturn instance. Admin endpoints (`/api/*`, including the tunnel start/stop calls above) require `SATURN_ADMIN_TOKEN` as a Bearer header; the chat interface is open by default. Set both `SATURN_ADMIN_PASSWORD` (for the Web-UI login) and `SATURN_ADMIN_TOKEN` (for the API) before starting a tunnel — neither has a default per CONFIG_FIELDS §A.2, and Saturn refuses to start without them.

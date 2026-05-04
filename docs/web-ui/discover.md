@@ -41,10 +41,12 @@ Check a service to make it available in the Chat tab's service selector. The cor
 
 Service management controls are gated behind admin authentication. Click the lock icon or attempt to configure a service to trigger the password prompt.
 
-The admin password defaults to `saturn` and can be changed via the `SATURN_ADMIN_PASSWORD` environment variable:
+There is no default. Set `SATURN_ADMIN_PASSWORD` (for the Web-UI login form) and `SATURN_ADMIN_TOKEN` (for programmatic `/api/*` calls) before starting Saturn — Saturn refuses to start if either is missing, and rejects passwords that are empty, equal to `saturn`, or shorter than 12 characters (CONFIG_FIELDS §A.2):
 
 ```bash
-SATURN_ADMIN_PASSWORD=mysecret saturn web
+SATURN_ADMIN_PASSWORD=correct-horse-battery-staple-9 \
+SATURN_ADMIN_TOKEN=$(openssl rand -hex 32) \
+saturn web
 ```
 
 After authenticating, you gain access to:
@@ -54,7 +56,7 @@ After authenticating, you gain access to:
 - The **Configure New Service** button
 
 !!! warning
-    The admin password is a simple gate — not a full auth system. It protects against casual access, not determined attackers. Use [Remote Access](remote.md) with Cloudflare Tunnels for secure external exposure.
+    The admin password gates the Web-UI login form. Programmatic API access requires `SATURN_ADMIN_TOKEN` as a Bearer header on every `/api/*` call. The chat interface remains open by default — for secure external exposure, see [Remote Access](remote.md) and the TLS-posture recommendations in [docs/reference/protocol/security.md](../reference/protocol/security.md).
 
 ## Server Management
 

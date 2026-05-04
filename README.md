@@ -32,7 +32,7 @@ This repository is the artifact of a master's thesis at UC Santa Cruz (Joey Perr
 
 ---
 
-## Quickstart in three other languages
+## Same idea, other languages
 
 === "Go"
 
@@ -96,26 +96,26 @@ rotation_interval=300                     # seconds; default 300
 features=chat,tools,vision                # capability hints
 ```
 
-Each TXT string MUST be ≤ 255 bytes ([RFC 6763 §6.1](https://datatracker.ietf.org/doc/html/rfc6763#section-6.1)). JWTs fit; X.509 certificates do not — a constraint that shapes the credential design.
+[RFC 6763 §6.1](https://datatracker.ietf.org/doc/html/rfc6763#section-6.1) caps each TXT string at 255 bytes — JWTs fit, X.509 certs don't. That constraint shapes the credential design.
 
-Full schema and stability levels: [docs/reference/protocol/txt-keys.md](docs/reference/protocol/txt-keys.md).
+Full schema, RFC-style stability levels, and per-key prose: [docs/reference/protocol/txt-keys.md](docs/reference/protocol/txt-keys.md).
 
 ---
 
 ## Beacons and ephemeral keys
 
-A Saturn **beacon** dispenses credentials without proxying inference traffic:
+A Saturn **beacon** dispenses credentials for a cloud upstream and never proxies inference traffic:
 
-1. Mint a scoped sub-key against a cloud provider with a short expiration.
+1. Mint a scoped sub-key against the upstream with a short expiration.
 2. Embed it in the `ephemeral_key` TXT field.
-3. Rotate periodically; clients re-read TXT. The reference Python beacon uses a 10-minute key lifetime with a 5-minute rotation interval *by default* — these are reference-implementation defaults, not protocol invariants. Saturn.md:614–615.
-4. Clients call the upstream API directly — the beacon never sees prompt or completion bytes.
+3. Rotate before expiry; clients re-read TXT.
+4. Clients call the upstream directly — the beacon never sees prompt or completion bytes.
 
-This bounds the dominant secret-leakage failure mode: [Meli et al.](https://www.ndss-symposium.org/wp-content/uploads/2019/02/ndss2019_04B-3_Meli_paper.pdf) found 81% of GitHub-leaked secrets are never revoked. A short-lived sub-key is dead before any scanner reaches it.
+The reference Python beacon defaults to a 10-minute key with a 5-minute rotation interval (Saturn.md:614–615). These are reference-implementation defaults, not protocol invariants. The design bounds the dominant secret-leakage failure mode — [Meli et al.](https://www.ndss-symposium.org/wp-content/uploads/2019/02/ndss2019_04B-3_Meli_paper.pdf) found 81% of GitHub-leaked secrets are never revoked; a short-lived sub-key is dead before any scanner reaches it.
 
-> **Security posture.** Saturn's beacon mode is designed for trusted local networks — the network you'd plug a printer into. The sub-key's per-key spending cap is the actual security boundary; set `beacon.max_budget_usd` low if your threat model includes any device on the LAN. Anyone on the local link can sniff the sub-key. If those constraints don't fit, use **proxy mode** instead: Saturn keeps the parent key server-side and proxies traffic through its own authenticated `/v1/*` endpoints.
+> **Security posture.** Beacon mode is for trusted local networks — the kind you'd plug a printer into. The sub-key's per-key spending cap is the actual security boundary; set `beacon.max_budget_usd` low if your threat model includes any device on the LAN. If that doesn't fit, use **proxy mode** — Saturn keeps the parent key server-side and proxies through its own authenticated `/v1/*` endpoints, gated by `SATURN_RUNNER_TOKEN` (CONFIG_FIELDS §A.2).
 
-Full threat model and reverse-proxy / `X-Forwarded-For` notes: [docs/reference/protocol/security.md](docs/reference/protocol/security.md).
+Full threat model, TLS posture, and `X-Forwarded-For` / `SATURN_TRUSTED_PROXIES` setup: [docs/reference/protocol/security.md](docs/reference/protocol/security.md).
 
 ---
 
@@ -127,7 +127,7 @@ Saturn names three roles and concentrates configuration in exactly one of them.
 - **Application developer** — calls `discover()`; receives services with URLs and credentials populated. No auth logic, no billing integration.
 - **End user** — connects to the network. Nothing else.
 
-The cognitive walkthrough in the thesis shows the application-developer step count drops 19 → 4 (−79%) and the end-user count drops 7 → 0. Methodology, asymptotic form, and threats to validity: [docs/how-to/for-researchers.md](docs/how-to/for-researchers.md).
+The cognitive walkthrough in the thesis shows the application-developer step count drops 19 → 4 (−79%) and the end-user count drops 7 → 0 (−100%). Asymptotic form: `12 + 19N + 7M` (traditional) → `14 + 4N + 0M` (Saturn) over `N` developers and `M` end users. Methodology and threats to validity: [docs/how-to/for-researchers.md](docs/how-to/for-researchers.md).
 
 ---
 
@@ -142,15 +142,15 @@ The cognitive walkthrough in the thesis shows the application-developer step cou
 
 ## Conformance
 
-A new Saturn implementation needs five things:
+A Saturn implementation in any language is five steps:
 
 1. Browse `_saturn._tcp.local.` with any DNS-SD library.
-2. Resolve SRV+TXT for instances.
+2. Resolve SRV + TXT for each instance.
 3. Validate `version=1` and parse the [TXT keys](docs/reference/protocol/txt-keys.md).
-4. Sort by `priority`, pick the lowest healthy.
-5. Send HTTP requests to `api_base` (or the SRV `host:port`) per the [HTTP API](docs/reference/protocol/http-api.md).
+4. Sort by `priority`; pick the lowest healthy (probe `GET /v1/health`).
+5. Call the [`/v1/*` HTTP API](docs/reference/protocol/http-api.md) at `api_base` (cloud) or the SRV `host:port` (local / network).
 
-That is the entire protocol surface. → [Spec v0.2](docs/spec/v0.2/wire-format.md)
+That is the entire protocol surface. The full 30-minute walk-through, including a working publisher and client in three languages, lives at [docs/tutorial/](docs/tutorial/index.md). The proposed v2 schema redesign is at [docs/spec/v0.2/wire-format.md](docs/spec/v0.2/wire-format.md).
 
 ---
 
