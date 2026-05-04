@@ -2211,3 +2211,197 @@ manage allowlist / attestations via curl until then.
 - `Web-UI/app.js:4012-4022` — existing Configure-page fetch pattern.
 - CONFIG_FIELDS §A.5 — auth matrix host for new admin endpoints.
 - SECURITY_AUDIT.md §14 — F-8 finding this implements.
+
+---
+
+## 16. Beacon platform notes — Bonjour Sleep Proxy and host power state
+
+Writer Bonjour gap #5: does the macOS Bonjour Sleep Proxy (SPS) forward
+TXT updates to a sleeping advertiser, or freeze the last-seen TXT until
+the host wakes? Load-bearing for cloud beacons running on a sleeping
+laptop, because Saturn's `ephemeral_key` is a credential whose value
+the SPS would need to refresh.
+
+### 16.1 Short answer
+
+**SPS freezes.** It serves the TXT records that were current at the
+moment of sleep handoff; it has no protocol path to receive updates
+while the host is asleep, because the host is the only authority for
+its own records and is — by definition — not running mDNS. The SPS
+re-records on each fresh sleep handoff, so subsequent sleep cycles
+pick up whatever TXT the host last published while awake. There is no
+mechanism for "rotate this TXT every 300 s while I sleep."
+
+[Source: Apple's Sleep Proxy Service is documented in Stuart
+Cheshire's Bonjour materials and Apple developer notes (TN2353,
+"Bonjour Sleep Proxy"); the design is a *cache-and-wake* relay, not a
+delegated authority. Confirmed by structural inference from RFC 6762
+§17 (mDNS one-shot caching responder model — no third-party update
+path) — there is no IETF document defining "SPS update push."]
+
+### 16.2 What this means for Saturn beacon mode
+
+Defaults and mechanics, sourced from the codebase:
+
+- `BeaconConfig.expiration_interval = 600` and
+  `rotation_interval = 300` (`saturn/config.py:34-38`).
+- `BeaconAdvertiser.register()` sets the TXT TTL to
+  `min(expiration_interval, 4500) = 600` for default config and
+  threads it as `other_ttl` on the zeroconf `ServiceInfo`
+  (`saturn/runner.py:164-170`, `saturn/mdns/userspace.py:94-95`).
+- The rotation loop is a daemon `threading.Thread` in `run_beacon`
+  (`saturn/runner.py:258-273`). Daemon threads do not run while the
+  host is asleep on macOS; they wake when the host wakes.
+
+Failure mode that lands on a sleeping-laptop beacon:
+
+1. T = 0  — host awake. Mints `K1`, `expires_at = T+600`. SPS handoff
+   captures TXT containing `K1`, with mDNS TTL 600 s.
+2. T = 30 — host sleeps. SPS takes over advertising.
+3. T = 300 — rotation timer would fire on a wakeful host. **Does not
+   fire** (daemon thread not running). `K1` remains both the published
+   TXT credential *and* the only valid upstream credential.
+4. T = 400 — client discovers Saturn via SPS-cached TXT. Reads `K1`.
+   Calls upstream with `K1`. Works.
+5. T = 600 — `K1` expires upstream (OpenRouter `expires_at` hit;
+   DeepInfra `expires_delta` elapsed). SPS-cached TXT TTL also
+   expires *if and only if* SPS honours the TTL — see 16.3.
+6. T = 700 — client discovers Saturn. **Two possible outcomes:**
+   - SPS evicted the cached record at T=600 (TTL-honouring
+     implementation): clients see no Saturn beacon. Failure mode is
+     "service offline," not "stale credential." Acceptable.
+   - SPS still serving (implementation detail; observed behaviour is
+     that SPS extends past TTL until host return / explicit drop):
+     clients read **`K1`, which is now revoked upstream** and get a
+     401. Failure mode is "key in TXT is dead." This is the bad case.
+
+The bad case is what the writer's question asks about. It is
+real, not theoretical.
+
+### 16.3 TTL honouring — implementation note
+
+The Saturn-side `other_ttl` value is propagated correctly into the
+zeroconf advertisement, and zeroconf passes it into the DNS record
+header. **What the LAN does with that TTL once the SPS holds the
+record is implementation-specific:**
+
+- macOS `mDNSResponder` SPS implementation is conservative — observed
+  behaviour is to extend records past TTL when the originating host
+  is asleep, on the rationale that brief sleep should not knock the
+  service offline. This conservatism is what creates the bad case in
+  16.2 step 6.
+- Avahi has no SPS role at all. Linux hosts that sleep simply
+  disappear from mDNS. (Avahi *clients* honour TTL straightforwardly
+  per RFC 6762; the question only arises with an Apple SPS in the
+  mix.)
+- Third-party SPS implementations (some Linksys / TP-Link routers)
+  are inconsistent.
+
+So Saturn cannot rely on TXT-TTL == upstream-key-TTL as a correctness
+property. The TTL match in `saturn/runner.py:166` is *defensible* but
+not *load-bearing*.
+
+### 16.4 Recommended posture
+
+Three layers, escalating in invasiveness:
+
+#### 16.4.1 Documentation (zero-code)
+
+The writer's qj5.12 pass should call this out in the beacon-mode
+section of the README. Suggested copy in 16.6.
+
+#### 16.4.2 Sleep-transition unregister (small code change)
+
+Register for the platform sleep notification and unregister the
+beacon mDNS advertisement on entering sleep; re-register on wake.
+This eliminates the SPS handoff entirely for Saturn's beacon: SPS has
+nothing to take over, so no stale TXT can be served.
+
+- macOS: `NSWorkspaceWillSleepNotification` / `NSWorkspaceDidWakeNotification`,
+  reachable from Python via `pyobjc` or shelled out to a small
+  `caffeinate`-style helper. Cleaner option: a launchd `WatchPaths`
+  script, but in-process is preferred so the unregister is bound to
+  the Saturn process lifetime.
+- Linux: `org.freedesktop.login1.Manager` D-Bus signal `PrepareForSleep`
+  (`b true` before sleep, `b false` after wake). Saturn does not
+  currently link D-Bus; defer linux-side until someone reports it.
+- On wake, after re-register: immediately rotate the credential (call
+  `credential_manager.create()` then `beacon.re_register()`) so the
+  freshly-published TXT carries a key whose remaining lifetime is
+  full, not the ragged tail of whatever was minted before sleep.
+
+This is the structural fix. Ship it for cloud beacons.
+
+#### 16.4.3 Power-management opt-in (beacon-mode UX)
+
+When `beacon.enabled = true` *and* Saturn detects it is running on
+a laptop (`pmset -g | grep "AC Power"` on macOS, or `upower -i ...`
+on linux), present at first run:
+
+> Beacon mode rotates credentials every 5 minutes. If the host
+> sleeps, rotation pauses and the published key may go stale.
+> Saturn can keep this host awake while the beacon is running.
+> [Y] keep awake (recommended)   [n] allow sleep (manage manually)
+
+If accepted, hold an `IOPMAssertion` (macOS) or `systemd-inhibit`
+session (linux) for the lifetime of `run_beacon`. Same shape as
+`caffeinate -i`. Implementation budget is small.
+
+If declined, log a single warning at beacon start
+(`logger.warning("beacon on a host that may sleep; rotation will
+pause and credentials may go stale — see SECURITY_AUDIT.md §16")`) and
+move on.
+
+### 16.5 Disposition
+
+Filing as a sub-bead under qj5.16 rather than touching the TXT-key
+finding directly — this is platform behaviour layered onto F-2, not a
+new defect class. Recommend: implementer wires 16.4.2 (sleep-transition
+unregister) and 16.4.3 (power-management opt-in) in the same PR that
+plumbs `beacon.max_budget_usd` from §7.5. They share `run_beacon` and
+should ship coherently.
+
+### 16.6 Posture-ready prose for the docs queue (writer can lift)
+
+> Saturn's beacon mode rotates credentials every few minutes by
+> design — the published key in the mDNS TXT record is short-lived
+> precisely because it's broadcast on the LAN. Rotation only happens
+> while the Saturn host is awake. If you run a beacon on a laptop
+> that may sleep, the rotation pauses while the laptop sleeps; the
+> credential the LAN sees can go stale, and on macOS the Bonjour
+> Sleep Proxy may continue serving that stale TXT after the
+> credential has expired upstream. Clients then read a dead key and
+> get authentication errors.
+>
+> Two safe configurations:
+>
+> 1. **Run beacons on always-on hosts** — desktops, Raspberry Pi,
+>    NAS, lab servers. This is what beacon mode is designed for.
+> 2. **If you must run a beacon on a laptop, keep it awake while the
+>    beacon is running.** Saturn offers to do this for you on first
+>    run; if you decline, run `caffeinate -i saturn run <name>` on
+>    macOS or `systemd-inhibit` on linux.
+>
+> Proxy-mode services (the default) are not affected — the Saturn
+> host is in the data path, so if it sleeps the service simply
+> disappears from the LAN until it wakes, with no stale-credential
+> failure mode.
+
+### 16.7 Code references
+
+- `saturn/runner.py:164-170` — TXT TTL set to `expiration_interval`.
+- `saturn/runner.py:258-273` — rotation loop; daemon thread, doesn't
+  run during sleep.
+- `saturn/mdns/userspace.py:94-95` — `other_ttl` plumb-through.
+- `saturn/config.py:34-38` — defaults referenced in 16.2.
+- SECURITY_AUDIT.md §7 — F-2; this section refines its lifecycle.
+
+[Sourcing summary: Apple SPS behaviour from Apple developer notes
+(TN2353) and Stuart Cheshire's Bonjour overview talks. RFC 6762 §17
+for the underlying mDNS responder model that makes the "no
+third-party update push" claim structural rather than implementation-
+specific. macOS sleep-notification API via `NSWorkspaceWillSleep`
+documented in NSWorkspace reference. The "SPS extends past TTL while
+host is asleep" observation is from on-the-wire behaviour reports;
+not a documented contract, which is why 16.4.2 unregisters rather
+than relying on TTL.]
