@@ -54,6 +54,10 @@ WEB_DIR = _webdir()
 
 @asynccontextmanager
 async def lifespan(app):
+    try:
+        _apply_trust_policy(_load_admin_config())
+    except Exception:
+        pass
     yield
     # kill child services started by this server instance
     for pid in list(_started_pids):
@@ -1306,6 +1310,15 @@ class AdminConfig(BaseModel):
     model_filter: Optional[str] = None
     max_budget: Optional[float] = None
     budget_duration: Optional[str] = None
+    trust_mode: Optional[str] = None
+    trusted_node_ids: Optional[List[str]] = None
+
+
+def _apply_trust_policy(cfg: dict) -> None:
+    from saturn import discovery as _disc
+    mode = cfg.get("trust_mode") or "tofu"
+    allow = cfg.get("trusted_node_ids") or []
+    _disc.set_trust_policy(mode, allow)
 
 
 @app.get("/api/admin/config")
@@ -1322,8 +1335,58 @@ async def set_admin_config(body: AdminConfig, _=Depends(require_admin)):
         cfg["max_budget"] = body.max_budget
     if body.budget_duration is not None:
         cfg["budget_duration"] = body.budget_duration
+    if body.trust_mode is not None:
+        if body.trust_mode not in ("tofu", "allowlist", "open"):
+            raise HTTPException(422, "trust_mode must be tofu|allowlist|open")
+        cfg["trust_mode"] = body.trust_mode
+    if body.trusted_node_ids is not None:
+        import uuid as _uuid
+        for nid in body.trusted_node_ids:
+            try:
+                _uuid.UUID(nid)
+            except (ValueError, TypeError):
+                raise HTTPException(422, f"invalid uuid in trusted_node_ids: {nid}")
+        cfg["trusted_node_ids"] = body.trusted_node_ids
     _save_admin_config(cfg)
+    _apply_trust_policy(cfg)
     return cfg
+
+
+# --- Service identity (TOFU + allowlist) admin API ---
+
+from saturn.mdns import known_nodes as _known_nodes
+
+
+class AttestBody(BaseModel):
+    service: str
+    node_id: str
+    host: Optional[str] = ""
+
+
+class ForgetBody(BaseModel):
+    service: str
+
+
+@app.get("/api/admin/known-nodes")
+async def get_known_nodes(_=Depends(require_admin)):
+    return _known_nodes.load()
+
+
+@app.post("/api/admin/known-nodes/attest")
+async def attest_known_node(body: AttestBody, _=Depends(require_admin)):
+    import uuid as _uuid
+    try:
+        _uuid.UUID(body.node_id)
+    except (ValueError, TypeError):
+        raise HTTPException(422, "node_id must be a UUID")
+    _known_nodes.attest(body.service, body.node_id, body.host or "")
+    return _known_nodes.load()
+
+
+@app.post("/api/admin/known-nodes/forget")
+async def forget_known_node(body: ForgetBody, _=Depends(require_admin)):
+    _known_nodes.forget(body.service)
+    return _known_nodes.load()
 
 
 # --- Static files ---

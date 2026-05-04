@@ -10,6 +10,7 @@ from typing import Dict, List, Optional
 
 from saturn.mdns.identity import get_node_id
 from saturn.mdns.backend import ServiceRecord
+from saturn.mdns import known_nodes
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,6 +19,42 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 DISCOVERY_TIMEOUT = 5.0
+
+_SELECTABLE = {"pinned", "first_seen", "allowlist"}
+_trust_mode = "tofu"
+_allowlist: set = set()
+
+
+class TrustRebindError(RuntimeError):
+    def __init__(self, service_name: str, expected_node_id: str, seen_node_id: str, seen_host: str):
+        self.service_name = service_name
+        self.expected_node_id = expected_node_id
+        self.seen_node_id = seen_node_id
+        self.seen_host = seen_host
+        super().__init__(
+            f"refusing service '{service_name}': pinned node_id "
+            f"{expected_node_id[:8]}… does not match advertised "
+            f"{seen_node_id[:8]}… (seen at {seen_host})"
+        )
+
+
+def set_trust_policy(mode: str, allowlist=None) -> None:
+    global _trust_mode, _allowlist
+    _trust_mode = mode if mode in ("tofu", "allowlist", "open") else "tofu"
+    _allowlist = set(allowlist or [])
+
+
+def _classify_trust(s: "SaturnService") -> str:
+    if _trust_mode == "open":
+        return "unknown"
+    if _trust_mode == "allowlist":
+        return "allowlist" if s.node_id and s.node_id in _allowlist else "rebind_rejected"
+    pinned = known_nodes.known_node_id(s.name)
+    if pinned is None:
+        return "first_seen"
+    if pinned == s.node_id:
+        return "pinned"
+    return "rebind_rejected"
 
 
 @dataclass
@@ -40,6 +77,7 @@ class SaturnService:
     context: int = 4096                                    # max context window
     cost: str = "unknown"                                  # free, paid, unknown
     node_id: str = ""                                      # stable UUID from saturn/mdns/identity.py
+    trust: str = "unknown"                                 # pinned|first_seen|rebind_rejected|allowlist|unknown
 
     @property
     def is_beacon(self) -> bool:
@@ -80,13 +118,18 @@ class SaturnService:
 class SaturnDiscovery:
     SERVICE_TYPE = "_saturn._tcp.local."
 
-    def __init__(self, on_service_change=None):
+    def __init__(self, on_service_change=None, backend=None):
         self.services: Dict[str, SaturnService] = {}
         self.lock = threading.Lock()
         self.on_service_change = on_service_change
-        from saturn.mdns.detect import backend as make_backend
-        self._backend = make_backend()
-        self._backend.browse(self._on_event)
+        if backend is None:
+            from saturn.mdns.detect import backend as make_backend
+            self._backend = make_backend()
+            self._backend.browse(self._on_event)
+        else:
+            self._backend = backend
+            if backend is not False:
+                backend.browse(self._on_event)
 
     def _to_service(self, rec: ServiceRecord) -> SaturnService:
         props = rec.txt
@@ -127,6 +170,12 @@ class SaturnDiscovery:
 
     def _add(self, rec: ServiceRecord) -> None:
         service = self._to_service(rec)
+        service.trust = _classify_trust(service)
+        if service.trust in ("first_seen", "pinned") and service.node_id:
+            known_nodes.pin(service.name, service.node_id, service.host)
+            service.trust = "pinned"
+        elif service.trust == "rebind_rejected" and service.node_id:
+            known_nodes.record_rejection(service.name, service.node_id, service.host, "rebind_attempt")
         if service.node_id:
             key = f"{service.node_id}:{service.name}"
         else:
@@ -169,13 +218,22 @@ class SaturnDiscovery:
 
     def get_all_services(self) -> List[SaturnService]:
         with self.lock:
-            return sorted(self.services.values(), key=lambda s: s.priority)
+            return sorted(
+                (s for s in self.services.values() if (_trust_mode == "open" or s.trust in _SELECTABLE)),
+                key=lambda s: s.priority,
+            )
 
     def get_best_service(self) -> Optional[SaturnService]:
         with self.lock:
-            if not self.services:
+            candidates = [s for s in self.services.values() if (_trust_mode == "open" or s.trust in _SELECTABLE)]
+            if not candidates:
                 return None
-            return min(self.services.values(), key=lambda s: s.priority)
+            return min(candidates, key=lambda s: s.priority)
+
+    def reclassify_all(self) -> None:
+        with self.lock:
+            for s in self.services.values():
+                s.trust = _classify_trust(s)
 
     def stop(self):
         self._backend.stop_browse()
