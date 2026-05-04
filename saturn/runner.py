@@ -441,6 +441,41 @@ class ServiceRunner:
         return app
 
 
+def _wrap_with_auth(inner_app, token_env: str = "SATURN_RUNNER_TOKEN"):
+    async def asgi(scope, receive, send):
+        if scope.get("type") == "http" and scope.get("path", "").startswith("/v1/"):
+            headers = dict(scope.get("headers") or [])
+            auth = headers.get(b"authorization", b"").decode("latin-1")
+            expected = os.environ.get(token_env, "")
+            ok = (
+                bool(expected)
+                and auth.lower().startswith("bearer ")
+                and hmac.compare_digest(auth.split(" ", 1)[1].strip(), expected)
+            )
+            if not ok:
+                from starlette.responses import JSONResponse
+                resp = JSONResponse(
+                    {"detail": "Unauthorized"},
+                    status_code=401,
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+                await resp(scope, receive, send)
+                return
+        await inner_app(scope, receive, send)
+    return asgi
+
+
+def build_app(config: ServiceConfig):
+    if config.server.module:
+        import importlib
+        mod = importlib.import_module(config.server.module)
+        return _wrap_with_auth(mod.app)
+    runner = ServiceRunner(config)
+    app = runner.create_app()
+    app.state.runner = runner
+    return app
+
+
 def find_available_port(host: str, start_port: int = 8080) -> int:
     port = start_port
     while port < 65535:
@@ -476,15 +511,8 @@ def run_service(config: ServiceConfig, host: str = "127.0.0.1", port: Optional[i
     if port and actual_port != port:
         logger.info(f"Port {port} in use, using {actual_port}")
 
-    svc_runner = None
-
-    if config.server.module:
-        import importlib
-        mod = importlib.import_module(config.server.module)
-        app = mod.app
-    else:
-        svc_runner = ServiceRunner(config)
-        app = svc_runner.create_app()
+    app = build_app(config)
+    svc_runner = getattr(getattr(app, "state", None), "runner", None)
 
     mdns_name = f"{config.name}-{actual_port}"
     advertiser = SaturnAdvertiser(
