@@ -774,3 +774,605 @@ each step is independently reviewable.
 implementer decisions; the test-invariant tables are the
 should-not-regress contract — change a row only with a matching test
 update.
+
+---
+
+## §17.E — Saturn-qj5.16.14: beacon sleep-transition + power-mgmt opt-in
+
+Pre-spec for hardener (or successor implementer) to land the §16
+mitigations cleanly. Lives entirely in `saturn/runner.py`'s
+`run_beacon` plus one new module. Same nine-section shape as §15;
+references SECURITY_AUDIT.md §16 for *why*, this section for *how*.
+
+### 17.E.1 State / persistence — none net-new
+
+No new on-disk state. `~/.saturn/run/<name>.json` already tracks the
+running beacon's PID; that's enough to scope keep-awake assertions.
+The CredentialManager handle list is the existing source of truth for
+"what was minted before sleep."
+
+A small in-process flag on `CredentialManager` lets the wake handler
+know whether to mint-fresh or reuse:
+
+```python
+# saturn/runner.py CredentialManager — extend
+class CredentialManager:
+    ...
+    def __init__(self, ..., expiration_interval=600):
+        ...
+        self._sleep_invalidated = False    # NEW
+
+    def invalidate(self) -> None:
+        """Mark the current credential as untrusted (e.g. host slept).
+        Next current()/re_register() should mint fresh."""
+        with self._lock:
+            self._sleep_invalidated = True
+
+    def needs_remint(self) -> bool:
+        with self._lock:
+            return self._sleep_invalidated
+
+    def mark_fresh(self) -> None:
+        with self._lock:
+            self._sleep_invalidated = False
+```
+
+### 17.E.2 Public surface — `saturn/mdns/sleep.py`
+
+One new module owning both the keep-awake assertion and the
+sleep-event subscription. Two independent classes so they can be used
+together or separately.
+
+```python
+# saturn/mdns/sleep.py
+import logging
+import os
+import platform
+import signal
+import subprocess
+import threading
+from typing import Callable, Optional
+
+logger = logging.getLogger(__name__)
+
+
+class KeepAwake:
+    """Holds an OS-level assertion that the host should not sleep
+    while the beacon is running. macOS: spawns `caffeinate -i -w PID`
+    as a child process — caffeinate exits when our PID exits, so the
+    assertion is bound to the beacon's lifetime even on crash. Linux:
+    spawns `systemd-inhibit --what=sleep --mode=block --who=saturn
+    --why=<reason>` as a child whose stdin we pin open; the inhibit
+    drops when our process closes the pipe. No-ops on other platforms
+    with a warning."""
+
+    def __init__(self, reason: str = "Saturn beacon rotation"):
+        self.reason = reason
+        self._proc: Optional[subprocess.Popen] = None
+
+    def __enter__(self) -> "KeepAwake":
+        self.acquire()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.release()
+
+    def acquire(self) -> bool:
+        if self._proc is not None:
+            return True
+        sysname = platform.system()
+        if sysname == "Darwin":
+            return self._acquire_macos()
+        if sysname == "Linux":
+            return self._acquire_linux()
+        logger.warning("KeepAwake: no implementation for %s; host may sleep", sysname)
+        return False
+
+    def _acquire_macos(self) -> bool:
+        try:
+            self._proc = subprocess.Popen(
+                ["caffeinate", "-i", "-w", str(os.getpid())],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            logger.info("KeepAwake: caffeinate pid=%d holding sleep-prevention", self._proc.pid)
+            return True
+        except FileNotFoundError:
+            logger.warning("KeepAwake: caffeinate not found; host may sleep")
+            return False
+
+    def _acquire_linux(self) -> bool:
+        try:
+            self._proc = subprocess.Popen(
+                ["systemd-inhibit", "--what=sleep", "--mode=block",
+                 "--who=saturn", f"--why={self.reason}", "cat"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            logger.info("KeepAwake: systemd-inhibit pid=%d", self._proc.pid)
+            return True
+        except FileNotFoundError:
+            logger.warning("KeepAwake: systemd-inhibit not found; host may sleep")
+            return False
+
+    def release(self) -> None:
+        if self._proc is None:
+            return
+        try:
+            self._proc.terminate()
+            self._proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            self._proc.kill()
+        finally:
+            self._proc = None
+
+
+class SleepWatcher:
+    """Subscribes to platform sleep notifications. Calls on_sleep()
+    just before the host enters sleep, on_wake() shortly after the
+    host returns. macOS via NSWorkspace notifications (requires
+    pyobjc-framework-Cocoa). Linux via D-Bus org.freedesktop.login1
+    PrepareForSleep (requires dbus or jeepney). No-ops with a warning
+    when the platform binding is unavailable."""
+
+    def __init__(self,
+                 on_sleep: Callable[[], None],
+                 on_wake:  Callable[[], None]):
+        self.on_sleep = on_sleep
+        self.on_wake  = on_wake
+        self._stop = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+
+    def start(self) -> bool:
+        sysname = platform.system()
+        if sysname == "Darwin":
+            return self._start_macos()
+        if sysname == "Linux":
+            return self._start_linux()
+        logger.warning("SleepWatcher: no implementation for %s", sysname)
+        return False
+
+    def _start_macos(self) -> bool:
+        try:
+            from AppKit import NSWorkspace               # pyobjc
+            from Foundation import NSObject              # noqa
+        except ImportError:
+            logger.warning("SleepWatcher: pyobjc not installed; cannot watch sleep events. "
+                           "Install with: pip install pyobjc-framework-Cocoa")
+            return False
+        ws = NSWorkspace.sharedWorkspace()
+        nc = ws.notificationCenter()
+        # Bridge ObjC selectors to our Python callbacks via a small helper.
+        # Implementer note: keep the bridging class module-level so it
+        # is not GC'd while the run loop is active.
+        ...
+        return True
+
+    def _start_linux(self) -> bool:
+        # Prefer jeepney (pure-Python, no compile dep) over dbus-python.
+        # PrepareForSleep signal: arg `True` before sleep, `False` after wake.
+        try:
+            from jeepney.io.threading import open_dbus_connection   # noqa
+        except ImportError:
+            logger.warning("SleepWatcher: jeepney not installed; cannot watch sleep events. "
+                           "Install with: pip install jeepney")
+            return False
+        ...
+        return True
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=2)
+```
+
+Implementation hints, not contract:
+
+- `caffeinate -i -w <pid>` is the canonical "keep awake while this PID
+  lives" form. Implementer should not re-invent with `IOPMAssertion`
+  ctypes calls; the subprocess form is robust to crashes (caffeinate
+  notices and exits). Source: macOS `caffeinate(8)` man page.
+- `systemd-inhibit ... cat` keeps the inhibit alive by holding the
+  child's stdin/stdout/stderr open; killing the child or closing the
+  pipe drops the inhibit. The `cat` is a no-op placeholder; using
+  `--mode=block` (rather than `delay`) means the inhibit prevents
+  sleep entirely until released. Source: `systemd-inhibit(1)`.
+- pyobjc and jeepney are *optional* deps in `pyproject.toml` (`[project.optional-dependencies] beacon = [...]`). `saturn run <name>` for non-beacon services must not require them.
+
+### 17.E.3 Integration points in `saturn/runner.py`
+
+Two seams in `run_beacon` (existing function at line 186-288):
+
+#### 17.E.3.1 Acquire keep-awake before initial mint
+
+After the `BeaconAdvertiser` is constructed (today at line 218-224)
+and before `credential_manager.create()` is called (line 251), wire
+the keep-awake (when enabled by config — see 17.E.5):
+
+```python
+from saturn.mdns.sleep import KeepAwake, SleepWatcher
+
+keepawake = KeepAwake(reason=f"Saturn beacon: {config.name}")
+if config.beacon.keep_awake:
+    if not keepawake.acquire():
+        logger.warning(
+            "Beacon running without sleep-prevention. If host sleeps, "
+            "rotation will pause and credentials may go stale "
+            "(see SECURITY_AUDIT.md §16)."
+        )
+```
+
+Add a `try ... finally keepawake.release()` around the existing
+shutdown code (line 283-287) so the assertion drops on every exit
+path, including SIGTERM.
+
+#### 17.E.3.2 Sleep-transition handlers when keep-awake is off
+
+When `config.beacon.keep_awake = false` (admin declined), wire the
+watcher:
+
+```python
+def _on_sleep():
+    logger.warning("Host sleep imminent — unregistering beacon to "
+                    "prevent stale-credential serving")
+    try:
+        beacon.unregister()
+    except Exception as e:
+        logger.error("unregister-on-sleep failed: %s", e)
+    credential_manager.invalidate()
+
+def _on_wake():
+    logger.info("Host wake — re-minting credential and re-registering beacon")
+    try:
+        credential_manager.create()
+        credential_manager.mark_fresh()
+        beacon.register()
+    except Exception as e:
+        logger.error("re-register-on-wake failed: %s", e)
+
+watcher = SleepWatcher(on_sleep=_on_sleep, on_wake=_on_wake) \
+          if not config.beacon.keep_awake else None
+if watcher:
+    if not watcher.start():
+        logger.warning(
+            "Cannot watch sleep events on this platform; admin should "
+            "set beacon.keep_awake=true or run with caffeinate manually."
+        )
+```
+
+Add `watcher.stop()` to the shutdown path alongside `keepawake.release()`.
+
+#### 17.E.3.3 Rotation loop hardening
+
+The existing rotation loop (line 260-273) checks
+`credential_manager.stale()`. Augment it to also re-mint when
+`needs_remint()` returns true (covers the case where keep-awake was
+on but the host slept anyway — caffeinate failed, kernel sleep override,
+clamshell mode):
+
+```python
+def rotation_loop():
+    while not shutdown_event.is_set():
+        shutdown_event.wait(timeout=10)
+        if shutdown_event.is_set():
+            break
+        if credential_manager.needs_remint() or credential_manager.stale():
+            try:
+                logger.info("Rotating credential...")
+                credential_manager.create()
+                credential_manager.mark_fresh()    # NEW
+                beacon.re_register()
+                credential_manager.cleanup()
+            except Exception as e:
+                logger.error(f"Rotation failed: {e}")
+```
+
+Detection-of-sleep-without-watcher: a long `shutdown_event.wait`
+naturally absorbs the sleep window — when the loop wakes, wall-clock
+time has advanced beyond `last_rotation + rotation_interval`, so
+`stale()` already returns true. Implementer can optionally add a
+heuristic: if `time.monotonic()` jumped by more than `2 ×
+rotation_interval` between iterations, log a "host appears to have
+slept" warning and call `invalidate()` to force re-mint. Cheap and
+self-correcting; recommend adding.
+
+### 17.E.4 Power-management opt-in UX
+
+First-run UX is in two surfaces, both behind the §17.A
+`Depends(require_admin)` gate.
+
+#### 17.E.4.1 CLI prompt (when starting beacon interactively)
+
+When `saturn run <name>` is invoked from a TTY (`sys.stdin.isatty()`)
+*and* `beacon.enabled = true` *and* the platform reports a battery
+present (`pmset -g batt | grep -q 'Battery'` on macOS;
+`upower --enumerate | grep -q 'BAT'` on linux) *and*
+`beacon.keep_awake_decided = false`: prompt once, persist the answer,
+never prompt again for that service.
+
+```
+========================================================
+  Beacon mode + portable host detected
+========================================================
+
+  Beacon mode rotates credentials every 5 minutes. If
+  this laptop sleeps, rotation pauses and clients may
+  read a stale (revoked) credential from the cached mDNS
+  TXT record.
+
+  Saturn can keep this host awake while the beacon is
+  running. (Same effect as `caffeinate -i`.)
+
+  [Y] keep awake while beacon is running (recommended)
+  [n] allow sleep — I'll manage power myself
+
+  Choice [Y/n]:
+```
+
+`Y` → write `keep_awake = true, keep_awake_decided = true` to the
+service TOML; proceed.
+`n` → write `keep_awake = false, keep_awake_decided = true`; proceed
+with the SleepWatcher path; log the warning from 17.E.3.1.
+
+#### 17.E.4.2 Configure-page row (qj5.13 §17.A integration)
+
+Per-service editor gains one row when `beacon.enabled = true`:
+
+```
+Power management while running:
+  ( ) Keep host awake (recommended for laptops)
+  ( ) Allow sleep (Saturn will unregister on sleep / re-mint on wake)
+  ( ) Allow sleep (manage manually — no Saturn intervention)
+```
+
+Stored as `beacon.keep_awake: bool` plus
+`beacon.sleep_handling: "watch" | "manual"` (only meaningful when
+`keep_awake = false`). Default for new services: `keep_awake = true`
+when host is portable, else `keep_awake = false, sleep_handling = "watch"`.
+
+### 17.E.5 CONFIG_FIELDS additions
+
+Add to CONFIG_FIELDS §B.2 (`BeaconConfig`):
+
+| Field                | Type   | Default                   | Validation                                                               |
+|----------------------|--------|---------------------------|---------------------------------------------------------------------------|
+| `keep_awake`         | bool   | `true` on portable hosts; `false` otherwise | —                                                          |
+| `keep_awake_decided` | bool   | `false`                   | internal book-keeping; flips to `true` after CLI prompt or admin set     |
+| `sleep_handling`     | string | `"watch"`                 | one of `"watch"` (use SleepWatcher) or `"manual"` (no intervention). Only consulted when `keep_awake = false`. |
+
+Also extends `ServiceConfig.validate()` (saturn/config.py:89-103):
+
+```python
+if self.beacon.enabled and self.beacon.keep_awake is False \
+        and self.beacon.sleep_handling not in ("watch", "manual"):
+    errors.append("beacon.sleep_handling must be 'watch' or 'manual' "
+                  "when keep_awake is false")
+```
+
+No `data/admin_config.json` changes — power management is a
+per-service concern.
+
+### 17.E.6 Test invariants — qj5.16.14
+
+Hard cases first; the rest follow.
+
+#### 17.E.6.1 KeepAwake lifecycle (`saturn/tests/test_keepawake.py`)
+
+```python
+def test_caffeinate_child_acquired_and_released():
+    if platform.system() != "Darwin":
+        pytest.skip("macOS-only")
+    ka = KeepAwake()
+    assert ka.acquire()
+    assert ka._proc.pid > 0
+    assert ka._proc.poll() is None     # child alive
+    ka.release()
+    ka._proc is None                    # released
+    # Child has actually exited (within 2s):
+    # use pgrep -P $$ before/after to confirm caffeinate gone
+
+def test_keepawake_releases_on_parent_crash(tmp_path):
+    if platform.system() != "Darwin":
+        pytest.skip()
+    # Launch a Python child that acquires and then exits abnormally;
+    # confirm caffeinate exits within 5s of the parent dying.
+    ...
+
+def test_keepawake_noop_on_unsupported_platform(monkeypatch):
+    monkeypatch.setattr(platform, "system", lambda: "OtherOS")
+    ka = KeepAwake()
+    assert ka.acquire() is False        # no exception, returns False
+```
+
+Invariant: **the assertion outlives no parent process; KeepAwake never
+leaks an OS-level "stay awake" past Saturn exit.**
+
+#### 17.E.6.2 SleepWatcher fires on platform events
+
+```python
+def test_sleepwatcher_fires_on_sleep_and_wake_macos(monkeypatch):
+    """Inject a fake NSWorkspace notification center that the watcher
+    can register against; post the will-sleep and did-wake notifications;
+    assert callbacks fired in order."""
+    if platform.system() != "Darwin": pytest.skip()
+    fired = []
+    w = SleepWatcher(on_sleep=lambda: fired.append("S"),
+                     on_wake =lambda: fired.append("W"))
+    assert w.start()
+    _post_fake("NSWorkspaceWillSleepNotification")
+    _post_fake("NSWorkspaceDidWakeNotification")
+    _wait_for(lambda: fired == ["S", "W"], timeout=2)
+    w.stop()
+
+def test_sleepwatcher_linux_dbus(...):
+    """Same shape using a fake dbus session."""
+    ...
+
+def test_sleepwatcher_noop_when_pyobjc_missing(monkeypatch):
+    monkeypatch.setattr("builtins.__import__", _raise_for("AppKit"))
+    w = SleepWatcher(on_sleep=lambda: None, on_wake=lambda: None)
+    assert w.start() is False
+```
+
+Invariant: **callbacks fire in the order will-sleep → did-wake; never
+out of order; absent platform binding is non-fatal.**
+
+#### 17.E.6.3 Beacon unregisters on sleep, re-mints on wake
+
+End-to-end against a real local mDNS daemon and a stub provider that
+returns canned credentials:
+
+```python
+def test_beacon_unregisters_on_sleep(stub_provider):
+    cfg = _beacon_cfg(keep_awake=False, sleep_handling="watch")
+    runner = _spawn_beacon(cfg)
+    _await_announced(runner)
+    _post_fake_sleep()
+    _await_unannounced(runner, timeout=3)
+
+def test_beacon_re_mints_credential_on_wake(stub_provider):
+    cfg = _beacon_cfg(keep_awake=False, sleep_handling="watch")
+    runner = _spawn_beacon(cfg)
+    pre_handle = stub_provider.last_handle()
+    _post_fake_sleep()
+    _post_fake_wake()
+    _await_announced(runner, timeout=3)
+    post_handle = stub_provider.last_handle()
+    assert post_handle != pre_handle    # fresh mint after wake
+```
+
+Invariant: **after a sleep/wake cycle the published TXT carries a
+credential that was minted post-wake, never one that survived the
+sleep boundary.** This is the structural fix landing.
+
+#### 17.E.6.4 Heuristic stale-detection on monotonic-jump
+
+```python
+def test_rotation_loop_detects_unwitnessed_sleep(stub_provider, monkeypatch):
+    """Simulate a host that slept past 2× rotation_interval without
+    SleepWatcher firing (caffeinate failed silently). Rotation loop
+    must catch the gap and re-mint."""
+    cfg = _beacon_cfg(keep_awake=True, rotation_interval=10)
+    runner = _spawn_beacon(cfg)
+    pre_handle = stub_provider.last_handle()
+    monkeypatch.setattr("time.monotonic",
+                         _jump_monotonic_by(seconds=30))   # simulate sleep
+    runner.tick_rotation()                                  # one loop iteration
+    post_handle = stub_provider.last_handle()
+    assert post_handle != pre_handle
+```
+
+Invariant: **a monotonic-clock jump greater than `2 × rotation_interval`
+forces a re-mint regardless of the SleepWatcher path.**
+
+#### 17.E.6.5 Keep-awake declined, watcher unavailable, warning emitted
+
+```python
+def test_warning_when_no_keepawake_and_no_watcher(caplog, monkeypatch):
+    cfg = _beacon_cfg(keep_awake=False, sleep_handling="watch")
+    monkeypatch.setattr(SleepWatcher, "start", lambda self: False)
+    _spawn_beacon(cfg)
+    assert any("set beacon.keep_awake=true or run with caffeinate"
+               in rec.message for rec in caplog.records)
+```
+
+Invariant: **admin who declines keep-awake on a platform without
+watcher support is told once, in the boot log, exactly what to do.**
+
+#### 17.E.6.6 CLI prompt persists answer
+
+```python
+def test_cli_prompt_persists_keep_awake_decision(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda _: "Y")
+    cfg = _beacon_cfg(keep_awake_decided=False)
+    _run_beacon_once(cfg)
+    after = _load_toml(cfg.name)
+    assert after.beacon.keep_awake is True
+    assert after.beacon.keep_awake_decided is True
+    # Second run: no prompt
+    monkeypatch.setattr("builtins.input", _fail("should not prompt"))
+    _run_beacon_once(cfg)
+```
+
+Invariant: **the CLI prompt fires exactly once per service; the
+answer is persisted; subsequent runs honour it without re-prompting.**
+
+### 17.E.7 Migration / failure modes
+
+- **Existing beacon services on disk with no `keep_awake` field.** On
+  first run after upgrade: defaults set per platform (portable →
+  `true`, server → `false`); CLI prompts on portable hosts; flag is
+  persisted. Idempotent.
+- **`caffeinate` missing on macOS.** Older macOS without command-line
+  tools — vanishingly rare. Logged warning per 17.E.2; SleepWatcher
+  fallback engages if `sleep_handling = "watch"`.
+- **`systemd-inhibit` missing on linux** (non-systemd distro).
+  Warning + SleepWatcher fallback. Implementer can add an
+  `elogind-inhibit` codepath later if a user reports it; defer.
+- **pyobjc / jeepney not installed.** Optional dep marker in
+  `pyproject.toml`; without it both `KeepAwake` and `SleepWatcher`
+  warn-and-continue. Beacon still functions; user is told the host
+  may sleep.
+- **The host sleeps anyway despite `keep_awake = true`** (clamshell
+  override, kernel decision, etc.). 17.E.6.4's monotonic-jump
+  heuristic catches this and re-mints; the gap window where clients
+  may read a stale key is bounded by `rotation_interval` (300 s
+  default; recommend dropping to 120 s per §7.5(4)).
+- **Admin selects `sleep_handling = "manual"`.** Saturn does nothing
+  on sleep events. Documented as "you accept stale-credential risk."
+  Honoured for users who already have their own power-management
+  story (e.g. `caffeinate -i saturn run ...` from a launchd plist).
+
+### 17.E.8 Posture-ready prose for the docs queue
+
+§16.6 of SECURITY_AUDIT.md already has end-user prose. For the
+*admin* docs (`docs/configuration/beacon.md` or wherever the writer
+lands beacon documentation), add this paragraph next to the
+power-management row:
+
+> Each beacon service has a **Power management while running** setting.
+> On a desktop or always-on host, the default *Allow sleep (manage
+> manually)* is fine — the host won't sleep on its own, so credential
+> rotation continues uninterrupted. On a laptop, prefer **Keep host
+> awake**: Saturn holds the equivalent of `caffeinate -i` for the
+> lifetime of the beacon, so rotation can't pause. If you decline
+> keep-awake on a laptop, choose **Allow sleep (Saturn handles it)**:
+> Saturn unregisters its mDNS advertisement before the host sleeps so
+> clients see "no service" rather than a stale credential, and re-mints
+> a fresh credential when the host wakes. The third option,
+> **Allow sleep (manage manually)**, is for users running Saturn under
+> their own power-management wrapper (e.g. a launchd plist that wraps
+> `saturn run` in `caffeinate -i`).
+
+### 17.E.9 Hand-off order — qj5.16.14
+
+Three commits, ordered by review surface:
+
+1. `saturn/mdns/sleep.py` (`KeepAwake` + `SleepWatcher`) +
+   `CredentialManager.invalidate/needs_remint/mark_fresh` +
+   `BeaconConfig` field additions in `saturn/config.py`. Tests
+   17.E.6.1, .2, .5. No behaviour change in `run_beacon` yet.
+2. `run_beacon` integration (17.E.3) wiring keep-awake, watcher, and
+   rotation-loop hardening. Tests 17.E.6.3, .4. Ships behaviour.
+3. CLI prompt (17.E.4.1) + Configure-page row (17.E.4.2). Test
+   17.E.6.6 + manual playwright pass for the row. Web UI follows
+   §17.A.5 step 3 cadence; commit 3 can ship independently.
+
+**Co-landable with §7.5 beacon-budget plumbing.** Both touch
+`run_beacon` and `BeaconConfig`. Implementer should batch them in one
+PR if both are queued.
+
+**Optional dependency footprint.** `pyobjc-framework-Cocoa` (~5 MB)
+and `jeepney` (~150 KB) become optional `[project.optional-dependencies]
+beacon` entries in `pyproject.toml`. Document `pip install
+'saturn[beacon]'` as the activation path. Non-beacon Saturn installs
+remain dependency-clean.
+
+---
+
+*End of B3 + qj5.16.14 pre-spec set.* §17.A through §17.E together
+cover qj5.13, qj5.14, qj5.15, qj5.16.13, and qj5.16.14 — the entire
+implementer queue downstream of the structural audit.
