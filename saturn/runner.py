@@ -11,9 +11,11 @@ from contextlib import asynccontextmanager
 
 from typing import Optional, List
 
+import hmac
+
 import requests
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header, Depends
 
 
 import signal
@@ -346,8 +348,26 @@ class ServiceRunner:
 
         app = FastAPI(lifespan=lifespan, title=f"Saturn - {self.config.name}")
 
+        token_env = getattr(runner.config, "runner_token_env", None) or "SATURN_RUNNER_TOKEN"
+
+        def auth(authorization: Optional[str] = Header(default=None)):
+            expected = os.environ.get(token_env, "")
+            unauthorized = HTTPException(
+                status_code=401,
+                detail="Unauthorized",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+            if not expected:
+                raise unauthorized
+            if not authorization or not authorization.lower().startswith("bearer "):
+                raise unauthorized
+            presented = authorization.split(" ", 1)[1].strip()
+            if not hmac.compare_digest(presented, expected):
+                raise unauthorized
+            return True
+
         @app.get("/v1/health")
-        async def health():
+        async def health(_=Depends(auth)):
             return {
                 "status": "ok",
                 "service": runner.config.name,
@@ -358,7 +378,7 @@ class ServiceRunner:
             }
 
         @app.get("/v1/models")
-        async def get_models():
+        async def get_models(_=Depends(auth)):
             if not runner.models_cache:
                 runner.models_cache = runner._fetch_models()
 
@@ -371,7 +391,7 @@ class ServiceRunner:
             }
 
         @app.post("/v1/chat/completions")
-        async def chat_completions(request: ChatRequest):
+        async def chat_completions(request: ChatRequest, _=Depends(auth)):
             base_url = runner.config.upstream.base_url.rstrip("/")
             completions_url = f"{base_url}/chat/completions"
 
@@ -433,7 +453,7 @@ def find_available_port(host: str, start_port: int = 8080) -> int:
     raise RuntimeError("No available port found")
 
 
-def run_service(config: ServiceConfig, host: str = "0.0.0.0", port: Optional[int] = None) -> int:
+def run_service(config: ServiceConfig, host: str = "127.0.0.1", port: Optional[int] = None) -> int:
     import atexit
 
     if config.beacon.enabled:
@@ -550,7 +570,7 @@ def stop_service(name: str) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a Saturn service from config")
     parser.add_argument("name", nargs="?", help="Service name (from ~/.saturn/services/)")
-    parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
+    parser.add_argument("--host", default="127.0.0.1", help="Host to bind to (loopback by default; set 0.0.0.0 to expose on LAN)")
     parser.add_argument("--port", type=int, default=None, help="Port to bind to")
     parser.add_argument("--list", "-l", action="store_true", help="List available services")
     args = parser.parse_args()

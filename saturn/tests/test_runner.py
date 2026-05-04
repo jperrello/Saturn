@@ -40,11 +40,12 @@ def test_read_nonexistent(tmp_path, monkeypatch):
     assert read_service_info("nonexistent") is None
 
 
-def test_service_runner_health():
+def test_service_runner_health(monkeypatch):
     from fastapi.testclient import TestClient
     from saturn.config import ServiceConfig, UpstreamConfig
     from saturn.runner import ServiceRunner
 
+    monkeypatch.setenv("SATURN_RUNNER_TOKEN", "tok")
     cfg = ServiceConfig(
         name="test-runner",
         deployment="network",
@@ -54,18 +55,19 @@ def test_service_runner_health():
     app = runner.create_app()
 
     with TestClient(app) as client:
-        r = client.get("/v1/health")
+        r = client.get("/v1/health", headers={"Authorization": "Bearer tok"})
         assert r.status_code == 200
         data = r.json()
         assert data["saturn"] is True
         assert data["service"] == "test-runner"
 
 
-def test_service_runner_models_empty():
+def test_service_runner_models_empty(monkeypatch):
     from fastapi.testclient import TestClient
     from saturn.config import ServiceConfig, UpstreamConfig
     from saturn.runner import ServiceRunner
 
+    monkeypatch.setenv("SATURN_RUNNER_TOKEN", "tok")
     cfg = ServiceConfig(
         name="test-runner",
         deployment="network",
@@ -75,7 +77,7 @@ def test_service_runner_models_empty():
     app = runner.create_app()
 
     with TestClient(app) as client:
-        r = client.get("/v1/models")
+        r = client.get("/v1/models", headers={"Authorization": "Bearer tok"})
         assert r.status_code == 503
 
 
