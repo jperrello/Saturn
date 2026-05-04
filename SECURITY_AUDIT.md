@@ -654,3 +654,199 @@ both routes, since they leak data). Filing as new bd child below.
   needed beyond the helper itself).
 - CONFIG_FIELDS §A.3 — admin schema for `trusted_proxies`.
 - CONFIG_FIELDS §A.5 — auth matrix that closes 8.5's `user_id` bypass.
+
+---
+
+## 9. `/api/usage` `user_id` query bypass (qj5.16.10)
+
+This is the sub-finding uncovered while tracing F-3 (see §8.5). It is a
+distinct authorization defect, not a transport issue, so it gets its own
+section.
+
+### 9.1 The defect
+
+```python
+# saturn/web.py:1244-1256
+@app.get("/api/usage")
+async def usage(request: Request, user_id: str = Query(default="")):
+    ip = user_id or _client_ip(request)          # ← user-supplied wins
+    period = time.strftime("%Y-%m-%d")
+    conn = _db()
+    row = conn.execute(
+        "SELECT tokens_in, tokens_out, requests FROM usage WHERE user_id=? AND period=?",
+        (ip, period)
+    ).fetchone()
+    conn.close()
+    ...
+```
+
+```python
+# saturn/web.py:1273-1282
+@app.get("/api/usage/history")
+async def usage_history(request: Request, user_id: str = Query(default=""),
+                        days: int = Query(default=7)):
+    ip = user_id or _client_ip(request)          # ← same pattern
+    ...
+```
+
+The `user_id or _client_ip(request)` idiom means **any non-empty value the
+caller supplies as `?user_id=...` is used verbatim** as the SQL `WHERE`
+key. There is no auth dependency, no allowlist, no signed identity.
+
+The companion route `/api/usage/report` (line 1264) is *not* directly
+exploitable in the same way — it derives `ip` only from `_client_ip`, no
+`user_id` parameter — but it is reachable by anyone after F-3 lands a fix,
+and remains writable without auth, so it's worth keeping in scope (see
+9.4).
+
+### 9.2 Schema and what's at risk
+
+```sql
+-- saturn/web.py:290-300
+CREATE TABLE usage (
+    user_id    TEXT,         -- IP or whatever the caller submitted
+    period     TEXT,         -- "%Y-%m-%d"
+    tokens_in  INTEGER,
+    tokens_out INTEGER,
+    requests   INTEGER,
+    updated_at TIMESTAMP
+);
+CREATE UNIQUE INDEX idx_usage_user_period ON usage(user_id, period);
+```
+
+Per row: total prompt + completion tokens and request count for one
+(IP, day) pair. No prompt content; no model IDs; no chat history. So
+**confidentiality impact is limited to "how much LLM did this peer use
+today / over the last N days."** That's still meaningful — a sniffer
+learns who is the heavy user, when they were active, and gets a
+day-resolution presence signal for everyone on the LAN.
+
+### 9.3 Attacker capability on a /24
+
+Setting: 254-host LAN, attacker has just joined.
+
+```bash
+# Step 1 — find the saturn web host (mDNS already gave us its IP via
+# api_base in TXT, so this is free).
+HOST=192.168.1.10:3000
+
+# Step 2 — sweep every plausible peer.
+for i in $(seq 1 254); do
+  ip="192.168.1.$i"
+  curl -s "http://$HOST/api/usage?user_id=$ip"
+done | jq -s '[.[] | select(.requests > 0)]'
+```
+
+Output: a per-IP daily token-usage dump for the entire subnet. With
+`/api/usage/history?user_id=$ip&days=30` the attacker gets a 30-day
+activity timeline per peer. Costs nothing, leaves no trace beyond
+`request.client.host` in uvicorn's access log (and that log was probably
+not enabled, since it's not in the default uvicorn args).
+
+Compounding observations:
+
+- **F-3 makes attribution easier**, not harder. Once XFF is fixed (§8),
+  the attacker's own real IP shows up in their *own* row but they still
+  read everyone else's rows freely — F-3 was bypass; this is direct
+  reading.
+- **`SATURN_ADMIN_PASSWORD` does not gate this.** No endpoint here calls
+  the admin auth function (F-4); the only auth surface in `web.py` is the
+  UI-side gate that `Web-UI/app.js` ignores for these calls anyway.
+- **Day-resolution presence signal.** Even on an empty `usage` table —
+  e.g. a freshly booted Saturn — the attacker watches the table grow:
+  any peer that uses Saturn gets a row, attacker reads the row within
+  seconds. Functions as a passive presence sensor for "is X using LLMs."
+- **Stacks with F-2 priority hijack** for an active variant: an attacker
+  who owns the beacon also owns the table, because they observe every
+  request directly.
+
+### 9.4 Threat-model placement
+
+| Asset                                | Threat                                                                                  | Severity |
+|--------------------------------------|------------------------------------------------------------------------------------------|----------|
+| Per-peer daily token totals          | Read by any LAN peer via `?user_id=<ip>`                                                | MEDIUM   |
+| Per-peer N-day usage history         | Read by any LAN peer via `/api/usage/history`                                            | MEDIUM   |
+| Per-peer rate-limit status           | Read via `/api/rate-limit/status` (line 1231) — uses `_client_ip` only, but exposes RPM/TPM remaining for the *requester*; combined with F-3 spoof a probe enumerates per-IP buckets | LOW |
+| Usage table integrity                | Write via `/api/usage/report` (line 1264) — no `user_id` param so attacker writes only against own (post-F-3 fix) IP | LOW |
+| Personally identifying activity      | Day-resolution presence/absence signal across the LAN                                    | MEDIUM (privacy) |
+
+Severity stays MEDIUM, not HIGH, because the table holds aggregate counts
+only — no prompts, no model IDs, no message content. If usage tracking
+later gains finer fields (per-model, per-conversation), the same defect
+becomes a HIGH disclosure.
+
+### 9.5 Fix — aligned with CONFIG_FIELDS §A.5
+
+The auth matrix in CONFIG_FIELDS §A.5 puts `/api/usage*` under
+"admin session OR `admin_token_env`." That is the correct boundary: usage
+analytics is an admin concern (who's burning the budget), not a per-user
+self-service concern.
+
+```python
+from fastapi import Depends
+
+# Implementer wires this once per CONFIG_FIELDS A.2:
+#   require_admin = HTTPBearer auto_error=True backed by admin_token_env
+
+@app.get("/api/usage", dependencies=[Depends(require_admin)])
+async def usage(request: Request, user_id: str = Query(default="")):
+    # Now `user_id` is admin-supplied — reading any row is intentional.
+    ip = user_id or _client_ip(request)
+    ...
+
+@app.get("/api/usage/history", dependencies=[Depends(require_admin)])
+async def usage_history(request: Request, user_id: str = Query(default=""),
+                        days: int = Query(default=7)):
+    ip = user_id or _client_ip(request)
+    ...
+```
+
+`/api/usage/report` (line 1264) needs a different treatment. It's the
+write path that legitimate clients call to record their own consumption.
+Two safe shapes; pick one:
+
+- **Self-report only:** strip the body's option of accepting an IP, key
+  the row by `_client_ip(request)` exclusively (already true today), and
+  *additionally* require an admin-issued per-client token if Saturn ever
+  needs to attribute usage to identity-stable user IDs rather than IPs.
+- **Admin-only:** put the same `Depends(require_admin)` on the report
+  route and have Saturn record usage server-side from the streaming
+  upstream response. This is more work but eliminates a class of
+  IP-poisoning bugs entirely.
+
+The first option matches today's architecture; recommend that.
+
+### 9.6 Tests the implementer should add
+
+- Unauthenticated `GET /api/usage` returns 401, not 200.
+- Unauthenticated `GET /api/usage/history` returns 401.
+- With a valid admin token, `?user_id=<arbitrary-ip>` returns that row
+  (admins are intentionally allowed to read any row).
+- Without `user_id`, the call returns the caller's own row keyed by
+  `_client_ip` (post-§8 trust gate).
+- `POST /api/usage/report` continues to write only against
+  `_client_ip(request)`; verify a peer cannot inject a row attributed to
+  another IP via any header or body field.
+
+### 9.7 Posture-ready prose for the docs queue
+
+> Saturn keeps a small daily counter of how many tokens each LAN peer
+> consumes through it — not what they asked or what came back, just
+> totals. That counter is admin-only: viewing per-peer usage requires
+> the admin token configured on the Configure page (`SATURN_ADMIN_TOKEN`
+> in env). If you're a regular Saturn user and want to know your own
+> usage, the chat UI shows a running total for the current session;
+> historical roll-ups live behind admin auth on purpose, so other users
+> on the same network can't profile your activity.
+
+### 9.8 Code references
+
+- `saturn/web.py:1244-1256` — `/api/usage` defect.
+- `saturn/web.py:1273-1282` — `/api/usage/history` defect.
+- `saturn/web.py:1264-1270` — `/api/usage/report` (writable, no auth, but
+  not the immediate disclosure).
+- `saturn/web.py:1231-1241` — `/api/rate-limit/status` (related,
+  low-severity — already keys by `_client_ip` only).
+- `saturn/web.py:282-316` — `usage` table schema and `_record_usage`
+  writer.
+- CONFIG_FIELDS §A.5 — auth matrix; §A.2 — `admin_token_env` definition.
