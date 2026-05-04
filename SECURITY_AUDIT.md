@@ -1507,3 +1507,308 @@ relevant Saturn settings page when this lands in `docs/`.)
   the asterisk in §13.4.3.
 - CONFIG_FIELDS §A.3 — `tls_cert_path`, `tls_key_path` (reserved).
 - CONFIG_FIELDS §C.1 item 6 — boot validator for TLS files.
+
+---
+
+## 14. mDNS priority hijack — service-identity authentication (F-8 / qj5.16.9)
+
+This closes the structural audit bucket. mDNS is a broadcast protocol
+with no notion of authority; the question is what Saturn must layer on
+top to refuse an attacker's announcement when one collides with the
+real service.
+
+### 14.1 Announce → resolve flow today
+
+```
+SERVER SIDE                             saturn/discovery.py:423-442
+  SaturnAdvertiser.register()
+    spec = AdvertiseSpec(name, port, txt=_properties(), subtypes)
+    backend.advertise(spec)
+                                        saturn/mdns/userspace.py:92,109
+  → zeroconf.ServiceInfo(properties={... priority, id, api_base ...})
+  → multicast 224.0.0.251:5353  (no signature, no per-record auth)
+
+CLIENT SIDE                             saturn/discovery.py:121-178
+  on event 'added' / 'updated':
+    service = self._to_service(rec)
+    key = f"{service.node_id}:{service.name}" if node_id else service.name
+    self.services[key] = service        ← unconditional accept
+
+  get_best_service():
+    return min(self.services.values(), key=lambda s: s.priority)
+                                                    ↑
+                                  attacker controls this number
+```
+
+Selection rule: *lowest priority wins.* `int` field, range 0–100, no
+authentication. Attacker on the same broadcast domain advertises:
+
+```python
+ServiceInfo(
+    type_   = "_saturn._tcp.local.",
+    name    = "evil-saturn._saturn._tcp.local.",
+    port    = 8080,
+    addresses = [attacker_ip_packed],
+    properties = {
+        b"id":         b"<a fresh attacker UUID>",
+        b"v":          b"2",
+        b"priority":   b"0",                  # beats any honest server
+        b"api_base":   b"http://attacker_ip:8080/v1",
+        b"deployment": b"cloud",
+        b"api_type":   b"openai",
+        b"models":     b"openai/gpt-4o,anthropic/claude-haiku-4-5",
+        b"capabilities": b"chat",
+        b"features":   b"",
+    },
+)
+```
+
+Every honest client doing a `discover()` accepts the announcement,
+keys it under a fresh `(node_id, name)` pair, and `get_best_service()`
+returns it because priority 0 beats whatever the legitimate server
+publishes. The legitimate server is not displaced — both records sit
+in the client's table — but the **selection** is the attacker's.
+
+The Rust crate (`saturn-router/`) has the same shape; F-8 applies to
+every Saturn implementation that consumes the protocol.
+
+### 14.2 Downstream impact — what the attacker actually sees
+
+Once the attacker is the lowest-priority service, every subsequent
+chat call from any client routes to `attacker_ip:8080`. The attacker's
+relay does any of:
+
+1. **Pure interception.** Forward the request to the real Saturn,
+   stream the response back. Reads every prompt and response in
+   cleartext. Standard MITM payload.
+2. **Response rewrite.** Re-emit the upstream stream with
+   `choices[0].delta.content` mutated. Inject misinformation, strip
+   safety footers, prepend a system prompt the user never saw.
+3. **Credential capture.** Any header the client attaches —
+   `Authorization` (bearer passthrough from §11.4), runner token from
+   F-1 work, admin session cookie from F-4 work — lands in the
+   attacker's request log.
+4. **Free-pivot to other findings.**
+   - Combined with **F-2** (beacon mode), the attacker advertises
+     beacon-shape with their own `ephemeral_key` against an
+     attacker-funded OpenRouter account; clients call OpenRouter
+     directly using *the attacker's key*, which means the attacker
+     sees nothing from the network — but they have proven they own
+     the LAN's "Saturn" identity, and step 2's response rewrite is
+     trivially weaponisable when the next prompt arrives via a
+     proxy-mode service the attacker also owns.
+   - Combined with **F-3** (XFF) and **F-9 sub** (usage `user_id`),
+     the attacker enumerates and poisons usage records keyed by IPs
+     they choose.
+   - Combined with **F-1** (runner has no auth), the attacker doesn't
+     even need to relay — they just speak `/v1/chat/completions`
+     themselves and bill nothing.
+
+### 14.3 Why TLS alone (§13) does not close F-8
+
+F-7's mitigations (Caddy + cert, Tailscale, cloudflared) protect
+**transport between the client and the address the client decides to
+talk to.** F-8 is upstream of that decision: the attacker controls
+which address the client decides to talk to *via the TXT*.
+
+Concretely, with §13.5 wiring in place:
+
+- Honest server publishes `api_base = https://saturn.lan/v1` with a
+  cert chain rooted in Caddy's local CA (or Let's Encrypt).
+- Attacker publishes `api_base = https://saturn-evil.attacker/v1` with
+  priority 0, and serves their own cert from `saturn-evil.attacker`.
+  That cert chains to a CA the client has *no reason to trust* — but
+  it also has no reason to *distrust* if the client has never seen
+  this Saturn before. The attacker's cert is valid for the hostname
+  the attacker chose. There is no anchor that lets the client say
+  "wait, this used to be saturn.lan."
+- Even if the client pins on hostname (`saturn.lan` only), the
+  attacker can advertise a TXT pointing back to `saturn.lan` with a
+  spoofed mDNS `A` record for that name pointing to attacker_ip.
+  Standard mDNS poisoning; nothing in the protocol prevents it.
+
+TLS gives confidentiality and integrity *given a trusted endpoint
+identity*. F-8 is the unsolved-by-TLS problem of *which endpoint
+identity to trust*. It needs an authentication primitive that runs at
+service-identity granularity, not transport granularity.
+
+### 14.4 Mitigations — Saturn-side
+
+Three layers, increasing in robustness and friction:
+
+#### 14.4.1 TOFU on `node_id` (cheapest; recommended near-term)
+
+Saturn already mints a stable per-host UUID at
+`saturn/mdns/identity.py:get_node_id()` and persists it to
+`~/.saturn/node_id`. Clients read it from TXT (`id` field at
+`saturn/discovery.py:111`). Use it as a trust anchor:
+
+1. **First-contact pin.** When a client first sees a service name
+   (e.g. `ollama`, `openrouter`), record `(name → node_id)` in the
+   client's local store (e.g. `~/.saturn/known_nodes.json`).
+2. **Subsequent contact.** If the same name re-appears with a
+   different `node_id`, refuse to silently switch. Behaviour:
+   - If the new advertisement has *higher priority* (lower number) →
+     warn and drop unless the user explicitly approves the migration.
+     This is the priority-hijack case.
+   - If the new advertisement has *lower priority* (a fallback) →
+     fine, accept as a candidate but never as the preferred service
+     unless the pinned node_id has been absent for some grace period.
+3. **Rotation policy.** Legitimate node_id changes (machine wipe,
+   `~/.saturn/node_id` deleted) must be re-attested by the admin —
+   either through a Configure-page "trust this node_id" prompt or by
+   pre-listing it in the admin allowlist (14.4.2).
+
+This is structurally similar to SSH's `known_hosts`. It does not
+prevent the *first* hijack on a freshly-installed client, but it
+detects every subsequent attempt and converts a silent hijack into
+either a UI prompt or a hard failure. Cost: a few dozen lines in
+`saturn/discovery.py:_add` plus a small store. Right next-step.
+
+#### 14.4.2 Admin allowlist (CONFIG_FIELDS extension)
+
+Add to CONFIG_FIELDS §A.5 (or a new §A.8 "service identity"):
+
+```
+trusted_node_ids:  list[UUID]   default: []   env: SATURN_TRUSTED_NODE_IDS (csv)
+trust_mode:        string       default: "tofu"
+                                values: "tofu" | "allowlist" | "open"
+```
+
+- `open` — today's behaviour (no mitigation).
+- `tofu` — 14.4.1.
+- `allowlist` — only node_ids in `trusted_node_ids` are ever selected
+  as best service; everything else is logged-and-ignored. Right fit
+  for managed deployments (campus IT publishes the legitimate Saturn
+  node_ids out of band).
+
+The admin sees `node_id` for legitimate Saturns once (visible in the
+Configure page after installation) and pastes them into the allowlist.
+Closes hijack entirely at the cost of one config step.
+
+#### 14.4.3 Signed TXT records (most robust; deferred)
+
+Saturn signs each TXT advertisement with a server-private key. Clients
+verify with the corresponding pubkey distributed out of band (or
+fetched once via the admin allowlist). Two shapes:
+
+- **Detached signature in TXT:**
+  ```
+  sig = base64( Ed25519_sign(sk, canonicalise(other_txt_keys)) )
+  pk_fp = first_8_bytes_hex(sha256(pk))
+  ```
+  Clients verify the signature; refuse the record if it fails or if
+  `pk_fp` does not match the pinned/allowlisted fingerprint for this
+  service identity.
+- **Reuse the TLS leaf cert.** Once §13 lands and Saturn has a leaf
+  cert, the cert's pubkey serves double duty: clients SHA256 the cert
+  and the TXT carries `cert_sha256 = first_8_bytes_hex`. Verifying the
+  cert chain at TLS time + the TXT-pinned fingerprint forecloses the
+  hostname-spoof variant in 14.3.
+
+Real cost: a non-trivial schema change to the TXT (the `v` marker
+bumps), key distribution UX, and client-side cryptography. Defer until
+14.4.1 ships and 14.4.2 is in CONFIG_FIELDS.
+
+### 14.5 Mitigations — deployment-time (today)
+
+Until 14.4.1 lands, admins on hostile LANs have one practical
+out-of-band mitigation:
+
+- **Pin `api_base` in client config.** Tools that consume Saturn
+  (e.g. `saturn-mcp`, `saturn-router`, third-party integrations) can
+  bypass mDNS resolution and connect to a hardcoded
+  `https://saturn.lan/v1`. Saturn still *advertises* over mDNS for
+  the convenience case, but the production-critical clients ignore
+  the advertisement. Combined with the Caddy posture in §13.4.2 this
+  closes both F-7 and F-8 at the cost of giving up zero-config on
+  those clients.
+- **Network segmentation.** Put the Saturn host on a VLAN with only
+  trusted clients; the attacker is no longer on the same broadcast
+  domain. Also gives up zero-config across segments.
+
+Both are reasonable for institutional deployments. Neither fits the
+home / café / coworking scenario.
+
+### 14.6 Compounding-finding inventory (closing the bucket)
+
+This is the last F-thread; here's the audit's view of how the structural
+findings stack:
+
+| Finding | Closure                                              | Compounds-with                  |
+|---------|------------------------------------------------------|----------------------------------|
+| F-1     | Implementer (qj5.16.1, brutus owns)                  | F-3, F-7, F-8                   |
+| F-2     | §7 + CONFIG_FIELDS B.2 (qj5.16.4 closed)             | F-7, **F-8**                    |
+| F-3     | §8 + CONFIG_FIELDS A.3 (qj5.16.3 closed)             | F-1, F-9-sub                    |
+| F-4     | Implementer (qj5.16.2, brutus)                       | F-7, F-8                        |
+| F-5     | §11 delete-the-field (qj5.16.6 closed)               | F-7                             |
+| F-6     | §12 same-fix-as-F-5 (qj5.16.7 closed)                | F-7                             |
+| F-7     | §13 wiring (qj5.16.8 closed; A.3 reserved + qj5.16.12) | **F-8** (transport ≠ identity) |
+| F-8     | §14 TOFU + allowlist (this section)                  | F-2, F-7 (both interact)        |
+| F-9     | Closed-by-CONFIG_FIELDS A.2/C.1 (qj5.16.5 closed)    | F-7                             |
+| F-9-sub | §9 admin-gate /api/usage (qj5.16.10 closed)          | F-3                             |
+
+The two structural threads still requiring real implementer work after
+this audit closes are F-1, F-4 (auth wiring — brutus is on these), and
+F-7/F-8 together (TLS + identity, which compose). Everything else is
+either schema-closed, deletion-closed, or covered by a co-landable PR.
+
+### 14.7 Posture-ready prose for the docs queue
+
+> Saturn announces itself over mDNS, the same protocol your printer
+> uses. Like Bonjour for printers, that announcement is unauthenticated
+> by design — anyone on the local network can advertise themselves as
+> a Saturn service. On a trusted network (your home, a small private
+> lab) this is fine; clients pick the lowest-priority service and that
+> is the one you started.
+>
+> On a network where untrusted devices may join, an attacker can
+> advertise themselves as a Saturn service with priority 0, win the
+> selection, and intercept every prompt and response — even when the
+> traffic itself is over TLS, because the attacker controls *which*
+> TLS endpoint clients connect to.
+>
+> Saturn's near-term mitigation is **trust on first use** on the
+> per-host node ID. The first time a client sees a Saturn service by
+> name, it remembers the node ID; subsequent advertisements claiming
+> the same name from a different node ID are refused unless the user
+> explicitly approves the change. Admins running Saturn for managed
+> deployments (campus, office) can opt into stricter behaviour by
+> listing the legitimate node IDs in the Configure page allowlist —
+> Saturn will then ignore every other advertisement.
+>
+> Until those land, the practical mitigation on a hostile LAN is to
+> hardcode the Saturn URL in the clients that matter (skipping mDNS
+> resolution) and front the Saturn host with a TLS-terminating reverse
+> proxy as described in the TLS section.
+
+(Implementer note: replace "near-term" with the version number once
+14.4.1 ships; reference the Configure page allowlist row when the
+schema row from 14.4.2 lands.)
+
+### 14.8 Code references
+
+- `saturn/discovery.py:121-178` — `_add`, `_remove`, `get_best_service`;
+  the selection logic an attacker exploits.
+- `saturn/discovery.py:380-421` — `_properties()`; what the honest
+  server publishes (and what attacker mimics).
+- `saturn/mdns/identity.py:get_node_id` — UUID source used as TOFU
+  anchor in 14.4.1.
+- `saturn/mdns/userspace.py:92, 109` — backend that emits TXT to
+  zeroconf.
+- `~/.saturn/node_id` — the persistent UUID file (verified earlier
+  during audit).
+- CONFIG_FIELDS §A.5 — auth matrix (host for new `trusted_node_ids` /
+  `trust_mode` rows in 14.4.2).
+- SECURITY_AUDIT.md §7 — F-2 beacon mode; compounds with F-8 here.
+- SECURITY_AUDIT.md §13 — F-7 TLS posture; explains why TLS is
+  necessary-but-not-sufficient for F-8.
+
+---
+
+*Structural audit bucket complete.* Eight P0/P1 findings filed under
+qj5.16, one P0 outstanding pair (qj5.16.1 + qj5.16.2) currently with
+brutus, three P2 follow-ups for documentation and deferred wiring
+(qj5.16.11, .12, and the 14.4 implementation work). Implementer-side
+audit threads (qj5.13 schema wiring, qj5.16.1 / .2 auth dependencies,
+§13.5 TLS plumbing, §14.4 identity pinning) are the next-PR queue.
