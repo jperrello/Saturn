@@ -2608,6 +2608,58 @@ textarea:focus {
   color: var(--fg);
 }
 
+.msg.user {
+  position: relative;
+}
+.msg.user .edit-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.msg.user:hover .edit-btn,
+.msg.user .edit-btn:focus {
+  opacity: 1;
+}
+.msg.user .edit-textarea {
+  width: 100%;
+  min-height: 60px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 13px;
+  padding: 8px;
+}
+.msg.user .edit-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.msg.user .edit-save,
+.msg.user .edit-cancel {
+  padding: 4px 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  font-size: 11px;
+  cursor: pointer;
+}
+.msg.user .edit-save:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+
 .plus-menu {
   position: absolute;
   bottom: 70px;

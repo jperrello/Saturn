@@ -4199,3 +4199,107 @@ if (_origLoadSystemStatus) {
 
 // run on init
 initPhase3()
+
+// --- qj5.6: edit-sent-message ---
+function ensureEditAffordance(userDiv) {
+  if (!userDiv || userDiv.querySelector('.edit-btn')) return
+  const btn = document.createElement('button')
+  btn.className = 'edit-btn'
+  btn.type = 'button'
+  btn.textContent = 'Edit'
+  btn.setAttribute('aria-label', 'Edit message')
+  btn.title = 'Edit message'
+  userDiv.appendChild(btn)
+}
+
+function indexOfMsg(div) {
+  const all = Array.from(document.querySelectorAll('#messages .msg'))
+  return all.indexOf(div)
+}
+
+function beginEdit(userDiv) {
+  if (userDiv.querySelector('.edit-textarea')) return
+  const bubble = userDiv.querySelector('.bubble')
+  if (!bubble) return
+  const original = bubble.textContent
+  const ta = document.createElement('textarea')
+  ta.className = 'edit-textarea'
+  ta.value = original
+  const actions = document.createElement('div')
+  actions.className = 'edit-actions'
+  const save = document.createElement('button')
+  save.type = 'button'
+  save.className = 'edit-save'
+  save.textContent = 'Save & regenerate'
+  const cancel = document.createElement('button')
+  cancel.type = 'button'
+  cancel.className = 'edit-cancel'
+  cancel.textContent = 'Cancel'
+  actions.appendChild(save)
+  actions.appendChild(cancel)
+  bubble.replaceWith(ta)
+  userDiv.appendChild(actions)
+  ta.focus()
+
+  cancel.addEventListener('click', () => {
+    const restored = document.createElement('div')
+    restored.className = 'bubble'
+    restored.textContent = original
+    ta.replaceWith(restored)
+    actions.remove()
+  })
+
+  save.addEventListener('click', () => {
+    const newText = ta.value.trim()
+    if (!newText) return
+    const restored = document.createElement('div')
+    restored.className = 'bubble'
+    restored.textContent = newText
+    ta.replaceWith(restored)
+    actions.remove()
+    const idx = indexOfMsg(userDiv)
+    let sib = userDiv.nextElementSibling
+    while (sib) {
+      const next = sib.nextElementSibling
+      if (sib.classList.contains('msg')) sib.remove()
+      sib = next
+    }
+    if (typeof activeChat !== 'undefined' && activeChat !== null && chats[activeChat]) {
+      const msgs = chats[activeChat].messages
+      if (idx >= 0 && idx < msgs.length) {
+        msgs.length = idx
+        saveChats()
+      }
+    }
+    if (typeof input !== 'undefined' && typeof send === 'function') {
+      input.value = newText
+      send()
+    }
+  })
+}
+
+document.addEventListener('mouseover', (e) => {
+  const userDiv = e.target.closest && e.target.closest('.msg.user')
+  if (userDiv) ensureEditAffordance(userDiv)
+})
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest && e.target.closest('.msg.user .edit-btn')
+  if (!btn) return
+  e.stopPropagation()
+  beginEdit(btn.closest('.msg.user'))
+})
+
+const _msgs = document.getElementById('messages')
+if (_msgs) {
+  new MutationObserver((muts) => {
+    for (const m of muts) {
+      m.addedNodes.forEach(n => {
+        if (n.nodeType === 1 && n.classList && n.classList.contains('msg') && n.classList.contains('user')) {
+          ensureEditAffordance(n)
+        }
+      })
+    }
+  }).observe(_msgs, { childList: true })
+  document.querySelectorAll('#messages .msg.user').forEach(ensureEditAffordance)
+}
