@@ -2601,6 +2601,45 @@ textarea:focus {
   padding: 0 10px !important;
   gap: 6px;
 }
+
+.fab-plus {
+  font-size: 20px;
+  font-weight: 300;
+  color: var(--fg);
+}
+
+.plus-menu {
+  position: absolute;
+  bottom: 70px;
+  left: 24px;
+  z-index: 50;
+  min-width: 220px;
+  background: rgba(8, 8, 8, 0.96);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.plus-menu-item {
+  display: block;
+  background: transparent;
+  border: none;
+  padding: 8px 10px;
+  text-align: left;
+  font-family: var(--font);
+  font-size: 12px;
+  color: var(--fg);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.plus-menu-item:hover {
+  background: rgba(240, 192, 64, 0.1);
+}
 .fab-text {
   font-size: 11px;
   letter-spacing: 1.5px;

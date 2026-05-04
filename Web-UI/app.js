@@ -2432,7 +2432,26 @@ function attachFile(file) {
   reader.readAsText(file)
 }
 
-fileBtn.addEventListener('click', () => fileInput.click())
+fileBtn?.addEventListener('click', () => fileInput.click())
+
+document.getElementById('plus-menu-btn')?.addEventListener('click', (e) => {
+  e.stopPropagation()
+  document.getElementById('plus-menu')?.classList.toggle('hidden')
+})
+document.getElementById('plus-attach')?.addEventListener('click', () => {
+  document.getElementById('plus-menu')?.classList.add('hidden')
+  fileInput.click()
+})
+document.getElementById('plus-mcp')?.addEventListener('click', () => {
+  document.getElementById('plus-menu')?.classList.add('hidden')
+  document.getElementById('tools-toggle')?.click()
+})
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('plus-menu')
+  if (!menu || menu.classList.contains('hidden')) return
+  if (e.target.closest('#plus-menu') || e.target.closest('#plus-menu-btn')) return
+  menu.classList.add('hidden')
+})
 fileInput.addEventListener('change', () => {
   if (fileInput.files[0]) attachFile(fileInput.files[0])
 })
@@ -3424,7 +3443,7 @@ function download(filename, content, mime) {
   URL.revokeObjectURL(a.href)
 }
 
-document.getElementById('export-json').addEventListener('click', () => {
+document.getElementById('export-json')?.addEventListener('click', () => {
   if (activeChat === null) { toast('No active conversation'); return }
   const chat = chats[activeChat]
   const data = chat.messages.map(m => ({ role: m.role, content: m.text }))
@@ -3432,7 +3451,7 @@ document.getElementById('export-json').addEventListener('click', () => {
   toast('Exported JSON')
 })
 
-document.getElementById('export-md').addEventListener('click', () => {
+document.getElementById('export-md')?.addEventListener('click', () => {
   if (activeChat === null) { toast('No active conversation'); return }
   const chat = chats[activeChat]
   const lines = [`# ${chat.name || 'Saturn Chat'}`, '']

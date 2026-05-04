@@ -296,6 +296,9 @@
               </label>
             </div>
             <div class="strip-right">
+              <button id="tools-toggle" class="strip-btn fab-labeled" title="MCP Tools" aria-label="Toggle MCP tools panel">
+                <span class="fab-text">MCP</span>
+              </button>
               <button class="chat-settings-btn strip-btn settings-label-btn" title="Settings" aria-label="Open settings">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                   <ellipse cx="12" cy="12" rx="5" ry="4"/>
@@ -375,24 +378,12 @@
           </div>
           <div class="chat-input-float">
             <div class="chat-input-fabs">
-              <button id="file-upload-btn" class="fab" title="Attach file" aria-label="Attach file"><svg width="16" height="16"><use href="#icon-clip"/></svg></button>
               <input type="file" id="file-input" class="hidden" accept=".txt,.md,.py,.js,.ts,.json,.toml,.yaml,.yml,.csv">
-              <button id="thinking-toggle" class="fab thinking-btn" title="Thinking: Off" aria-label="Toggle thinking mode" data-state="off">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <path d="M12 2a7 7 0 00-3 13.33V17h6v-1.67A7 7 0 0012 2z"/>
-                  <line x1="9" y1="21" x2="15" y2="21"/>
-                  <line x1="10" y1="24" x2="14" y2="24"/>
-                </svg>
-              </button>
-              <button id="export-json" class="fab" title="Export JSON" aria-label="Export chat as JSON">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              </button>
-              <button id="export-md" class="fab" title="Export Markdown" aria-label="Export chat as Markdown">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8v8l3-3 3 3V8"/><path d="M17 12h-2l2-4 2 4h-2v4"/></svg>
-              </button>
-              <button id="tools-toggle" class="fab fab-labeled" title="MCP Tools" aria-label="Toggle MCP tools panel"><span class="fab-text">MCP</span>
-                <svg width="16" height="16"><use href="#icon-wrench"/></svg>
-              </button>
+              <button id="plus-menu-btn" class="fab fab-plus" title="Add menu" aria-label="Add menu">+</button>
+              <div id="plus-menu" class="plus-menu hidden" role="menu">
+                <button id="plus-attach" class="plus-menu-item" role="menuitem">Attach file/photo</button>
+                <button id="plus-mcp" class="plus-menu-item" role="menuitem">MCP tools / Connectors</button>
+              </div>
             </div>
             <div class="chat-input-area">
               <textarea id="chat-input" placeholder="Message Saturn..." rows="1"></textarea>
