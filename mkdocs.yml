@@ -106,6 +106,8 @@ nav:
     - System & Monitoring: web-ui/system.md
     - Remote Access: web-ui/remote.md
     - Cost Tracking: web-ui/cost-tracking.md
+  - Admin:
+    - Security Runbook: admin/security.md
   - Configuration:
     - Service Configuration: configuration/service-config.md
     - Config TOML Reference: configuration/config-toml.md
