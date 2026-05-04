@@ -850,3 +850,240 @@ The first option matches today's architecture; recommend that.
 - `saturn/web.py:282-316` — `usage` table schema and `_record_usage`
   writer.
 - CONFIG_FIELDS §A.5 — auth matrix; §A.2 — `admin_token_env` definition.
+
+---
+
+## 10. F-9 disposition (qj5.16.5)
+
+F-9 (`SATURN_ADMIN_PASSWORD` defaults to `"saturn"`) is **closed by
+CONFIG_FIELDS §A.2 + §C.1**:
+
+- A.2 keeps the env var name `SATURN_ADMIN_PASSWORD` as the default of
+  `admin_password_env` (backward compatible) but removes the in-code
+  default literal.
+- C.1 boot validator refuses to start when the resolved value is empty,
+  one of `{"", "saturn", "password", "admin"}`, or shorter than 12
+  characters, unless `SATURN_DEV_MODE=1` is set.
+
+When the implementer (brutus) lands the validator, the literal default at
+`saturn/web.py:386` must be deleted in the same change — leaving the
+`os.environ.get("SATURN_ADMIN_PASSWORD", "saturn")` form would let the
+defect persist behind a successful boot. Brutus' fixture in
+`saturn/tests/test_web_admin_auth.py:11` already sets
+`SATURN_ADMIN_PASSWORD="brutus-fixture-pw-min-12chars"`, which is the
+shape the validator expects; the test is currently red against today's
+code and goes green when A.2 + C.1 land.
+
+**Residual doc-only follow-up** (filed as a docs bead, not a security
+finding): three doc files still describe the old default and must be
+rewritten to match the post-A.2 behaviour:
+
+- `docs/configuration/env-vars.md:24` — table row currently says default
+  is `saturn`. Change to "(none — required, ≥12 chars)."
+- `docs/web-ui/discover.md:44-47` — text "The admin password defaults to
+  `saturn`" must go.
+- `docs/configuration/tunnels.md:30, 50, 63, 74` — uses
+  `SATURN_ADMIN_PASSWORD` as a Bearer token. Per A.2 the token surface is
+  a *separate* env var `SATURN_ADMIN_TOKEN`; rewrite these examples to
+  `SATURN_ADMIN_TOKEN` and adjust the line at `:74` from "change the
+  default password" to "set `SATURN_ADMIN_TOKEN` to a strong random
+  value (`openssl rand -hex 32`)."
+
+These are documentation drift, not residual security exposure — the
+schema closes F-9 itself.
+
+---
+
+## 11. `/api/proxy/chat` body-supplied `api_key` (F-5 / qj5.16.6)
+
+### 11.1 The shape today
+
+```python
+# saturn/web.py:758-766
+class ManualChatRequest(BaseModel):
+    base_url: str
+    model: str
+    messages: List[dict]
+    api_type: Optional[str] = "openai"
+    api_key: Optional[str] = None        # ← optional bearer for arbitrary upstream
+    temperature: Optional[float] = None
+    ...
+
+# saturn/web.py:775-790
+@app.post("/api/proxy/chat")
+async def proxy_chat(body: ManualChatRequest, request: Request):
+    ip = _client_ip(request)
+    blocked = _check_rate(ip)
+    if blocked:
+        return blocked
+    headers = {"Content-Type": "application/json"}
+    if body.api_key:
+        headers["Authorization"] = f"Bearer {body.api_key}"
+    ...
+    async def generate():
+        async with httpx.AsyncClient(...) as client:
+            async with client.stream("POST", f"{base}/chat/completions",
+                                     json=payload, headers=headers) as r:
+                if r.status_code != 200:
+                    err = await r.aread()
+                    yield f"data: {err.decode()}\n\n"          # ← echoes upstream body
+                    return
+                async for line in r.aiter_lines():
+                    ...
+```
+
+The route is the "manual endpoint" handler — the chat UI's path for
+talking to a hand-configured base URL that isn't a registered Saturn
+service (Web-UI/app.js:2071, 4084).
+
+### 11.2 Who actually populates `api_key` today
+
+Nobody.
+
+- `Web-UI/app.js:2716-2728` (the manual-endpoint add form) collects only
+  `{name, url, api_type}`. The localStorage record at
+  `Web-UI/app.js:2683-2693` carries those three keys only.
+- `Web-UI/app.js:2072` and `:4085` build the `/api/proxy/chat` body with
+  `{ base_url, model, messages, api_type, ...params }`. No `api_key`.
+- No test in `saturn/tests/` exercises the field.
+- No external consumer in `saturn-mcp/`, `saturn-router/`, `saturnd/`, or
+  `ai-sdk-provider-saturn/` calls `/api/proxy/chat` at all.
+
+The field is dormant capability — present in the API surface, unused by
+the codebase. That is the cleanest possible form of this finding to fix.
+
+### 11.3 Risk surface while it remains
+
+Two real concerns even though no shipping code populates it:
+
+1. **Hand-crafted callers paste real keys.** Once a developer or admin
+   has the JSON shape, the obvious move is to test `/api/proxy/chat`
+   with `curl` and a real OpenRouter / OpenAI / Anthropic key. That key
+   then traverses:
+   - The HTTP body (encrypted only if Saturn is fronted with TLS — which
+     CONFIG_FIELDS A.3 makes opt-in, not default).
+   - Any uvicorn access-log middleware that captures POST bodies (none by
+     default; some debugging configs add this).
+   - Any reverse proxy in front of Saturn that logs request bodies.
+2. **Upstream error echo.** Lines 794-796 echo the upstream response body
+   verbatim back to the caller as a Server-Sent Event. Some upstream
+   error responses include the redacted form of the auth header
+   (`Bearer ******abc`) or the raw value when the upstream is
+   misconfigured. Echoing untrusted upstream bodies through Saturn is a
+   small reflected-content surface.
+
+After F-4 lands, this route requires admin auth, so the audience is no
+longer "any LAN peer" — it's "any admin-token holder." That bounds
+exposure but does not eliminate the body-key shape.
+
+### 11.4 Recommended fix — delete the field
+
+The cleanest fix is the smallest: **remove `api_key` from
+`ManualChatRequest`.** Justification:
+
+- No internal caller populates it.
+- Saturn's secret-handling invariant elsewhere (`saturn/web.py:1213`,
+  `saturn/config.py:31`) is "configs hold the *name* of an env var; the
+  value never traverses the request body." `/api/proxy/chat` is the one
+  exception. Restoring the invariant simplifies log redaction and
+  documentation.
+- Anyone who needs to talk to an authenticated upstream already has the
+  proper path: register a service config (`POST /api/services` with
+  `api_key_env`, then `/api/services/{name}/start`) and chat via
+  `/api/chat`. That path keeps the key in `os.environ`.
+- For genuinely ad-hoc upstream testing (admins poking a new endpoint),
+  the `Authorization` header on the inbound request can be passed
+  through verbatim — see 11.5.
+
+Concrete diff sketch:
+
+```python
+class ManualChatRequest(BaseModel):
+    base_url: str
+    model: str
+    messages: List[dict]
+    api_type: Optional[str] = "openai"
+    # api_key removed; use Authorization: Bearer <token> on the request.
+    temperature: Optional[float] = None
+    ...
+
+@app.post("/api/proxy/chat")
+async def proxy_chat(body: ManualChatRequest, request: Request):
+    ...
+    headers = {"Content-Type": "application/json"}
+    incoming = request.headers.get("authorization")
+    if incoming and incoming.lower().startswith("bearer "):
+        headers["Authorization"] = incoming
+    ...
+```
+
+This shape:
+- moves the secret out of the body (where bodies often get logged) and
+  into the `Authorization` header (where logs typically redact);
+- requires no UI change (current UI sends no key);
+- gives admins a clean curl form for ad-hoc upstream pokes;
+- composes cleanly with the F-4 admin-token gate (the inbound
+  `Authorization` header can carry *either* the admin token OR a passthrough
+  bearer — but only when a separate `X-Saturn-Passthrough: 1` header is
+  set, so the ambiguity is explicit). Implementer can decide whether the
+  passthrough form is worth the complexity.
+
+### 11.5 Companion fix — strip the upstream error echo
+
+Independent of 11.4, the verbatim echo at line 794-796 should be
+sanitised:
+
+```python
+if r.status_code != 200:
+    # Don't echo upstream body verbatim — it can contain reflected auth
+    # context. Surface a structured error instead.
+    yield f"data: {{\"error\": \"upstream {r.status_code}\"}}\n\n"
+    return
+```
+
+If admins want the raw upstream body for debugging, gate it behind a
+`?debug=1` query that requires the admin token plus a server-side
+`debug_proxy_errors=true` admin-config flag. Default is sanitised.
+
+### 11.6 Companion fix — `/api/proxy/models` (F-6 preview)
+
+While here: `/api/proxy/models` (saturn/web.py:711-715) takes the same
+key as a **query string**. That belongs in §12 with its own bead
+(qj5.16.7), but the fix shape is identical — drop the query parameter,
+read the inbound `Authorization` header instead. Calling it out here so
+the implementer lands both routes in one PR.
+
+### 11.7 Tests the implementer should add
+
+- `POST /api/proxy/chat` with `{"api_key": "..."}` in the body returns
+  422 (Pydantic rejects unknown field once `api_key` is removed and
+  `model_config = ConfigDict(extra="forbid")` is set on
+  `ManualChatRequest`).
+- `POST /api/proxy/chat` with a passthrough bearer in `Authorization`
+  forwards that bearer to the upstream.
+- An upstream 401 response does *not* leak the upstream body verbatim;
+  the SSE chunk is the sanitised form from 11.5.
+- After F-4 lands: unauthenticated `POST /api/proxy/chat` returns 401 in
+  all shapes (body-with-key, body-without-key, passthrough header).
+
+### 11.8 Posture-ready prose for the docs queue
+
+> Saturn never asks you to paste an API key into a request body or query
+> string. To talk to an authenticated upstream from the chat UI, register
+> the upstream as a Saturn service: tell Saturn the name of the
+> environment variable that holds the key
+> (`api_key_env = "OPENROUTER_API_KEY"`), and start the service. Saturn
+> reads the value from the environment at request time and never
+> persists it. For one-off testing of an unfamiliar upstream from
+> `curl`, set `Authorization: Bearer <token>` on the request — Saturn
+> forwards that header verbatim to the upstream. There is no body field
+> for keys.
+
+### 11.9 Code references
+
+- `saturn/web.py:758-766` — `ManualChatRequest` (delete `api_key`).
+- `saturn/web.py:775-790` — `proxy_chat` headers assembly.
+- `saturn/web.py:794-796` — upstream error echo to sanitise.
+- `Web-UI/app.js:2683-2693, 2716-2728` — manual endpoint storage shape
+  (already does not carry an `api_key`; no UI change needed).
+- CONFIG_FIELDS §A.6 — proxy hygiene admin policies.
