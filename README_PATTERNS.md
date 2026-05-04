@@ -18,8 +18,10 @@ Verbatim from sample:
 2. **"Start building with open models."** (Ollama) — works because verb-first; tells you what YOU do.
 3. **"Private WireGuard® networks made easy"** (Tailscale) — works because it names the protocol it builds on + the value-add.
 4. **"Multicast DNS Service Discovery for Python"** (python-zeroconf) — works because it's literally what + for whom in 6 words.
-
-(More to add after second batch.)
+5. **"Consul is a distributed, highly available, and data center aware solution to connect and configure applications across dynamic, distributed infrastructure."** — weak because 22 words, 4 adjectives before the verb. Saturn must not write like this.
+6. **"A simple, secure and performant communications system for digital systems, services and devices."** (NATS) — weak because three abstract adjectives + four abstract nouns; reader still doesn't know what NATS DOES.
+7. **"Every site on HTTPS"** (Caddy) — works because it's a *promise*, not a description. Four words. Saturn should consider a promise-shaped tagline.
+8. **"A continuous file synchronization program"** (Syncthing) — works because it names the verb (synchronize) and the thing (files); weak because no audience hint.
 
 ## Canonical section order
 
@@ -36,7 +38,9 @@ Order recurring in winning READMEs:
 9. Community / Contributing
 10. License
 
-Ollama deviates by putting **Download** before everything — works because the product IS the binary. Saturn should NOT copy this; Saturn is a protocol, not a binary.
+Ollama deviates by putting **Download** before everything — works because the product IS the binary. Saturn should NOT copy this; Saturn is a protocol, not a binary. Caddy puts **Features** then **Install** before **Quick start** — survives because Caddy users already know they want a web server. Saturn cannot assume that level of pre-conviction; lead with quickstart, justify after.
+
+Consul leads with feature-list headings (Multi-Datacenter, Service Mesh, API Gateway, Service Discovery, Health Checking) BEFORE Quick Start. This is a HashiCorp pattern; it works for enterprise sales but is hostile to a 5-second visitor. Saturn should invert this.
 
 ## Code-block patterns
 
@@ -54,6 +58,8 @@ Ollama deviates by putting **Download** before everything — works because the 
 - Stale badges — CI badge red for months destroys trust faster than no badge.
 - Logo eats a full screen above the fold.
 - Section headers like "Sponsors" or "Opinions" before "Example" (FastAPI's actual order — only survives because the project is famous; Saturn cannot afford this).
+- **No hero codeblock at all.** Consul, NATS, and Syncthing all skip a runnable hero block. Result: visitor cannot tell in 5 seconds what using it looks like. Saturn must not repeat this.
+- **Adjective-stacked taglines** (Consul, NATS) — "distributed, highly available, data center aware" is noise. Pick one promise.
 
 ## The Saturn-shaped README
 
@@ -109,4 +115,7 @@ $ curl http://llama-3-8b.local:8080/v1/chat/completions \
 - [ollama/ollama](https://github.com/ollama/ollama) — modern protocol-shaped, zero badges
 - [tailscale/tailscale](https://github.com/tailscale/tailscale) — network protocol positioning
 - [python-zeroconf/python-zeroconf](https://github.com/python-zeroconf/python-zeroconf) — mDNS-direct reference
-- (more to add)
+- [hashicorp/consul](https://github.com/hashicorp/consul) — service-discovery anti-pattern (feature headings before quickstart)
+- [nats-io/nats-server](https://github.com/nats-io/nats-server) — adjective-stacked tagline cautionary tale
+- [caddyserver/caddy](https://github.com/caddyserver/caddy) — promise-shaped tagline ("Every site on HTTPS")
+- [syncthing/syncthing](https://github.com/syncthing/syncthing) — verb-first minimal tagline; missing hero block
