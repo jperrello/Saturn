@@ -1812,3 +1812,402 @@ brutus, three P2 follow-ups for documentation and deferred wiring
 (qj5.16.11, .12, and the 14.4 implementation work). Implementer-side
 audit threads (qj5.13 schema wiring, qj5.16.1 / .2 auth dependencies,
 §13.5 TLS plumbing, §14.4 identity pinning) are the next-PR queue.
+
+---
+
+## 15. Implementer notes — qj5.16.13 contract pre-draft (node_id TOFU + allowlist)
+
+This section is pre-spec for whoever picks up Saturn-qj5.16.13. Goal: a
+contract concrete enough that brutus (or another implementer) can write
+the PR without re-deriving the design. Maps §14.4.1 + §14.4.2 onto
+specific files and signatures.
+
+### 15.1 Persistent state — `~/.saturn/known_nodes.json`
+
+One file per *client* installation. Tracks which `(service-name →
+node_id)` pairs the client has accepted as canonical.
+
+```json
+{
+  "version": 1,
+  "nodes": {
+    "ollama": {
+      "node_id": "d2a0c4d8-c7a1-4d88-a575-7f68cdf1812e",
+      "first_seen": "2026-05-04T19:21:08Z",
+      "last_seen":  "2026-05-04T19:55:42Z",
+      "host_seen":  "192.168.1.14",
+      "trusted":    true
+    },
+    "openrouter": {
+      "node_id": "f1a3...",
+      "first_seen": "...",
+      "last_seen":  "...",
+      "host_seen":  "...",
+      "trusted":    true
+    }
+  },
+  "rejected": [
+    {
+      "service_name": "ollama",
+      "node_id":      "9b2e...",
+      "host_seen":    "192.168.1.99",
+      "rejected_at":  "2026-05-04T19:23:11Z",
+      "reason":       "rebind_attempt"
+    }
+  ]
+}
+```
+
+Notes:
+
+- `version: 1` for forward-compat. Bump only on shape changes.
+- `nodes[name]` keyed by mDNS instance name (`ollama`, `openrouter-Beacon`,
+  etc.) — same string clients see in TXT.
+- `trusted` reserved for future "user explicitly attested this rebinding"
+  path; default `true` on first contact.
+- `rejected` is bounded (LRU at 50 entries) and serves both as audit log
+  and as a hint surface for the Configure page in §15.5.
+- File written **atomically** (write to `.tmp` + `os.replace`) to survive
+  crashes during multi-record updates.
+- Mode `0600`. Refuse to read if mode is wider on a multi-user host
+  (skip TOFU rather than trust a tampered file).
+
+Module: `saturn/mdns/known_nodes.py`. Public surface:
+
+```python
+from typing import Optional
+
+def load() -> dict: ...                               # ensures schema version, returns dict
+def save(state: dict) -> None: ...                    # atomic write, mode 0600
+def known_node_id(name: str) -> Optional[str]: ...    # convenience reader
+def pin(name: str, node_id: str, host: str) -> None:  # first-contact write
+    ...
+def record_rejection(name: str, node_id: str, host: str, reason: str) -> None:
+    ...
+def attest(name: str, node_id: str, host: str) -> None:
+    # admin-attested rebind; replaces nodes[name].node_id
+    ...
+def forget(name: str) -> None:
+    # explicit reset (e.g. legitimate machine wipe)
+    ...
+```
+
+All operations take a single `~/.saturn/known_nodes.json` file lock —
+trivial since clients only run one discovery loop per process.
+
+### 15.2 Integration point in `saturn/discovery.py`
+
+Two hook sites; prefer the **selection-time** site (15.2.b) over the
+**ingest-time** site (15.2.a) so the table still reflects what's on the
+wire (useful for diagnostics) but `get_best_service` only ever returns
+trusted candidates.
+
+#### 15.2.a Ingest-time annotation (light touch)
+
+In `_to_service` (`saturn/discovery.py:88-119`) attach a trust verdict
+to the `SaturnService` record. Add one field to the dataclass:
+
+```python
+@dataclass
+class SaturnService:
+    ...
+    node_id: str = ""
+    trust: str = "unknown"   # "pinned" | "first_seen" | "rebind_rejected" | "allowlist" | "unknown"
+```
+
+Set `trust` in `_add` (`saturn/discovery.py:128-154`) using the
+known-nodes file and the admin allowlist:
+
+```python
+from saturn.mdns import known_nodes
+
+def _add(self, rec: ServiceRecord) -> None:
+    service = self._to_service(rec)
+    service.trust = _classify_trust(service)            # NEW
+    ...
+
+def _classify_trust(s: SaturnService) -> str:
+    mode = _trust_mode()                                # see 15.4
+    if mode == "open":
+        return "unknown"
+    if mode == "allowlist":
+        return "allowlist" if s.node_id in _allowlist() else "rebind_rejected"
+    # mode == "tofu" (default)
+    pinned = known_nodes.known_node_id(s.name)
+    if pinned is None:
+        return "first_seen"
+    if pinned == s.node_id:
+        return "pinned"
+    return "rebind_rejected"
+```
+
+Logging at this layer makes the rejection visible in stdout when
+operators look at the running discovery process.
+
+#### 15.2.b Selection-time enforcement (the safety property)
+
+`get_best_service` and `get_all_services`
+(`saturn/discovery.py:170-178`) must filter on `trust`:
+
+```python
+_SELECTABLE = {"pinned", "first_seen", "allowlist"}
+
+def get_best_service(self) -> Optional[SaturnService]:
+    with self.lock:
+        candidates = [s for s in self.services.values() if s.trust in _SELECTABLE]
+        if not candidates:
+            return None
+        return min(candidates, key=lambda s: s.priority)
+
+def get_all_services(self) -> List[SaturnService]:
+    with self.lock:
+        return sorted(
+            (s for s in self.services.values() if s.trust in _SELECTABLE),
+            key=lambda s: s.priority,
+        )
+```
+
+Side effects on transitions:
+
+- On the first observation of a `(name, node_id)` pair with `trust ==
+  "first_seen"`: promote to `"pinned"` after the SettleDetector reports
+  steady state (avoids pinning on a transient mDNS glitch). Effectively:
+  `known_nodes.pin(...)` runs once per client per service-name, in the
+  background, after `discover()` completes.
+- On the first `"rebind_rejected"`: call
+  `known_nodes.record_rejection(...)` exactly once (not per
+  reannouncement); rate-limit by `(name, node_id)` pair.
+
+Why both layers: the selection filter is the security property; the
+ingest annotation is the diagnostic + UX surface. Skipping the
+ingest-time field would force the Configure page in §15.5 to recompute
+the verdict, duplicating logic.
+
+### 15.3 Refuse-silent-rebind error UX
+
+When `get_best_service()` returns `None` because every advertisement is
+`"rebind_rejected"`, the calling code (chat in `saturn/web.py`,
+`saturn-mcp`, etc.) needs a structured error rather than a generic 503.
+
+Recommended shape — new exception in `saturn/discovery.py`:
+
+```python
+class TrustRebindError(RuntimeError):
+    def __init__(self, service_name: str, expected_node_id: str,
+                 seen_node_id: str, seen_host: str):
+        self.service_name    = service_name
+        self.expected_node_id = expected_node_id
+        self.seen_node_id    = seen_node_id
+        self.seen_host       = seen_host
+        super().__init__(
+            f"refusing service '{service_name}': pinned node_id "
+            f"{expected_node_id[:8]}… does not match advertised "
+            f"{seen_node_id[:8]}… (seen at {seen_host})"
+        )
+```
+
+`get_best_service` does not raise (the minimum-priority caller might
+have other things to try); the *resolver* in `saturn/web.py:_resolve`
+raises when it has zero selectable candidates and at least one
+rejected:
+
+```python
+def _resolve(name: str) -> tuple[str, dict[str, str]]:
+    if name in _discovered:                      # post-trust filtering
+        ...
+    rejected = _last_rejection(name)
+    if rejected:
+        raise HTTPException(
+            403,
+            detail={
+                "error":           "trust_rebind_rejected",
+                "service":         name,
+                "expected_prefix": rejected.expected_node_id[:8],
+                "seen_prefix":     rejected.seen_node_id[:8],
+                "seen_host":       rejected.seen_host,
+                "remediation":     "Verify with the Saturn admin, "
+                                   "then accept via Configure → "
+                                   "Service identity → Trust this node_id.",
+            },
+        )
+    raise HTTPException(404, f"Service '{name}' not found")
+```
+
+The chat UI surfaces this as a non-dismissable banner above the chat
+input rather than a toast: this is the kind of failure where the user
+should stop and verify, not retry.
+
+### 15.4 CONFIG_FIELDS extension (proposed §A.8)
+
+Two new admin-config rows, plus a small `_load_admin_config` callback.
+
+| Field                | Type          | Default   | Env override                    | Validation                                                                     |
+|----------------------|---------------|-----------|----------------------------------|---------------------------------------------------------------------------------|
+| `trust_mode`         | string        | `"tofu"`  | `SATURN_TRUST_MODE`              | one of `"tofu"`, `"allowlist"`, `"open"`. `"open"` requires `SATURN_DEV_MODE=1`. |
+| `trusted_node_ids`   | list[UUID]    | `[]`      | `SATURN_TRUSTED_NODE_IDS` (csv)  | each entry parses via `uuid.UUID(...)`. Required non-empty when `trust_mode == "allowlist"`. |
+
+Add to `AdminConfig` Pydantic model in `saturn/web.py:1288-1290`:
+
+```python
+class AdminConfig(BaseModel):
+    model_filter: Optional[str] = None
+    max_budget: Optional[float] = None
+    budget_duration: Optional[str] = None
+    trust_mode: Optional[str] = None              # NEW
+    trusted_node_ids: Optional[List[str]] = None  # NEW
+```
+
+`set_admin_config` writes them through; `_load_admin_config` boot path
+calls a new `discovery.set_trust_policy(mode, allowlist)` that updates
+the module-level `_trust_mode` / `_allowlist` referenced in §15.2.a.
+On every successful `POST /api/admin/config` that touches either field,
+re-classify every record currently in `self.services`:
+
+```python
+def reclassify_all(self) -> None:
+    with self.lock:
+        for s in self.services.values():
+            s.trust = _classify_trust(s)
+```
+
+(So an admin flipping `trust_mode` from `"tofu"` to `"allowlist"` takes
+effect without restarting Saturn.)
+
+### 15.5 Configure-page UX hook
+
+One new section on the Configure page, "Service identity," with three
+controls:
+
+1. **Trust mode** dropdown — `tofu` / `allowlist` / `open` (greyed and
+   warning-labelled in `open`).
+2. **Trusted node IDs** — list editor. Each row shows
+   `node_id_prefix … host last_seen`; "+" appends from a known-nodes
+   pick-list (so admins don't paste UUIDs by hand).
+3. **Pending rebind rejections** — read-only table fed by
+   `known_nodes.load()["rejected"]` filtered to the last 24 h. Each row
+   has two actions:
+   - **Trust this node_id** — calls a new `POST /api/admin/known-nodes/attest`
+     `{service: str, node_id: UUID}` which invokes
+     `known_nodes.attest(name, node_id, host)` and triggers
+     `reclassify_all()`. Closes the rejection.
+   - **Forget pinned** — calls `POST /api/admin/known-nodes/forget`
+     `{service: str}`. Useful after a legitimate machine wipe; next
+     advertisement re-pins fresh under TOFU.
+
+Both new admin endpoints sit behind the `Depends(require_admin)`
+dependency from F-4, so unauthenticated peers cannot manipulate the
+trust state — closing the obvious counter-attack of "if I can hijack,
+maybe I can also auto-attest myself."
+
+Frontend file: `Web-UI/app.js`. Same pattern as the existing
+`/api/admin/config` integration around line 4012-4022. The known-nodes
+data is fetched separately from `/api/admin/known-nodes` (new GET
+returning the same JSON `known_nodes.load()` produces).
+
+### 15.6 Tests the implementer should add
+
+Functional, unit, and integration:
+
+1. **TOFU first-contact pin** — bring up a service with node_id `A`,
+   call `discover()`, assert `~/.saturn/known_nodes.json` records
+   `(name → A)`. Restart client, re-discover, assert no change to
+   `first_seen` and `last_seen` updates.
+2. **Silent rebind refused** — pin `(name → A)`. Advertise the same
+   `name` from a different process with node_id `B` and priority `0`.
+   Assert `get_best_service()` returns the pinned `A`-server (not `B`)
+   and `known_nodes` records the rejection of `B`.
+3. **Lower-priority rebind tolerated** — pin `(name → A)` priority
+   `50`. Advertise a `B`-server priority `60`. Assert `B` lands in
+   `services` with `trust == "rebind_rejected"` (still rejected — only
+   pinned node_id may serve under that name; lower-priority rebind is
+   not a hijack but is still a different identity claiming the same
+   name).
+4. **Allowlist mode** — set `trust_mode = "allowlist"` and
+   `trusted_node_ids = [A]`. Advertise `B` priority `0`. Assert
+   `get_best_service()` returns `A` regardless of priority.
+5. **Attest path** — POST `/api/admin/known-nodes/attest
+   {service:"ollama", node_id:"B"}`, assert `known_nodes.json` rebinds
+   to `B`, assert `reclassify_all()` ran and `B`'s trust is now
+   `"pinned"`.
+6. **Mode-flip live update** — flip `trust_mode` `tofu` → `open`,
+   assert previously-rejected records become selectable (with
+   `trust == "unknown"`, still loggable), no Saturn restart required.
+7. **File-mode refusal** — `chmod 0644 ~/.saturn/known_nodes.json`,
+   assert TOFU is silently skipped (treats every advertisement as
+   `"unknown"` rather than reading a possibly-tampered file) and a
+   warning logs once per process.
+8. **Concurrency** — two threads observe the same first-contact name
+   simultaneously; assert `pin` is idempotent and exactly one
+   `first_seen` timestamp is recorded.
+
+Existing test scaffolding in `saturn/tests/test_identity.py` and
+`saturn/tests/test_discovery.py` is the right place; no new fixture
+infrastructure needed.
+
+### 15.7 Migration path & failure modes
+
+- **No `known_nodes.json` on disk** (fresh install): every observed
+  service is `first_seen` → silently pins on the first settle.
+  Identical UX to today's "open" mode, but on the first restart the
+  client refuses anything else claiming those names. No user prompt.
+- **`~/.saturn/node_id` exists but `known_nodes.json` does not** on the
+  *server* side — irrelevant; the server's identity is what TXT
+  publishes. Clients pin server-side identities; servers don't pin
+  themselves.
+- **Two real Saturn hosts on the same LAN** with the same `name` (e.g.
+  two boxes both running `ollama`): TOFU pins whichever the client
+  saw first. The admin must rename one (`SATURN_SERVICE_NAME=ollama-2`)
+  or list both node_ids in the allowlist. Document this in the
+  Configure-page copy.
+- **Server reinstall** clears `~/.saturn/node_id` → new UUID → all
+  clients reject under TOFU. Two remediation paths (in 15.5): "Trust
+  this node_id" per client, or admin updates the allowlist.
+
+### 15.8 Posture-ready prose for the docs queue
+
+> Saturn pins each service it has spoken to before. The first time
+> your client sees a service named (for example) `ollama`, it
+> remembers the unique node ID that announced it. If a different node
+> later announces a service with the same name and a higher priority,
+> Saturn refuses to silently switch — instead it surfaces the rebind
+> in the Configure page so an admin can decide whether the new node is
+> legitimate (e.g. the Saturn host was rebuilt) or hostile (someone on
+> the network is impersonating Saturn).
+>
+> If you run Saturn for a managed deployment and want stricter
+> behaviour, set **Trust mode → allowlist** and add the legitimate
+> node IDs to **Trusted node IDs**. Saturn will then ignore every
+> advertisement whose node ID isn't on the list, even if it claims the
+> same name as a real service.
+
+### 15.9 Order of operations for the implementer
+
+Recommend landing in three commits:
+
+1. `saturn/mdns/known_nodes.py` + the `SaturnService.trust` field +
+   `_classify_trust` + selection-time filter in `get_best_service` /
+   `get_all_services`. Default `trust_mode = "tofu"`. Tests 1–3, 7, 8.
+2. `AdminConfig` extension, `/api/admin/known-nodes` GET +
+   `/attest` + `/forget` POST endpoints behind
+   `Depends(require_admin)`. `set_trust_policy` plumbing + live
+   reclassification. Tests 4, 5, 6.
+3. Configure-page UI in `Web-UI/app.js`: trust-mode dropdown, allowlist
+   editor, pending-rejections table. Manual playwright pass per
+   Bombadil convention.
+
+Each commit is independently reviewable. Commits 1+2 can ship without
+3 if the UI lane is queued behind brutus's auth wiring; admins can
+manage allowlist / attestations via curl until then.
+
+### 15.10 Code references
+
+- `saturn/discovery.py:88-119` — `_to_service`; ingest hook.
+- `saturn/discovery.py:128-154` — `_add`; classify + record.
+- `saturn/discovery.py:170-178` — selection filter goes here.
+- `saturn/discovery.py:545-567` — `_resolve` in `saturn/web.py`; raises
+  `TrustRebindError` → 403.
+- `saturn/mdns/identity.py:get_node_id` — server-side UUID source.
+- `saturn/web.py:1288-1308` — `AdminConfig` model + handlers to extend.
+- `Web-UI/app.js:4012-4022` — existing Configure-page fetch pattern.
+- CONFIG_FIELDS §A.5 — auth matrix host for new admin endpoints.
+- SECURITY_AUDIT.md §14 — F-8 finding this implements.
