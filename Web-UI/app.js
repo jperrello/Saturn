@@ -2989,7 +2989,7 @@ function getSystemPrompt() {
   else prompt = cfg.global.system_prompt || null
 
   // inject style prefix (SAT-sgr.3)
-  const style = document.getElementById('style-select')?.value || ''
+  const style = document.querySelector('input[name="chat-style-radio"]:checked')?.value || ''
   const prefix = STYLE_PREFIXES[style] || ''
   if (!prefix) return prompt
   if (!prompt) return prefix
@@ -3255,7 +3255,24 @@ function openConfig(serviceName) {
   configOverlay.classList.remove('hidden')
 }
 
-document.querySelectorAll('.chat-settings-btn').forEach(b => b.addEventListener('click', () => openConfig(null)))
+document.querySelectorAll('.chat-settings-btn').forEach(b => b.addEventListener('click', (e) => {
+  e.stopPropagation()
+  const popup = document.getElementById('chat-settings-popup')
+  if (!popup) return
+  popup.classList.toggle('hidden')
+  if (!popup.classList.contains('hidden')) {
+    const svc = document.getElementById('service-select')
+    const cur = document.getElementById('chat-current-service')
+    if (cur) cur.textContent = (svc && svc.value) ? svc.value : '—'
+  }
+}))
+
+document.addEventListener('click', (e) => {
+  const popup = document.getElementById('chat-settings-popup')
+  if (!popup || popup.classList.contains('hidden')) return
+  if (e.target.closest('#chat-settings-popup') || e.target.closest('.chat-settings-btn')) return
+  popup.classList.add('hidden')
+})
 
 document.getElementById('config-overlay-close').addEventListener('click', () => {
   configOverlay.classList.add('hidden')

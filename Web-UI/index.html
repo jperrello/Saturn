@@ -296,13 +296,25 @@
               </label>
             </div>
             <div class="strip-right">
-              <button class="chat-settings-btn strip-btn" title="Settings" aria-label="Open settings">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <button class="chat-settings-btn strip-btn settings-label-btn" title="Settings" aria-label="Open settings">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                   <ellipse cx="12" cy="12" rx="5" ry="4"/>
                   <ellipse cx="12" cy="12" rx="11" ry="3" transform="rotate(-30 12 12)"/>
                 </svg>
+                <span class="settings-label">Settings</span>
               </button>
             </div>
+          </div>
+          <div id="chat-settings-popup" class="chat-settings-popup hidden">
+            <div class="popup-label">Response style</div>
+            <label><input type="radio" name="chat-style-radio" value="" checked> Default</label>
+            <label><input type="radio" name="chat-style-radio" value="concise"> Concise</label>
+            <label><input type="radio" name="chat-style-radio" value="detailed"> Detailed</label>
+            <label><input type="radio" name="chat-style-radio" value="code"> Code</label>
+            <div class="popup-label">Model override</div>
+            <input id="chat-model-override" type="text" placeholder="Use chat model">
+            <div class="popup-label">Saturn service</div>
+            <span id="chat-current-service" class="popup-value">—</span>
           </div>
           <div id="models-panel" class="models-panel hidden">
             <div class="models-panel-header">
