@@ -20,7 +20,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request, Header, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from .config import (
     list_service_configs,
@@ -722,17 +722,21 @@ async def v1_models():
 
 
 @app.get("/api/proxy/models")
-async def proxy_models(base_url: str = Query(...), api_key: str = Query(default="")):
+async def proxy_models(request: Request, base_url: str = Query(...)):
+    if "api_key" in request.query_params:
+        raise HTTPException(422, "api_key in query string is not accepted")
     headers = {}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+    incoming = request.headers.get("authorization")
+    if incoming and incoming.lower().startswith("bearer "):
+        headers["Authorization"] = incoming
     base = base_url.rstrip("/")
     async with httpx.AsyncClient(timeout=10) as client:
         try:
             r = await client.get(f"{base}/models", headers=headers)
             r.raise_for_status()
         except httpx.HTTPError as e:
-            raise HTTPException(502, f"Failed to fetch models: {e}")
+            logger.warning(f"proxy_models upstream failure: {e}")
+            raise HTTPException(502, "Failed to fetch models")
     data = r.json()
     if isinstance(data, dict) and "data" in data:
         return [{"id": m["id"]} for m in data["data"]]
@@ -761,11 +765,11 @@ async def models(service: str = Query(...)):
 
 
 class ManualChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     base_url: str
     model: str
     messages: List[dict]
     api_type: Optional[str] = "openai"
-    api_key: Optional[str] = None
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
     top_p: Optional[float] = None
@@ -784,8 +788,9 @@ async def proxy_chat(body: ManualChatRequest, request: Request):
     if blocked:
         return blocked
     headers = {"Content-Type": "application/json"}
-    if body.api_key:
-        headers["Authorization"] = f"Bearer {body.api_key}"
+    incoming = request.headers.get("authorization")
+    if incoming and incoming.lower().startswith("bearer "):
+        headers["Authorization"] = incoming
 
     raw_params = {}
     for key in ("temperature", "max_tokens", "top_p", "top_k", "frequency_penalty",
@@ -804,8 +809,8 @@ async def proxy_chat(body: ManualChatRequest, request: Request):
         async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
             async with client.stream("POST", f"{base}/chat/completions", json=payload, headers=headers) as r:
                 if r.status_code != 200:
-                    err = await r.aread()
-                    yield f"data: {err.decode()}\n\n"
+                    await r.aread()
+                    yield f'data: {{"error": "upstream {r.status_code}"}}\n\n'
                     return
                 async for line in r.aiter_lines():
                     if line:
