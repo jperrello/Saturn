@@ -8,7 +8,8 @@ try:
 except ImportError:
     import tomli as tomllib
 
-SERVICES_DIR = Path.home() / ".saturn" / "services"
+import os as _os
+SERVICES_DIR = Path(_os.environ["SATURN_SERVICES_DIR"]) if _os.environ.get("SATURN_SERVICES_DIR") else Path.home() / ".saturn" / "services"
 BUILTIN_SERVICES_DIR = Path(__file__).parent / "services"
 
 

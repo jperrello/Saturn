@@ -20,9 +20,15 @@ def _free():
 @contextlib.contextmanager
 def serve(port=None, timeout=20.0, admin_token=None, env_extra=None):
     port = port or _free()
-    tok = admin_token or secrets.token_urlsafe(24)
+    tok = admin_token or secrets.token_urlsafe(32)
     log = open(f"/tmp/saturn-web-{port}.log", "wb")
-    env = {**os.environ, "SATURN_ADMIN_TOKEN": tok, **(env_extra or {})}
+    defaults = {
+        "SATURN_ADMIN_TOKEN": tok,
+        "SATURN_RUNNER_TOKEN": secrets.token_urlsafe(32),
+        "SATURN_ADMIN_PASSWORD": "harness-fixture-pw-min-12chars",
+        "SATURN_BIND_HOST": "127.0.0.1",
+    }
+    env = {**os.environ, **defaults, **(env_extra or {})}
     proc = subprocess.Popen(
         ["python3", "-m", "saturn", "web", "--port", str(port)],
         stdout=log, stderr=log, preexec_fn=os.setsid, env=env,

@@ -79,6 +79,15 @@ def main():
         return stop_service(remaining[0])
 
     if command == 'web':
+        import os
+        from .boot_validators import run_validators
+        errs = run_validators()
+        if errs:
+            for e in errs:
+                print(f"saturn: config error: {e}", file=sys.stderr)
+            sys.stderr.flush()
+            if os.environ.get("SATURN_DEV_MODE") != "1":
+                sys.exit(1)
         from .web import main as web_main
         host = "0.0.0.0"
         port = 3000
