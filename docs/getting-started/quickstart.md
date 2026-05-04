@@ -1,120 +1,161 @@
-# Quick Start
+# Quickstart
 
-Get on the Saturn network in under five minutes. Saturn is a DNS-SD service type (`_saturn._tcp.local.`) — the examples below use three different clients against the same advertisements.
+Get a working Saturn discovery exchange in five steps. Each step works against the same `_saturn._tcp.local.` advertisement; pick the language tab you prefer.
 
-## Browse with the OS resolver — no install
+## 1. Confirm your OS speaks mDNS
 
-If your machine has Bonjour (macOS, iOS, Windows + Bonjour Print Services) or Avahi (most Linux), you can already see Saturn instances:
+Saturn rides on Bonjour (macOS, Windows + Bonjour Print Services) or Avahi (Linux). You almost certainly already have one.
 
-```bash
-dns-sd -B _saturn._tcp local.        # macOS / Bonjour
-avahi-browse -rtp _saturn._tcp       # Linux / Avahi
-```
+=== "macOS"
 
-Resolve a single instance to host/port/TXT:
+    ```bash
+    $ which dns-sd
+    /usr/bin/dns-sd
+    ```
 
-```bash
-dns-sd -L "<instance>" _saturn._tcp local.
-```
+=== "Linux"
 
-Then hit the OpenAI-compatible endpoint directly:
+    ```bash
+    $ which avahi-browse || sudo apt install -y avahi-utils
+    /usr/bin/avahi-browse
+    ```
 
-```bash
-curl http://<host>:<port>/v1/models
-```
+=== "Windows"
 
-## Browse with `saturnd` (Go)
+    Install [Bonjour Print Services](https://support.apple.com/kb/DL999). The `dns-sd` command lands in `%PROGRAMFILES%\Bonjour\`.
 
-`saturnd/cmd/saturnd` is a standalone Go daemon — no Python required. Build and run:
+## 2. Browse the network for Saturn services
 
-```bash
-cd saturnd && go build -o saturnd ./cmd/saturnd
-./saturnd
-curl http://localhost:7827/v1/agents
-```
+=== "curl/CLI"
 
-It shares no code with the Python package; both implement the same protocol.
+    ```bash
+    $ dns-sd -B _saturn._tcp local.            # macOS
+    Browsing for _saturn._tcp.local.
+    Add  3   ollama       _saturn._tcp.   local.
 
-## Browse with the Python package
+    $ avahi-browse -rtp _saturn._tcp           # Linux
+    +;wlan0;IPv4;ollama;_saturn._tcp;local
+    ```
 
-```bash
-pip install saturn-ai
-```
+=== "Go"
 
-This installs the `saturn` CLI, the Python discovery library, and the Web UI.
+    ```go
+    package main
+    import ( "context"; "fmt"; "github.com/grandcat/zeroconf" )
+    func main() {
+        r, _ := zeroconf.NewResolver(nil)
+        entries := make(chan *zeroconf.ServiceEntry)
+        go r.Browse(context.Background(), "_saturn._tcp", "local.", entries)
+        for e := range entries { fmt.Println(e.Instance, e.Port, e.Text) }
+    }
+    ```
 
-```bash
-saturn discover
-```
+=== "Python"
 
-This scans the local network for `_saturn._tcp.local.` mDNS services and prints every available AI backend with its models, priority, and endpoint. If nothing appears, no beacon is running yet — skip to [Run your own service](#run-your-own-service) below.
+    ```python
+    from saturn import discover
+    for s in discover(timeout=2.0):
+        print(s.name, s.host, s.port, s.priority)
+    ```
 
-Add `--json` for machine-readable output, or `--timeout 10` to wait longer on slow networks.
+If nothing appears, no responder is running on your LAN. Skip to step 5 to start one.
 
-## Get the best endpoint
+## 3. Resolve one instance to host + port + TXT
 
-```bash
-saturn endpoint
-```
+=== "curl/CLI"
 
-Saturn selects the highest-priority available service and prints its endpoint URL. Pass this to any tool that accepts an OpenAI-compatible base URL.
+    ```bash
+    $ dns-sd -L "ollama" _saturn._tcp local.
+    ollama._saturn._tcp.local. can be reached at macbook.local.:11434
+      version=1 api_type=openai deployment=local priority=10 features=chat,tools
+    ```
 
-## Use it in code
+=== "Go"
 
-```python
-from saturn import discover, select_best_service
-from openai import OpenAI
+    ```go
+    // Inside the entries-channel loop:
+    fmt.Printf("%s:%d  TXT=%v\n", e.HostName, e.Port, e.Text)
+    ```
 
-services = discover(timeout=8.0)
-best = select_best_service(services)
+=== "Python"
 
-client = OpenAI(base_url=best.effective_endpoint, api_key="unused")
-response = client.chat.completions.create(
-    model="auto",
-    messages=[{"role": "user", "content": "Hello!"}],
-)
-print(response.choices[0].message.content)
-```
+    ```python
+    s = next(iter(discover(timeout=2.0)))
+    print(f"{s.host}:{s.port}  v={s.txt['version']}  prio={s.priority}")
+    ```
 
-The endpoint is OpenAI-compatible, so any library that speaks the OpenAI API works without changes.
+The TXT record is the wire artifact you build clients against. → [TXT keys reference](../reference/protocol/wire-format.md)
 
-## Launch the Web UI
+## 4. Call the OpenAI-compatible endpoint
 
-```bash
-saturn web
-```
+=== "curl"
 
-Opens a browser-based interface at `http://localhost:3000` where you can discover services, chat with models, adjust parameters, and use MCP tools. See the [Web UI docs](../web-ui/overview.md) for the full walkthrough.
+    ```bash
+    $ curl http://macbook.local:11434/v1/models
+    {"object":"list","data":[{"id":"llama3.2","object":"model"}]}
 
-## Run your own service
+    $ curl http://macbook.local:11434/v1/chat/completions \
+        -H "Content-Type: application/json" \
+        -d '{"model":"llama3.2","messages":[{"role":"user","content":"hi"}]}'
+    ```
 
-To advertise an AI service on your network, create a configuration:
+=== "Go"
 
-```bash
-saturn config new
-```
+    ```go
+    resp, _ := http.Post(s.URL()+"/v1/chat/completions",
+        "application/json",
+        strings.NewReader(`{"model":"auto","messages":[{"role":"user","content":"hi"}]}`))
+    ```
 
-This walks you through setting up a service — name, backend type (Ollama, OpenRouter, etc.), API key, and priority. Once configured:
+=== "Python"
 
-```bash
-saturn run <name>
-```
+    ```python
+    from openai import OpenAI
+    c = OpenAI(base_url=s.effective_endpoint, api_key="unused")
+    print(c.chat.completions.create(
+        model="auto",
+        messages=[{"role":"user","content":"hi"}]
+    ).choices[0].message.content)
+    ```
 
-The beacon starts broadcasting on mDNS. Every device on the network can now discover it.
+Any OpenAI-compatible client works — the discovered URL drops in as `base_url`.
 
-!!! tip "Local inference with Ollama"
-    If you have [Ollama](https://ollama.ai) running locally, Saturn can advertise it to the network with no API key needed. Set the deployment type to `local` and Saturn handles the rest.
+## 5. Run your own responder
 
-## Manage services
+=== "curl/CLI"
 
-```bash
-saturn config list       # list configured services
-saturn stop <name>       # stop a running service
-saturn config delete <name>  # remove a configuration
-```
+    Use any Bonjour/Avahi tool that registers a service. Example with `avahi-publish`:
+
+    ```bash
+    $ avahi-publish -s ollama _saturn._tcp 11434 \
+        version=1 api_type=openai deployment=local priority=10
+    ```
+
+=== "Go"
+
+    ```bash
+    $ cd saturnd && go build -o saturnd ./cmd/saturnd
+    $ ./saturnd serve --backend http://localhost:11434 --priority 10
+    ```
+
+=== "Python"
+
+    ```bash
+    $ pip install saturn-ai
+    $ saturn config new                # interactive — name, backend, priority
+    $ saturn run ollama
+    ```
+
+The responder broadcasts on mDNS. Every device on the LAN now sees it via step 2.
+
+---
+
+## What just happened
+
+You browsed `_saturn._tcp.local.`, resolved an SRV+TXT pair, and called an OpenAI-compatible HTTP endpoint. No accounts, no manual URLs, no per-app keys. The advertisement is reachable from any conformant mDNS stack — none of the steps above required Saturn-specific code.
 
 ## Next steps
 
-- [Web UI Overview](../web-ui/overview.md) — chat, model selection, and MCP tools
-- [Configuration](../configuration/service-config.md) — TOML config, environment variables, and priority routing
-- [Troubleshooting](troubleshooting.md) — common issues and fixes
+- [**Tutorial**](../tutorial/index.md) — build a discovery-aware client end-to-end (~30 min).
+- [**How-to: advertise a service**](../how-to/for-researchers.md) — task-shaped recipes.
+- [**Protocol reference**](../reference/protocol/wire-format.md) — full TXT schema and endpoint contract.

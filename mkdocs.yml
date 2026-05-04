@@ -59,10 +59,45 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Getting Started:
-    - Quick Start: getting-started/quickstart.md
-    - Troubleshooting: getting-started/troubleshooting.md
-    - FAQ: getting-started/faq.md
+  - Quickstart: getting-started/quickstart.md
+  - Tutorial: tutorial/index.md
+  - How-To:
+    - Overview: how-to/index.md
+    - For ML Researchers: how-to/for-researchers.md
+    - Troubleshooting: how-to/troubleshooting.md
+    - FAQ: how-to/faq.md
+  - Concepts:
+    - Overview: concepts/index.md
+    - Saturn on the Wire: concepts/protocol.md
+    - mDNS Background: concepts/mdns-background.md
+  - Reference:
+    - Protocol:
+      - Wire Format: reference/protocol/wire-format.md
+      - TXT Keys: reference/protocol/txt-keys.md
+      - Discovery Flow: reference/protocol/discovery.md
+      - Beacons & Ephemeral Keys: reference/protocol/beacons.md
+      - Security Model: reference/protocol/security.md
+      - HTTP API: reference/protocol/http-api.md
+    - Clients:
+      - Go (saturnd): reference/clients/go/api.md
+      - Python (saturn-ai): reference/clients/python/api.md
+      - Rust (saturn-router): reference/clients/rust-router.md
+      - TypeScript (AI SDK): reference/clients/typescript-api.md
+      - CLI: reference/clients/cli/cli.md
+      - MCP Tools: reference/clients/mcp-tools.md
+  - Implementations: implementations/index.md
+  - Spec:
+    - Overview: spec/index.md
+    - v0.2 Proposal: spec/v0.2/proposal.md
+    - v0.2 Wire Format: spec/v0.2/wire-format.md
+  - Integrations:
+    - Overview: integrations/index.md
+    - OpenCode: integrations/opencode.md
+    - Aider: integrations/aider.md
+    - MCP Server: integrations/mcp-server.md
+    - VLC Extension: integrations/vlc.md
+    - Open WebUI: integrations/open-webui.md
+    - Jan AI: integrations/jan.md
   - Web UI:
     - Overview: web-ui/overview.md
     - Chat: web-ui/chat.md
@@ -78,22 +113,3 @@ nav:
     - Priority & Failover: configuration/priority-routing.md
     - Rate Limiting & Budgets: configuration/rate-limiting.md
     - Cloudflare Tunnels: configuration/tunnels.md
-    - CLI Reference: configuration/cli.md
-  - Reference:
-    - Protocol Specification: reference/protocol.md
-    - Discovery Flow: reference/discovery.md
-    - Beacons & Ephemeral Keys: reference/beacons.md
-    - Security Model: reference/security.md
-    - Python SDK: reference/python-package.md
-    - AI SDK Provider (JS/TS): reference/ai-sdk-provider.md
-    - Saturn Router (Rust): reference/router.md
-    - REST API: reference/api.md
-    - MCP Tools: reference/mcp-tools.md
-  - Integrations:
-    - Overview: integrations/index.md
-    - OpenCode: integrations/opencode.md
-    - Aider: integrations/aider.md
-    - MCP Server: integrations/mcp-server.md
-    - VLC Extension: integrations/vlc.md
-    - Open WebUI: integrations/open-webui.md
-    - Jan AI: integrations/jan.md
