@@ -2581,9 +2581,31 @@ textarea:focus {
 
 /* ===== MCP TOOLS PANEL ===== */
 .tools-panel {
-  border-bottom: 2px solid var(--border);
-  max-height: 300px;
+  position: absolute;
+  bottom: 88px;
+  right: 24px;
+  z-index: 50;
+  width: 360px;
+  max-height: 420px;
   overflow-y: auto;
+  background: rgba(8, 8, 8, 0.96);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.55);
+}
+
+.fab-labeled {
+  width: auto !important;
+  padding: 0 10px !important;
+  gap: 6px;
+}
+.fab-text {
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--fg);
 }
 
 .tools-panel-header {

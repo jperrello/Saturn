@@ -2540,9 +2540,8 @@ document.getElementById('tools-toggle').addEventListener('click', () => {
 
 document.getElementById('tools-refresh').addEventListener('click', refreshMCPTools)
 
-document.getElementById('tools-manage').addEventListener('click', () => {
-  mcpServersConfig.classList.toggle('hidden')
-  if (!mcpServersConfig.classList.contains('hidden')) refreshMCPServers()
+document.getElementById('tools-toggle').addEventListener('click', () => {
+  if (!document.getElementById('tools-panel').classList.contains('hidden')) refreshMCPServers()
 })
 
 async function refreshMCPTools() {
