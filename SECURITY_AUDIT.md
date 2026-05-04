@@ -236,3 +236,216 @@ All commands above ran on this branch on 2026-05-04. The runner exercise used
 `qwen2.5:0.5b` already present in local Ollama. mDNS sniff used the
 project's own `saturn.discovery.discover()` helper, which is interoperable
 with `dns-sd -B`/`avahi-browse`.
+
+---
+
+## 7. Beacon ephemeral-key lifecycle deep-dive (F-2 / qj5.16.4)
+
+The beacon mode is Saturn's "Bonjour-for-AI" centerpiece. The audit's headline
+finding was that the credential sits in mDNS TXT in cleartext — by design.
+This section asks the next question: **is the credential actually scoped
+tightly enough that LAN-public exposure is acceptable?** Short answer: no,
+not as currently shipped.
+
+### 7.1 Lifecycle, end to end
+
+Code references throughout: `saturn/runner.py`, `saturn/providers/*`,
+`saturn-mcp/saturn_mcp/server.py`, `saturn-router/README.md` (the Rust
+implementation tells the same story).
+
+```
+                    ┌───────────────────────────────────────────────┐
+                    │  PARENT KEY (e.g. OPENROUTER_API_KEY in .env) │
+                    │   - full account credit                       │
+                    │   - lives only on the Saturn host             │
+                    └───────────────────────────────────────────────┘
+                                          │
+                       run_beacon (saturn/runner.py:184-208)
+                                          │
+                                          ▼
+                  CredentialManager.create()  saturn/runner.py:91-102
+                  POST <provider.endpoint>   Authorization: Bearer <parent>
+                  body = provider.payload(expiration_interval)
+                                          │
+              ┌───────────────────────────┴───────────────────────────┐
+              ▼                                                       ▼
+     OpenRouter                                          DeepInfra
+     POST /api/v1/keys                                   POST /v1/scoped-jwt
+       body: {name, expires_at}     ⚠ NO `limit`           body: {api_key_name:"auto",
+                                                                  expires_delta}
+       returns: {key, data:{hash}}                         returns: {token}
+                                          │
+                                          ▼
+                  BeaconAdvertiser._properties()  saturn/runner.py:142-156
+                  TXT['ephemeral_key'] = <key>      ← cleartext
+                  TXT['features']      = "ephemeral_auth"
+                  TXT['api_base']      = provider.api_base   ← upstream URL
+                                          │
+                                          ▼
+                  zeroconf.ServiceInfo.advertise()
+                  → multicast to 224.0.0.251:5353
+                                          │
+                ╔═════════════════════════╧═════════════════════════╗
+                ║   ANY HOST ON THE LOCAL LINK CAN READ THIS TXT    ║
+                ║   dns-sd -L <name> _saturn._tcp local             ║
+                ║   avahi-browse -rt _saturn._tcp                   ║
+                ║   nothing about the channel is confidential       ║
+                ╚═══════════════════════════════════════════════════╝
+                                          │
+                                          ▼
+              CLIENT (saturn-mcp, saturn-router consumers, etc.)
+              Headers["Authorization"] = f"Bearer {service.ephemeral_key}"
+              POST <service.api_base>/chat/completions   ← directly to upstream
+                                          │
+                          (Saturn host NOT in data path)
+                                          │
+                                          ▼
+              upstream (OpenRouter / DeepInfra) bills the credential
+```
+
+**Rotation loop** (`saturn/runner.py:258-273`): a daemon thread wakes every
+10 s, asks `credential_manager.stale()` (≥ `rotation_interval` since last
+mint), and if stale: `create()` a new sub-key, `re_register()` mDNS,
+`cleanup()` to delete the previous key from the provider.
+
+**Defaults** (`saturn/config.py:34-38`):
+
+| Knob                  | Default | Meaning                                                |
+|-----------------------|---------|---------------------------------------------------------|
+| `rotation_interval`   | 300 s   | mint a fresh key every 5 minutes                        |
+| `expiration_interval` | 600 s   | each key valid for 10 minutes upstream                  |
+
+So at any moment, **two keys are valid**: the previous (still in its 10-min
+expiry window) and the current (just minted). `cleanup()` revokes the
+previous on each rotation tick, narrowing the window to ~5 min for
+OpenRouter. DeepInfra cannot revoke (see 7.2).
+
+### 7.2 The provider scope contract — actual values
+
+| Concern                            | OpenRouter (`saturn/providers/openrouter.py`) | DeepInfra (`saturn/providers/deepinfra.py`) |
+|------------------------------------|-----------------------------------------------|----------------------------------------------|
+| Spending cap on sub-key            | **Not set.** `payload()` passes only `name` and `expires_at`. OpenRouter sub-keys without `limit` inherit the parent account's full remaining credit. | Not configurable in the current call. `expires_delta` is the only knob. |
+| Model allowlist on sub-key         | Not set.                                       | Not set.                                     |
+| Expiry timestamp on sub-key        | `expires_at` = now + `expiration_interval`.    | `expires_delta` = `expiration_interval` s.   |
+| Early revocation                   | `DELETE /api/v1/keys/<hash>` works (`revoke` at line 22). | `revoke()` is a **no-op** (`pass`). DeepInfra has no "delete this token" API. |
+| What a leaked key authorises       | Any model the parent account can call, against any cost, until `expires_at`. | Whatever the unbounded scoped JWT was minted for, until `expires_delta`. |
+
+This is the F-2 root cause. The mDNS broadcast is fine *if* the credential
+is small. Saturn's credentials are not small.
+
+### 7.3 Attacker capability on a shared LAN
+
+Setting: untrusted device on the same broadcast domain (campus WiFi,
+co-living network, café). No host privileges on the Saturn box, no MITM
+needed.
+
+**Step 1 — passive sniff.**
+```bash
+dns-sd -B _saturn._tcp local                      # enumerate
+dns-sd -L "<name>" _saturn._tcp local             # read TXT
+# or, for continuous capture across rotations:
+avahi-browse --resolve --no-db-lookup --terminate _saturn._tcp
+```
+Each rotation cycle (every 5 min by default) reannouncement adds a fresh
+`ephemeral_key`. A 10-line script grabs every value as it appears.
+
+**Step 2 — direct upstream use.** No further interaction with the Saturn
+host is needed. The attacker's own laptop calls the public upstream:
+```bash
+curl https://openrouter.ai/api/v1/chat/completions \
+  -H "Authorization: Bearer $SNIFFED_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"openai/gpt-4o","messages":[...]}'
+```
+Until `expires_at`, this works against any model OpenRouter offers, billing
+the parent account. With OpenRouter's account-wide credit pool and no
+sub-key `limit`, the cap is whatever credit the admin loaded.
+
+**Step 3 — sustained.** Because the TXT is republished on each rotation, the
+attacker's harvester runs continuously and always has a fresh, currently-valid
+key. Rotation does not deny the attacker; it only resets the per-leak budget
+window. The aggregate budget loss is `(elapsed_minutes / rotation_interval) ×
+per-key cost ceiling` — and the per-key ceiling is unbounded today.
+
+**Step 4 — interaction with F-8 (priority hijack).** An attacker can also
+*publish* a malicious `_saturn._tcp` advertisement at priority 1, with their
+own `api_base` pointing to a relay they control. They hand out their own
+real ephemeral key (minted from an attacker-funded OpenRouter account) — so
+clients consuming Saturn will route through the attacker's relay, exposing
+prompt content. F-8 + F-2 together amount to "any LAN peer can become the
+Saturn beacon."
+
+### 7.4 What is *not* leaked
+
+- The parent key (`OPENROUTER_API_KEY` etc.) never leaves the Saturn host.
+- The Saturn host's local /v1 endpoints are not in the beacon path; whatever
+  rate-limiting and auth they have (or don't have, per F-1) is irrelevant
+  to beacon-mode attacks.
+- DeepInfra's scoped JWT may have intrinsic narrowing (the "scoped" name
+  hints at it). The Saturn code passes nothing to scope it; whatever default
+  scope DeepInfra applies is what the LAN gets. Worth verifying with the
+  DeepInfra docs before relying on it as a containment.
+
+### 7.5 Hard requirements to make beacon mode shippable
+
+These are the gating items for the README beacon trust story:
+
+1. **OpenRouter: pass `limit` to `payload()`.** Plumb
+   `BeaconConfig.max_budget_usd` (CONFIG_FIELDS.md §B.2) through to
+   `provider.payload(expiration, max_budget_usd)`. OpenRouter accepts a
+   numeric `limit` (USD) on key creation; without it the `limit` is null.
+   *Refuse to start beacon mode with `max_budget_usd` unset.*
+2. **OpenRouter: include `models` allowlist** in the create-key body if
+   `BeaconConfig.allowed_models` is non-empty. OpenRouter supports
+   per-key model restrictions; use them to harden against unexpected model
+   selection.
+3. **DeepInfra: document the absence of revocation** and, until DeepInfra
+   exposes a per-key spending cap or scope hint, treat DeepInfra beacon mode
+   as **experimental** in the README. Recommend short `expiration_interval`
+   (≤ 120 s) so leaked-token windows are minimised. Make this a default in
+   `BeaconConfig.from_dict` when `provider == "deepinfra"`.
+4. **Tighten the rotation/expiration relationship.** Enforce
+   `expiration_interval ≤ rotation_interval × 1.5` so the previous key is
+   guaranteed dead before its replacement is two ticks old. Today
+   600 ≤ 300 × 1.5 = 450 is **false** — defaults violate the invariant.
+   Either bump `rotation_interval` to 400 or drop `expiration_interval` to
+   ≤ 450. Recommend new defaults: `rotation_interval=120`,
+   `expiration_interval=180`.
+5. **Document the beacon trust model** in the README, not just inline. Spell
+   out: "Anyone on your local link can read the broadcast credential. Use
+   beacon mode only when you accept that the per-key budget cap is the
+   security boundary, not the LAN."
+6. **Future: client TOFU on `node_id`.** Clients should remember a
+   `node_id` once seen and refuse to silently switch to a new node_id with
+   higher priority. Cross-cuts F-8; mention the tie-up here so the README
+   doesn't pretend beacon mode is safe in isolation.
+
+### 7.6 Suggested README posture (handed to writer for qj5.6 docs work)
+
+> Saturn's **beacon mode** is designed for trusted local networks — the
+> network you'd plug a printer into. Saturn mints a short-lived sub-key
+> against a parent API key you provide, broadcasts that sub-key over mDNS,
+> and clients use it directly. Two implications:
+>
+> 1. The sub-key's **per-key spending cap is the actual security boundary.**
+>    You must set `beacon.max_budget_usd` (default disabled). If your
+>    threat model includes any device on the LAN, set this low.
+> 2. Anyone on the local link can sniff the sub-key. Treat the LAN as the
+>    audience. Do not run beacon mode on networks where you don't trust
+>    every connected device.
+>
+> If those constraints don't fit your setting, use **proxy mode** instead:
+> Saturn keeps the parent key server-side and proxies chat traffic through
+> its own authenticated `/v1/*` endpoints.
+
+### 7.7 Reproducibility for 7.x
+
+Code locations referenced (all on this branch):
+- `saturn/providers/openrouter.py:12-17` — payload missing `limit`
+- `saturn/providers/deepinfra.py:4-11` — no-op `revoke`
+- `saturn/runner.py:91-102, 142-156, 258-273` — mint, publish, rotate
+- `saturn-mcp/saturn_mcp/server.py:73-74, 197-198` — client uses key
+  directly against TXT-supplied `api_base`
+- `saturn/config.py:34-38` — defaults that violate invariant in 7.5(4)
+
+No live OpenRouter / DeepInfra sub-keys were minted during this audit.
