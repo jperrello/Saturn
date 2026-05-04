@@ -17,7 +17,7 @@ from dataclasses import asdict
 
 import httpx
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Header, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from pydantic import BaseModel
@@ -384,6 +384,21 @@ def _model_filter() -> str:
 
 
 ADMIN_PASSWORD = os.environ.get("SATURN_ADMIN_PASSWORD", "saturn")
+ADMIN_TOKEN_ENV = os.environ.get("SATURN_ADMIN_TOKEN_ENV", "SATURN_ADMIN_TOKEN")
+
+
+def require_admin(authorization: Optional[str] = Header(default=None)):
+    import hmac
+    expected = os.environ.get(ADMIN_TOKEN_ENV, "")
+    bad = HTTPException(status_code=401, detail="Unauthorized", headers={"WWW-Authenticate": "Bearer"})
+    if not expected:
+        raise bad
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise bad
+    presented = authorization.split(" ", 1)[1].strip()
+    if not hmac.compare_digest(presented, expected):
+        raise bad
+    return True
 
 
 class AdminAuth(BaseModel):
@@ -400,13 +415,13 @@ async def admin_auth(body: AdminAuth):
 # --- API Routes ---
 
 @app.get("/api/services")
-async def services():
+async def services(_=Depends(require_admin)):
     configs = list_service_configs()
     return [_config_to_dict(name, cfg, builtin) for name, cfg, builtin in configs]
 
 
 @app.post("/api/services")
-async def create(body: ServiceCreate):
+async def create(body: ServiceCreate, _=Depends(require_admin)):
     if load_service_config(body.name):
         raise HTTPException(400, f"Service '{body.name}' already exists")
     if (BUILTIN_SERVICES_DIR / f"{body.name}.toml").exists():
@@ -436,7 +451,7 @@ async def create(body: ServiceCreate):
 
 
 @app.post("/api/services/{name}/start")
-async def start(name: str, body: ServiceStart = None):
+async def start(name: str, body: ServiceStart = None, _=Depends(require_admin)):
     if body is None:
         body = ServiceStart()
     config = load_service_config(name)
@@ -473,7 +488,7 @@ async def start(name: str, body: ServiceStart = None):
 
 
 @app.post("/api/services/{name}/stop")
-async def stop(name: str):
+async def stop(name: str, _=Depends(require_admin)):
     info = read_service_info(name)
     if not info or "pid" not in info:
         raise HTTPException(404, f"Service '{name}' is not running")
@@ -499,7 +514,7 @@ async def stop(name: str):
 
 
 @app.delete("/api/services/{name}")
-async def delete(name: str):
+async def delete(name: str, _=Depends(require_admin)):
     config_path = get_config_path(name)
     builtin_path = BUILTIN_SERVICES_DIR / f"{name}.toml"
 
@@ -1007,7 +1022,7 @@ async def brutus_chat(body: BrutusChat, request: Request):
 
 
 @app.get("/api/system/status")
-async def brutus_status():
+async def brutus_status(_=Depends(require_admin)):
     backends = []
     for name, d in _discovered.items():
         b = _breaker(name)
@@ -1101,7 +1116,7 @@ async def _kill_tunnel():
 
 
 @app.post("/api/system/tunnel/start")
-async def brutus_tunnel_start():
+async def brutus_tunnel_start(_=Depends(require_admin)):
     global _tunnel_proc, _tunnel_url
     if _tunnel_proc and _tunnel_proc.returncode is None and _tunnel_url:
         return {"url": _tunnel_url, "status": "running"}
@@ -1174,7 +1189,7 @@ async def brutus_tunnel_start():
 
 
 @app.post("/api/system/tunnel/stop")
-async def brutus_tunnel_stop():
+async def brutus_tunnel_stop(_=Depends(require_admin)):
     await _kill_tunnel()
     return {"status": "stopped"}
 
@@ -1194,12 +1209,12 @@ class MCPToolCall(BaseModel):
 
 
 @app.get("/api/mcp/servers")
-async def mcp_servers():
+async def mcp_servers(_=Depends(require_admin)):
     return mcp_manager.configured()
 
 
 @app.post("/api/mcp/servers")
-async def mcp_add(body: MCPServerAdd):
+async def mcp_add(body: MCPServerAdd, _=Depends(require_admin)):
     mcp_manager.add(body.name, body.url, body.auth_token)
     try:
         await mcp_manager.refresh(body.name)
@@ -1210,7 +1225,7 @@ async def mcp_add(body: MCPServerAdd):
 
 
 @app.delete("/api/mcp/servers/{name}")
-async def mcp_remove(name: str):
+async def mcp_remove(name: str, _=Depends(require_admin)):
     if not mcp_manager.remove(name):
         raise HTTPException(404, f"MCP server '{name}' not found")
     return {"deleted": True, "name": name}
@@ -1291,12 +1306,12 @@ class AdminConfig(BaseModel):
 
 
 @app.get("/api/admin/config")
-async def get_admin_config():
+async def get_admin_config(_=Depends(require_admin)):
     return _load_admin_config()
 
 
 @app.post("/api/admin/config")
-async def set_admin_config(body: AdminConfig):
+async def set_admin_config(body: AdminConfig, _=Depends(require_admin)):
     cfg = _load_admin_config()
     if body.model_filter is not None:
         cfg["model_filter"] = body.model_filter
