@@ -243,9 +243,6 @@ def _ip_sem(ip: str) -> asyncio.Semaphore:
 
 
 def _client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
 
 
@@ -281,7 +278,8 @@ def _check_tpm(ip: str, tokens: int) -> Optional[JSONResponse]:
 
 # --- Token Quotas & SQLite (SAT-2n8.2) ---
 
-DB_PATH = Path(__file__).parent.parent / "data" / "saturn.db"
+_data_dir_env = os.environ.get("SATURN_DATA_DIR")
+DB_PATH = Path(_data_dir_env) / "saturn.db" if _data_dir_env else Path(__file__).parent.parent / "data" / "saturn.db"
 
 
 def _db():
@@ -1257,7 +1255,7 @@ async def rate_limit_status(request: Request):
 
 
 @app.get("/api/usage")
-async def usage(request: Request, user_id: str = Query(default="")):
+async def usage(request: Request, user_id: str = Query(default=""), _=Depends(require_admin)):
     ip = user_id or _client_ip(request)
     period = time.strftime("%Y-%m-%d")
     conn = _db()
@@ -1286,7 +1284,7 @@ async def report_usage(body: UsageReport, request: Request):
 
 
 @app.get("/api/usage/history")
-async def usage_history(request: Request, user_id: str = Query(default=""), days: int = Query(default=7)):
+async def usage_history(request: Request, user_id: str = Query(default=""), days: int = Query(default=7), _=Depends(require_admin)):
     ip = user_id or _client_ip(request)
     conn = _db()
     rows = conn.execute(
