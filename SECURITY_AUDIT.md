@@ -1228,3 +1228,282 @@ Splitting them into two PRs costs review surface without buying anything.
 - CONFIG_FIELDS §A.6 — `proxy_models_method`, `redact_proxy_keys_in_logs`.
 - SECURITY_AUDIT.md §11 — sibling fix on `/api/proxy/chat`; co-landable
   in one PR.
+
+---
+
+## 13. No TLS posture (F-7 / qj5.16.8)
+
+### 13.1 Current posture — HTTP everywhere
+
+Saturn ships with no transport-layer protection. Every entry point is
+`http://` and uvicorn is invoked without `ssl_certfile` / `ssl_keyfile`:
+
+- `saturn/web.py:1327-1329` — `uvicorn.run(app, host=host, port=port)`
+  with no SSL arguments. Default bind (today) is `0.0.0.0:3000`.
+- `saturn/runner.py:496` — `uvicorn.run(app, host=host, port=actual_port)`
+  for every per-service runner. Same shape, no SSL arguments.
+- `saturn/discovery.py:411,428` — TXT advertises `api_base` as
+  `http://<lan-ip>:<port>/v1`. The protocol scheme is **inside the
+  service contract** — clients reading the beacon TXT are told
+  explicitly to speak HTTP.
+- No CONFIG_FIELDS field is wired today; CONFIG_FIELDS §A.3 reserves
+  `tls_cert_path` / `tls_key_path` as future settings (`null` defaults).
+
+The cloudflared tunnel integration at `saturn/web.py:1116-1160` is the
+one HTTPS surface in the codebase, and it's a deployment workaround, not
+an in-process TLS posture (see 13.5).
+
+(Brief framing note: the TLS schema fields landed in CONFIG_FIELDS
+**§A.3 Network posture**, not §A.1 — the table grouped TLS with bind
+host and trusted-proxy list because they share the same "where does
+Saturn meet the network" concern. §13.6 below references A.3
+accordingly.)
+
+### 13.2 Threat model on a shared LAN
+
+Every Saturn-mediated message is in cleartext on the wire. Three
+distinct attacker capabilities follow:
+
+#### 13.2.1 Passive sniff (any device on the broadcast domain)
+
+The attacker passively reads frames. On a switched Ethernet they need
+ARP poisoning, port mirroring, or to be the local AP; on most
+home/SMB/café WiFi they need only to associate to the same SSID.
+
+What is observable:
+
+| Surface                         | Cleartext content                                                      |
+|---------------------------------|------------------------------------------------------------------------|
+| `POST /api/chat`, `/api/proxy/chat` request body | full prompt — system + user + tool messages, all parameters |
+| SSE stream from above           | full assistant response, token-by-token                                 |
+| `POST /api/system/chat`         | full prompt + auto-routing decision in response                         |
+| `GET /v1/models`                 | model catalogue per service (low sensitivity)                          |
+| `Authorization` header          | admin token (post-F-4) or bearer passthrough — **stable credential**   |
+| `Cookie` header (post-F-4)      | admin session cookie — same                                             |
+| Saturn UI page loads            | which Saturn services are configured, current chat IDs                  |
+
+The chat content is the impactful row. Saturn is an LLM gateway; people
+talk to it about code, internal documents, personal questions. A passive
+sniffer on the LAN reads all of it.
+
+#### 13.2.2 Active MITM (hostile LAN, hostile router, hostile guest)
+
+ARP-spoof or rogue-AP attacker injects themselves as a relay. They can:
+
+- **Read all of 13.2.1** without crypto.
+- **Modify responses in flight.** SSE chunks are JSON lines; rewriting
+  `choices[0].delta.content` mid-stream gives the attacker arbitrary
+  influence over what the user reads.
+- **Replay credentials.** A captured admin token or runner token is
+  reusable from the attacker's machine until the next rotation.
+  Saturn's per-IP rate limiter (post-§8 fix) keys on the *real* peer,
+  not the bearer, so the attacker hits the rate limit *as the
+  attacker*, not as the admin — but the auth still passes because the
+  token is the credential.
+- **Steal mDNS identity.** Compounds with F-8: the attacker can also
+  publish their own `_saturn._tcp.local.` advertisement at priority 1,
+  pointing `api_base` to a relay they control. Clients pick the
+  highest-priority service and connect over HTTP to the attacker, who
+  proxies to the real Saturn (or doesn't).
+
+The MITM surface is what makes F-7 a real production concern, not just
+a tidiness gripe. On a campus/café LAN where a hostile guest is in
+scope, every Saturn user's prompt content is observable and
+mutable.
+
+#### 13.2.3 Egress visibility (bonus, weak)
+
+Even off the LAN, anyone with view of the Saturn host's outbound
+traffic to upstreams (e.g. the ISP) sees:
+
+- TLS to OpenRouter / DeepInfra (good — upstream is HTTPS).
+- HTTP to Ollama on `localhost:11434` (loopback, not on-wire).
+
+So upstream egress is fine. The cleartext exposure is entirely between
+Saturn clients and the Saturn host on the LAN.
+
+### 13.3 Compounding with prior findings
+
+- **F-1** (runner has no auth): observed prompts plus credential-free
+  upstream means a sniffer skips Saturn entirely and replays prompts
+  directly to `/v1/chat/completions`. F-7 makes both halves easier.
+- **F-2** (beacon `ephemeral_key` in TXT): the TXT broadcast is *also*
+  cleartext. F-7 doesn't make it worse — mDNS multicast is broadcast by
+  protocol — but the two findings reinforce each other's "the LAN is
+  the audience" framing.
+- **F-3** (XFF spoof): rate-limit bypass plus cleartext logging means
+  the attacker reads cleartext rate-limit headers in 429 responses
+  (`X-Saturn-Tokens-Remaining`) and learns exactly where the budget
+  ceiling is.
+- **F-4 / F-9** (admin auth + password): once admin auth is wired, the
+  bearer token traverses the wire on every admin call. Without TLS
+  it's a stable, replayable secret in cleartext. Closing F-4 without
+  closing F-7 is incomplete.
+
+### 13.4 What admins can do **today** (no Saturn changes)
+
+Three deployment-time mitigations are available without modifying
+Saturn. None requires waiting for the schema to land.
+
+#### 13.4.1 Zero-trust mesh — Tailscale / WireGuard / Nebula
+
+Run Saturn bound to a **mesh-only** interface. Tailscale's `100.x.y.z`
+addresses are end-to-end WireGuard-encrypted between authorised
+devices; the LAN never sees the traffic.
+
+```
+SATURN_BIND_HOST=100.64.10.5 saturn web
+# clients reach Saturn at http://saturn.tailnet:3000 — over WireGuard
+```
+
+Tradeoffs:
+- All Saturn clients must be enrolled in the mesh (a step away from
+  Saturn's "Bonjour for AI" zero-config promise).
+- mDNS does not cross the mesh by default — discovery is manual or
+  via a Tailscale magic-DNS hostname.
+- Best fit: small trusted teams already using Tailscale.
+
+#### 13.4.2 Reverse proxy with TLS termination — Caddy / nginx / Traefik
+
+Front Saturn with a reverse proxy that terminates TLS, then bind
+Saturn to localhost:
+
+```
+# Caddyfile (auto-issues a cert via Let's Encrypt or local-CA)
+saturn.lan {
+    tls internal                # or: tls user@example.com
+    reverse_proxy 127.0.0.1:3000
+}
+
+# Saturn:
+SATURN_BIND_HOST=127.0.0.1 saturn web
+SATURN_TRUSTED_PROXIES=127.0.0.1     # so XFF from Caddy is honoured (§8)
+```
+
+Tradeoffs:
+- Saturn loopback bind plus `trusted_proxies` is the simplest correct
+  config. Combines cleanly with §8.
+- `tls internal` issues a Caddy-local-CA cert; clients must trust that
+  CA. For LAN deployments this is fine; for guest-accessible
+  deployments use `tls user@example.com` and a public DNS name.
+- Best fit: single-host deployments where the admin is comfortable
+  with a 6-line Caddyfile.
+
+The same shape works with nginx / Traefik / HAProxy. Caddy is lowest-
+friction.
+
+#### 13.4.3 Cloudflared tunnel — already wired into Saturn
+
+Saturn already supports starting a `cloudflared tunnel` from the
+admin UI (`saturn/web.py:1116-1160`). The tunnel terminates TLS at
+Cloudflare's edge, gives Saturn a `https://<rand>.trycloudflare.com`
+URL, and exposes Saturn over the public internet — but in
+HTTPS-protected form.
+
+Tradeoffs:
+- Solves wire confidentiality for clients that reach Saturn via the
+  trycloudflare URL.
+- Does **not** help LAN clients that reach Saturn directly at
+  `http://<lan-ip>:3000`. This is a critical asterisk: starting the
+  tunnel does not encrypt the LAN path; it only adds an additional
+  HTTPS path through Cloudflare's edge.
+- Pulls Cloudflare into the trust path for prompt content (Cloudflare
+  sees cleartext after edge termination). For users who chose Saturn
+  partly to avoid third-party AI middlemen, this is a real tradeoff.
+- Best fit: temporary remote-access scenarios; not the primary
+  on-LAN posture.
+
+#### 13.4.4 Combining the above
+
+The recommended-today posture for any LAN with untrusted devices:
+
+1. `bind_host = 127.0.0.1`. Saturn does not touch the LAN directly.
+2. Caddy on the same host terminates TLS at `https://saturn.lan:443`
+   (or whatever DNS name); Caddy's `tls internal` issues a self-signed
+   cert and clients install Caddy's root CA once.
+3. mDNS-discovery still works because it's link-local UDP, not the
+   HTTPS data path; Saturn advertises `api_base = https://saturn.lan/v1`
+   in the TXT (this requires §13.5 work).
+4. `trusted_proxies = ["127.0.0.1"]` so the post-§8 rate limiter trusts
+   Caddy's `X-Forwarded-For`.
+
+This is the closest a Saturn admin can get **today** to the posture the
+audit recommends ship in the box.
+
+### 13.5 Saturn-side roadmap (the schema gap)
+
+CONFIG_FIELDS §A.3 reserves `tls_cert_path` and `tls_key_path` (both
+`null` by default; both required together when set). Wiring those into
+the codebase is the in-process fix for F-7. The minimal changes:
+
+1. **Pass through to uvicorn.** In `saturn/web.py:1327-1329` and
+   `saturn/runner.py:496`, when admin config carries non-null
+   `tls_cert_path`/`tls_key_path`, pass them as
+   `uvicorn.run(..., ssl_certfile=cert, ssl_keyfile=key)`.
+2. **Validate at boot** per CONFIG_FIELDS §C.1 item 6: both set or both
+   unset; files exist; mode 0600/0640; readable. Refuse to start
+   otherwise.
+3. **Update `api_base` advertisement.** When TLS is active, the beacon
+   in `saturn/discovery.py:425-428` should publish `api_base =
+   https://...` so clients connect with TLS. Add a `tls_active` flag in
+   the TXT (5-byte `tls = "1"`) so consumers don't have to parse the URL
+   scheme. Bump the TXT `v` schema marker.
+4. **Auto-cert UX (deferred).** A real "set this up in 30 seconds"
+   experience needs cert provisioning. Two paths worth scoping:
+   - **Local-CA mode.** Saturn ships a `saturn cert init` command that
+     mints a local CA + leaf cert (mkcert-style) and writes them to
+     `~/.saturn/tls/`. Clients install the CA root once. Right tradeoff
+     for the LAN-default scenario.
+   - **ACME mode.** When the admin owns a public DNS name and Saturn
+     is reachable, use a tiny ACME client (or shell out to a vendored
+     `lego` / `acme.sh`) to fetch a Let's Encrypt cert. Right tradeoff
+     for tunneled / hosted scenarios.
+   Both deferred to a follow-up bead (filed below); the immediate
+   schema work is items 1–3.
+
+### 13.6 Disposition
+
+- **F-7 is not closed by CONFIG_FIELDS A.3 alone** — A.3 reserves the
+  fields; the implementer still needs to wire steps 1–3 of §13.5.
+- File a follow-up bead for the auto-cert UX (§13.5 step 4); it's
+  meaningful product work, not security plumbing.
+- Ship 13.4-shaped guidance in the README **before** auto-cert lands so
+  admins running Saturn in untrusted-LAN settings have a clear,
+  immediate posture (Caddy + loopback bind).
+
+### 13.7 Posture-ready prose for the docs queue
+
+> Saturn does not encrypt traffic by default. On a network where every
+> device is trusted (your home, a small private lab) HTTP is the right
+> tradeoff — zero setup, zero certificate management. On any network
+> where untrusted devices may join (campus, café, co-living, office
+> guest WiFi), Saturn's prompt and response content is observable to
+> anyone on the same broadcast domain, and a hostile peer can rewrite
+> responses in flight via standard ARP / rogue-AP attacks.
+>
+> If your network has untrusted peers, the recommended posture is:
+> bind Saturn to localhost, front it with [Caddy] using `tls internal`,
+> and tell Saturn that Caddy is a trusted proxy
+> (`SATURN_TRUSTED_PROXIES=127.0.0.1`). A six-line Caddyfile is enough.
+> Two alternatives: run Saturn over a [Tailscale] mesh so the LAN
+> never sees the traffic, or expose Saturn via Saturn's built-in
+> cloudflared tunnel (Settings → System → Tunnel) for HTTPS-via-edge —
+> useful for remote access, but it does not encrypt the local-LAN
+> path between clients and the Saturn host.
+>
+> Saturn will gain in-process TLS as a first-class option in a coming
+> release; until then, terminate TLS at a reverse proxy.
+
+(Implementer note: substitute live links to Caddy / Tailscale / the
+relevant Saturn settings page when this lands in `docs/`.)
+
+### 13.8 Code references
+
+- `saturn/web.py:1327-1329` — `uvicorn.run` (no ssl_*).
+- `saturn/runner.py:496` — same.
+- `saturn/discovery.py:411, 425-428` — `api_base` published with `http://`
+  scheme; needs §13.5 step 3 update.
+- `saturn/web.py:1116-1160` — existing cloudflared tunnel; documents
+  the asterisk in §13.4.3.
+- CONFIG_FIELDS §A.3 — `tls_cert_path`, `tls_key_path` (reserved).
+- CONFIG_FIELDS §C.1 item 6 — boot validator for TLS files.
