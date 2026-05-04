@@ -1,9 +1,11 @@
 import contextlib
 import os
 import secrets
+import shutil
 import signal
 import socket
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -29,8 +31,11 @@ def serve(port=None, timeout=20.0, admin_token=None, env_extra=None):
         "SATURN_BIND_HOST": "127.0.0.1",
     }
     env = {**os.environ, **defaults, **(env_extra or {})}
+    py = sys.executable
+    if not py or "uvx" in py or "showboat" in py:
+        py = shutil.which("python3") or sys.executable
     proc = subprocess.Popen(
-        ["python3", "-m", "saturn", "web", "--port", str(port)],
+        [py, "-m", "saturn", "web", "--port", str(port)],
         stdout=log, stderr=log, preexec_fn=os.setsid, env=env,
     )
     origin = f"http://127.0.0.1:{port}"
@@ -44,7 +49,10 @@ def serve(port=None, timeout=20.0, admin_token=None, env_extra=None):
         except (urllib.error.URLError, ConnectionResetError, OSError):
             time.sleep(0.3)
     if not ready:
-        os.killpg(proc.pid, signal.SIGTERM)
+        try: os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            try: proc.terminate()
+            except ProcessLookupError: pass
         raise TimeoutError(f"saturn web did not come up on {port}")
     try:
         yield {"origin": origin, "token": tok}
