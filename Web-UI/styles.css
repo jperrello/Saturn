@@ -1331,7 +1331,7 @@ body::after {
 
 .chat-input-area {
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
   background: rgba(8, 8, 8, 0.92);
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -1380,9 +1380,13 @@ body::after {
 .send-glow {
   border: none;
   border-radius: 0 14px 14px 0;
-  padding: 14px 24px;
+  padding: 0 24px;
   font-size: 11px;
   letter-spacing: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
   transition: background 0.15s, color 0.15s, box-shadow 0.15s;
 }
 
