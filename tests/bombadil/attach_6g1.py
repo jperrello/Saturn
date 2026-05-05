@@ -16,7 +16,7 @@ ALLOWED_EXTS = .txt .md .py .js .ts .json .toml .yaml .yml .csv
 MAX_FILE_SIZE = 100 * 1024 (102400 bytes)
 """
 
-import tempfile
+import json, tempfile
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
@@ -63,6 +63,32 @@ def main():
             page.set_input_files("#file-input", str(path))
             page.wait_for_timeout(150)
 
+        def cancel_pending_toasts():
+            # Web-UI's toast() schedules a 3000ms setTimeout to re-hide and
+            # never cancels prior ones. In rapid-fire test sequences a stale
+            # callback can hide a freshly-shown toast. Cancel all pending
+            # timeouts before each rejection-path step.
+            page.evaluate("""() => {
+                const hi = setTimeout(()=>{}, 0);
+                for (let i = 1; i < hi; i++) clearTimeout(i);
+            }""")
+
+        def capture_toast(expected_substring, timeout_ms=2000):
+            # Web-UI toast() schedules a 3000ms setTimeout to re-hide. Rapid
+            # back-to-back rejections in this test can cause an older
+            # setTimeout to hide the newer toast. Poll for the expected
+            # message instead of a one-shot read.
+            try:
+                page.wait_for_function(
+                    f"() => {{ const t=document.getElementById('toast'); "
+                    f"return t && !t.classList.contains('hidden') && "
+                    f"t.textContent.includes({json.dumps(expected_substring)}); }}",
+                    timeout=timeout_ms,
+                )
+                return True
+            except Exception:
+                return False
+
         results = {}
 
         # 1. allowed .txt
@@ -84,19 +110,19 @@ def main():
         }
 
         # 2. disallowed extension
-        reset_toast()
+        reset_toast(); cancel_pending_toasts()
         attach(bad_ext)
         results["disallowed_ext"] = {
             "no_badge": not badge_visible(),
-            "toast_unsupported": "Unsupported file type" in toast_text(),
+            "toast_unsupported": capture_toast("Unsupported file type"),
         }
 
         # 3. oversize allowed extension
-        reset_toast()
+        reset_toast(); cancel_pending_toasts()
         attach(too_big)
         results["oversize"] = {
             "no_badge": not badge_visible(),
-            "toast_too_large": "too large" in toast_text(),
+            "toast_too_large": capture_toast("too large"),
         }
 
         # 4. plus-menu attach button shares the same input wiring.
@@ -105,7 +131,7 @@ def main():
         # that #plus-attach exists, opens/closes the menu, and that the
         # subsequent set_input_files (i.e. simulated picker) lands the file
         # via the same attachFile() path.
-        reset_toast()
+        reset_toast(); cancel_pending_toasts()
         page.click("#plus-menu-btn")
         results["plus_menu_opens"] = page.evaluate(
             "() => !document.getElementById('plus-menu').classList.contains('hidden')"
@@ -128,7 +154,7 @@ def main():
         # (size > MAX is the rejection condition; equal passes).
         page.click("#file-badge-remove"); page.wait_for_timeout(100)
         edge = tmp / "edge.txt"; edge.write_text("y" * (100 * 1024))
-        reset_toast()
+        reset_toast(); cancel_pending_toasts()
         attach(edge)
         results["exact_100kb_accepted"] = {
             "badge_visible": badge_visible(),
@@ -138,11 +164,11 @@ def main():
         # 7. one-byte-over: 100KB + 1 should be REJECTED
         page.click("#file-badge-remove"); page.wait_for_timeout(100)
         over1 = tmp / "over1.txt"; over1.write_text("z" * (100 * 1024 + 1))
-        reset_toast()
+        reset_toast(); cancel_pending_toasts()
         attach(over1)
         results["one_byte_over_rejected"] = {
             "no_badge": not badge_visible(),
-            "toast_too_large": "too large" in toast_text(),
+            "toast_too_large": capture_toast("too large"),
         }
 
         page.screenshot(path=str(OUT / "final.png"), full_page=True)
