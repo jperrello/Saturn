@@ -22,6 +22,17 @@ def _save(servers: list[dict]):
     CONFIG_PATH.write_text(json.dumps(servers, indent=2) + "\n")
 
 
+def _unwrap(exc: BaseException) -> BaseException:
+    seen = set()
+    cur = exc
+    while isinstance(cur, BaseExceptionGroup) and id(cur) not in seen:
+        seen.add(id(cur))
+        if not cur.exceptions:
+            break
+        cur = cur.exceptions[0]
+    return cur
+
+
 async def _with_session(url: str, auth_token: Optional[str], fn):
     headers = {}
     if auth_token:
@@ -76,8 +87,11 @@ class MCPClientManager:
                 result = await session.call_tool(tool, arguments)
                 return {"content": [c.model_dump() for c in result.content], "isError": result.isError}
             return await _with_session(entry["url"], entry.get("auth_token"), invoke)
-        except Exception as e:
-            return {"error": str(e)}
+        except BaseException as e:
+            inner = _unwrap(e)
+            if isinstance(inner, (ConnectionError, OSError)):
+                return {"error": f"MCP server '{server}' unreachable at {entry['url']}: {inner}"}
+            return {"error": f"MCP server '{server}' at {entry['url']} failed: {inner}"}
 
     def add(self, name: str, url: str, auth_token: Optional[str] = None):
         servers = _load()
