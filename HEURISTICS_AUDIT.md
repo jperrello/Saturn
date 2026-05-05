@@ -157,3 +157,86 @@ Browser walk-through could not run this pass (Chrome MCP profile locked by paral
 1. Open `http://localhost:3000` in Playwright.
 2. Reproduce items 1.1, 1.2, 3.1, 5.1, 9.1, 9.2 by triggering the failure paths.
 3. Run `tests/bombadil/run.sh` after any `Web-UI/` or `saturn/web.py` change (per memory).
+
+---
+
+## Closure pass — qj5 implicit closures (2026-05-04)
+
+Bead: Saturn-gww.3. Reviewer: writer. Branch tip at pass: `a01ee41`. Reads the qj5.1 – qj5.15 chain shipped during the May-04 promo-push run against the original audit table to identify which items the chat-UX bucket and the admin-Configure bucket *implicitly* closed, which they touched but didn't fully close, and what is residual.
+
+### Closed by qj5 work
+
+| Audit item | Heuristic | Closed by | How |
+|---|---|---|---|
+| **8.4** Six FAB clutter on chat input | H8 | qj5.4 (`ba2f925`) + qj5.1 (`6461641`) + qj5.5 (`83386fd`) | Five FABs collapsed into single `+` menu; redundant top-right response-style pill removed; send icon flex-aligned. Chat-input strip is now one textarea + one menu + one send. |
+| **6.6** MCP FAB unlabelled wrench glyph | H6 | qj5.3 (`60a589b`) | MCP popup gained a visible label and direct Add-MCP-server flow; the wrench is no longer the only signifier. |
+
+### Partially closed (boundary closed; UI surface still open)
+
+| Audit item | Heuristic | Touched by | Status |
+|---|---|---|---|
+| **5.1** Save service form: silent return on missing fields, no name uniqueness, no URL validation | H5 | qj5.13 (`8b1e54d`, `70f7beb`) + qj5.14 (`26d20e1`) | Server-side closed: `POST /api/admin/config` returns 422 with structured error list (CONFIG_FIELDS §C); boot validators refuse-on-unsafe with grouped errors. **Client-side** inline-on-blur validation, name-uniqueness GET, and URL-pattern checks on the legacy Save Service form remain open. |
+| **5.3** API key field — no warning that key persists locally | H5 | qj5.13 commit 3 (`b38b4af`) | New per-service editor accepts only `api_key_env` (env-var name). Plaintext keys are refused and the rationale is documented in [`docs/admin/configure.md`](docs/admin/configure.md). The **legacy** `index.html:165` API-key input is unchanged; deprecate or migrate it onto the new editor pattern. |
+| **3.4** Configure New Service flow is full takeover, not modal — back-button exits app | H3 | qj5.13 (`70f7beb`) | New `/admin/configure` page is bookmarkable and deep-linkable as a dual entry point (SPA tab + direct URL); back-button works for the new admin-config page. The **legacy** Configure New Service full takeover (`app.js:1033-1042`) is unchanged. |
+| **6.3** Per-service edit: heading does not show *which* service is being edited | H6 | qj5.13 commit 3 (`b38b4af`) | Per-service editor on the new Configure page surfaces the service in the editor row context. The **legacy** `index.html:601-604` global/per-service toggle is unchanged. |
+| **1.4** No "Routed via service/model" badge on assistant bubble | H1 | qj5.15 (patterns only — `427bb12`) | `CONFIG_RECEIPT_PATTERNS.md` drafted; UI surface still pending. Tracked under in-flight Saturn-qj5.15 — *do not close*. |
+| **7.4** No way to save custom system prompt as a quick-pick | H7 | qj5.2 (`c2845b4`) | Per-chat Settings popup exposes style + model + service per chat. User-defined system-prompt presets persisted into Presets remain open. |
+
+### Architectural items the audit did not itemize, now in place
+
+These are upstream of the audit table but worth recording so future passes know the current shape before re-walking the UI:
+
+- **Bearer-fetch override pattern** — Web-UI `fetch` automatically attaches the admin bearer; `require_admin` accepts cookie session OR bearer. Established in `4227474` (`build_app()`) and reused throughout the qj5.13 chain. Implication for re-audit: error states that were "401 from Web-UI" are now "401 only when token is missing/wrong", not auth-flow drift.
+- **TOFU `node_id` pinning** (qj5.16.13, `150468c`) — trust keyed on stable UUIDv4 per-node, not hostname/priority. Configure A.8 group surfaces pending-rejections table. The "which service did I configure last" recall problem (audit 6.2) is partly mitigated for *Saturn peers* by the pending-rejections + allowlist UI; third-party connector cards (audit 6.2 main subject) still need a check-badge.
+- **Admin posture leak guard** (qj5.13.7, in flight) — `/admin/configure` regression that lost `Depends(require_admin)` between commits 2 and 3. Future audits should treat unauthenticated GET on `/admin/configure` / `/configure` / `/admin/services` as an audit failure.
+- **qj5.6 user-message edit affordance** (`a232b13`) — truncate-and-regenerate. Doesn't map to a numbered audit row but addresses a general H3 (user control) gap that the audit didn't itemize. Future passes should add an audit row covering "edit prior turn" in H3.
+
+### Residual open — the work gww.3 was originally chartered to do
+
+Twenty-three items from the original table remain open. Grouped by likely-priority for whoever picks up the heuristics-fixes lane:
+
+**Top-5 still standing (HIGH severity, primary-path impact):**
+
+- Top-5 #1 / 9.1 — `cfg-test` button overloads its label with error code, disappears in 2 s. Persistent error region under the field.
+- Top-5 #2 / 1.1 — Discover/Scan button has no in-flight progress; spinner + live "found N" counter from `/api/discover` partials.
+- Top-5 #4 / 4.1 / 4.5 — `Network Scan` ↔ `Discover` mismatch project-wide. (Tracked separately as Saturn-gww.4.1 — pick one term.)
+- Top-5 #5 / 6.1 — Sentinel-as-instruction `<select>` options ("-- scan first --", etc.); `⊛ Auto-route` unlabelled. Banner-with-deep-link instead of disabled-option-as-instruction.
+- 3.1 — `clear-chats-btn` "Delete History" is one-click destructive with no confirm or undo.
+- 9.2 — start/stop service errors flash for ~3 s with no diagnostic; persistent error region + "View log" link.
+
+**H1 visibility tail:** 1.2 (unreachable status badge undefined), 1.3 (System dashboard `● idle` regardless of state), 1.5 (token-budget counter), 1.6 (cloudflared startup progress).
+
+**H2 real-world copy:** 2.1 (protocol-first subtitle on Network Scan tab — writer-owned), 2.2 (`Thinking…` → `Model reasoning`), 2.3 (admin password gate has no hint about console-printed default), 2.4 (Cloud/Local labels), 2.5 (alias `@` glyph).
+
+**H3 control:** 3.2 (Stop button on streaming responses — `activeController.abort()` already exists, just unwired), 3.3 (per-section reset on config overlay), 3.5 (`cfg-back` breadcrumb).
+
+**H4 consistency:** 4.2 (connector card register), 4.3 (inline button-style overrides), 4.4 (admin gate vs remote gate are two different shapes), 4.6 (glyph taxonomy `⊙ ⊛ ◇ ★ ☆ ▊ ─`).
+
+**H5 prevention:** 5.2 (Port `min=1 max=65535`), 5.4 (`+ New` chat button discards in-flight stream), 5.5 (ephemeral seconds-vs-minutes label), 5.6 (model filter syntax live-validation).
+
+**H6 recognition:** 6.2 (connector cards: check-badge after credential copy), 6.4 (config row "Default" toggle is same label whether at default or overridden), 6.5 (service `<select>` shows name only).
+
+**H7 efficiency:** 7.1 (Enter / Shift+Enter hint), 7.2 (global keyboard shortcuts + `?` modal), 7.3 (history-list search), 7.5 (Cmd+E for export).
+
+**H8 aesthetic:** 8.1 (five overlapping atmosphere filters reducing text contrast — biggest residual item; brutalist ≠ illegible), 8.2 (Saturn ring brightness — owned by Saturn-gww.1), 8.3 (config overlay sampling sliders — note that the *new* `/admin/configure` is the canonical admin surface; the legacy sampling sheet may be a candidate for removal rather than fixing), 8.5 (muted alpha 0.6 vs 0.7), 8.6 (tab indicator double cue).
+
+**H9 errors:** 9.3 (model load: Retry + "Open Network Scan"), 9.4 (save service: map backend errors to specific fields), 9.5 (chat 502 "No healthy backends" → system bubble with "Run Scan"), 9.6 (corrupt localStorage chat history).
+
+**H10 help/docs:** 10.1 (first-load onboarding subtitle on Network Scan), 10.2 (config form field hints — note that the new `/admin/configure` page already has structured group headings; this item is about the legacy config form), 10.3 (model filter LobeChat syntax inline expander), 10.4 (curl + saturnd "Try it" snippet on Integrate page — writer-owned), 10.5 (notifications drawer), 10.6 (MCP tool-call dialog inline help).
+
+**Cross-cutting:** WCAG-AA contrast on body text vs scanline overlay, `role="tab"`/`aria-selected` on top-level tabs, focus trap on config overlay, `prefers-reduced-motion` gating on WebGL passes.
+
+### Recommended disposition
+
+Closing **Saturn-gww.3** with the closure note above is reasonable — the bead's title is "Web-UI heuristics fixes — full" and the chat-input bucket (8.4, 6.6) is genuinely shipped while the rest of the audit reflects parts of the UI the May-04 run did not scope to. Reopening as a new bead chartered specifically against the residual list above is cleaner than letting gww.3 carry an ambiguously-scoped follow-up.
+
+Suggested follow-up beads (one per heuristics cluster, parallelisable):
+
+- **gww.5** — H1 visibility cluster (Scan progress, unreachable badge, system status timestamp, streaming-route badge once qj5.15 ships).
+- **gww.6** — H4/H4.1/H4.5 naming sweep: pick `Scan` (or `Discover`) and replace project-wide. Closes Top-5 #4 + Saturn-gww.4.1.
+- **gww.7** — H3/H5/H9 destructive-action cluster (clear chats confirm, Stop streaming, Save service inline validation, error-region pattern).
+- **gww.8** — H8.1 atmosphere-filter rework (drop scanlines + DOM grain on text-heavy pages; limit shaders to 3D canvas).
+- **gww.9** — H10/H2.1 onboarding + protocol-first copy pass (writer-owned, links to RUN_BRIEF_MAY03).
+- **gww.10** — accessibility cluster (contrast, ARIA on top-level tabs, focus trap, reduced-motion gate).
+
+The deferred legacy Configure New Service form (audit 5.1, 5.3, 6.3, 3.4 legacy halves) should be evaluated for *deletion* rather than repair, since the qj5.13 `/admin/configure` page is the canonical replacement. File that as a separate decision bead before bundling fixes.
