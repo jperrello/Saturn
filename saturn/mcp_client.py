@@ -7,6 +7,8 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
+import httpx
+
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
@@ -49,15 +51,46 @@ def _save(servers: list[dict]):
     CONFIG_PATH.write_text(json.dumps(servers, indent=2) + "\n")
 
 
-def _unwrap(exc: BaseException) -> BaseException:
-    seen = set()
-    cur = exc
-    while isinstance(cur, BaseExceptionGroup) and id(cur) not in seen:
+_UNREACHABLE_TYPES = (httpx.NetworkError, httpx.ConnectError, httpx.ConnectTimeout,
+                      ConnectionError, OSError)
+_TIMEOUT_TYPES = (asyncio.TimeoutError, httpx.ReadTimeout, httpx.PoolTimeout)
+
+
+def _flatten(exc: BaseException) -> list[BaseException]:
+    out: list[BaseException] = []
+    seen: set[int] = set()
+    stack: list[BaseException] = [exc]
+    while stack:
+        cur = stack.pop()
+        if id(cur) in seen:
+            continue
         seen.add(id(cur))
-        if not cur.exceptions:
-            break
-        cur = cur.exceptions[0]
-    return cur
+        if isinstance(cur, BaseExceptionGroup):
+            stack.extend(cur.exceptions)
+            continue
+        out.append(cur)
+        if cur.__cause__ is not None:
+            stack.append(cur.__cause__)
+        if cur.__context__ is not None:
+            stack.append(cur.__context__)
+    return out
+
+
+def _classify(exc: BaseException) -> str:
+    flat = _flatten(exc)
+    if any(isinstance(e, _TIMEOUT_TYPES) for e in flat):
+        return "timeout"
+    if any(isinstance(e, _UNREACHABLE_TYPES) for e in flat):
+        return "unreachable"
+    return "internal"
+
+
+def _unwrap(exc: BaseException) -> BaseException:
+    flat = _flatten(exc)
+    for e in flat:
+        if isinstance(e, _UNREACHABLE_TYPES + _TIMEOUT_TYPES):
+            return e
+    return flat[0] if flat else exc
 
 
 async def _with_session(url: str, auth_token: Optional[str], fn):
@@ -151,17 +184,14 @@ class MCPClientManager:
                 _with_session(entry["url"], entry.get("auth_token"), invoke),
                 timeout=CALL_DEADLINE_S,
             )
-        except asyncio.TimeoutError:
-            return {"errorKind": "timeout", "tool": tool, "server": server,
-                    "deadline_s": CALL_DEADLINE_S,
-                    "error": f"Tool call timed out: {tool}"}
         except BaseException as e:
+            kind = _classify(e)
             inner = _unwrap(e)
-            if isinstance(inner, asyncio.TimeoutError):
+            if kind == "timeout":
                 return {"errorKind": "timeout", "tool": tool, "server": server,
                         "deadline_s": CALL_DEADLINE_S,
                         "error": f"Tool call timed out: {tool}"}
-            if isinstance(inner, (ConnectionError, OSError)):
+            if kind == "unreachable":
                 return {"errorKind": "unreachable", "tool": tool, "server": server,
                         "url": entry["url"], "detail": str(inner),
                         "error": f"MCP server unreachable: {server}"}
