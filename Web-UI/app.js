@@ -1210,7 +1210,7 @@ async function submitConfig() {
     api_type: document.getElementById('cfg-api-type').value,
     priority: parseInt(document.getElementById('cfg-priority').value) || 50,
     base_url: baseUrl,
-    api_key_env: document.getElementById('cfg-api-key').value.trim() || null,
+    api_key_env: document.getElementById('cfg-api-key-env-legacy').value.trim() || null,
     port: parseInt(document.getElementById('cfg-adv-port').value) || 0,
     beacon_enabled: document.getElementById('cfg-ephemeral').checked,
     beacon_provider: document.getElementById('cfg-keygen-url').value.trim() || null,
@@ -1288,7 +1288,7 @@ function resetConfigForm() {
   document.getElementById('cfg-enabled').checked = true
   document.getElementById('cfg-priority').value = '10'
   document.getElementById('cfg-adv-port').value = ''
-  document.getElementById('cfg-api-key').value = ''
+  document.getElementById('cfg-api-key-env-legacy').value = ''
   document.getElementById('cfg-ephemeral').checked = false
   document.getElementById('cfg-keygen-url').value = ''
   document.getElementById('cfg-spend-limit').value = '0'
@@ -4456,3 +4456,217 @@ document.getElementById('admin-configure-nav-btn')?.addEventListener('click', ()
 })
 window.addEventListener('hashchange', checkAdminConfigureRoute)
 checkAdminConfigureRoute()
+
+// --- Saturn-6sb (qj5.13 commit-3): per-service editor ---
+
+let _editingService = null
+
+async function loadPerServiceList() {
+  const list = document.getElementById('per-service-list')
+  if (!list) return
+  try {
+    const r = await fetch('/api/services')
+    if (!r.ok) return
+    const services = await r.json()
+    if (!Array.isArray(services)) return
+    list.innerHTML = ''
+    for (const s of services) {
+      const row = document.createElement('div')
+      row.className = 'service-row'
+      row.dataset.service = s.name
+      const label = document.createElement('span')
+      label.textContent = `${s.name} — priority ${s.priority != null ? s.priority : '?'}`
+      row.appendChild(label)
+      const editBtn = document.createElement('button')
+      editBtn.type = 'button'
+      editBtn.textContent = 'Edit'
+      editBtn.addEventListener('click', () => editService(s))
+      row.appendChild(editBtn)
+      const delBtn = document.createElement('button')
+      delBtn.type = 'button'
+      delBtn.textContent = 'Delete'
+      delBtn.addEventListener('click', () => deleteService(s.name))
+      row.appendChild(delBtn)
+      list.appendChild(row)
+    }
+  } catch { /* ignore */ }
+}
+
+function _showServiceForm() {
+  document.getElementById('per-service-form')?.classList.remove('hidden')
+  document.getElementById('per-service-add')?.classList.add('hidden')
+}
+function _hideServiceForm() {
+  document.getElementById('per-service-form')?.classList.add('hidden')
+  document.getElementById('per-service-add')?.classList.remove('hidden')
+}
+
+function editService(s) {
+  _editingService = s.name
+  const setIf = (id, v) => { const e = document.getElementById(id); if (e) e.value = v == null ? '' : String(v) }
+  setIf('cfg-name', s.name)
+  const nameEl = document.getElementById('cfg-name')
+  if (nameEl) nameEl.disabled = true
+  setIf('cfg-base-url', s.base_url || (s.upstream && s.upstream.base_url) || '')
+  setIf('cfg-priority', s.priority != null ? s.priority : 50)
+  setIf('cfg-deployment', s.deployment || 'local')
+  setIf('cfg-api-type', s.api_type || 'ollama')
+  _showServiceForm()
+}
+
+function newService() {
+  _editingService = null
+  const nameEl = document.getElementById('cfg-name')
+  if (nameEl) { nameEl.value = ''; nameEl.disabled = false }
+  const setIf = (id, v) => { const e = document.getElementById(id); if (e) e.value = v }
+  setIf('cfg-base-url', '')
+  setIf('cfg-priority', '50')
+  setIf('cfg-api-key-env', '')
+  _showServiceForm()
+}
+
+async function saveService() {
+  const get = (id) => (document.getElementById(id)?.value || '').trim()
+  const name = get('cfg-name')
+  if (!name) return
+  const body = {
+    name,
+    deployment: get('cfg-deployment') || 'local',
+    api_type: get('cfg-api-type') || 'ollama',
+    priority: parseInt(get('cfg-priority') || '50', 10) || 50,
+    upstream: {
+      base_url: get('cfg-base-url'),
+      api_key_env: get('cfg-api-key-env') || null,
+    },
+  }
+  const path = _editingService ? `/api/services/${encodeURIComponent(_editingService)}` : '/api/services'
+  const method = _editingService ? 'PUT' : 'POST'
+  const res = await fetch(path, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (res.ok) {
+    _hideServiceForm()
+    _editingService = null
+    await loadPerServiceList()
+  }
+}
+
+async function deleteService(name) {
+  if (!window.confirm(`Delete service ${name}?`)) return
+  await fetch(`/api/services/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  await loadPerServiceList()
+}
+
+document.getElementById('per-service-add')?.addEventListener('click', newService)
+document.getElementById('per-service-save')?.addEventListener('click', saveService)
+document.getElementById('per-service-cancel')?.addEventListener('click', () => {
+  _hideServiceForm()
+  _editingService = null
+})
+
+if (document.getElementById('per-service-list')) {
+  loadPerServiceList()
+  setInterval(() => {
+    const ae = document.activeElement
+    const inForm = ae && ae.id && (ae.id.startsWith('cfg-') || ae.id.startsWith('per-service'))
+    if (!inForm) loadPerServiceList()
+  }, 1000)
+}
+
+// --- Saturn-7j3 (qj5.16.13 commit-3): known-nodes UI ---
+
+async function loadKnownNodes() {
+  const pinned = document.getElementById('kn-pinned-list')
+  const rej = document.getElementById('kn-rejections-list')
+  if (!pinned && !rej) return
+  let data
+  try {
+    const r = await fetch('/api/admin/known-nodes')
+    if (!r.ok) return
+    data = await r.json()
+  } catch { return }
+  if (pinned) {
+    pinned.innerHTML = ''
+    const nodes = data.nodes || {}
+    if (!Object.keys(nodes).length) {
+      const empty = document.createElement('div')
+      empty.className = 'kn-empty'
+      empty.textContent = '(no pinned nodes yet)'
+      pinned.appendChild(empty)
+    }
+    for (const [name, info] of Object.entries(nodes)) {
+      const row = document.createElement('div')
+      row.className = 'kn-row'
+      row.dataset.service = name
+      const nid = info.node_id || ''
+      const label = document.createElement('span')
+      label.textContent = `${name} — ${nid.slice(0, 8)} (${info.host_seen || info.host || ''})`
+      row.appendChild(label)
+      const addBtn = document.createElement('button')
+      addBtn.type = 'button'
+      addBtn.textContent = 'Use in allowlist'
+      addBtn.addEventListener('click', () => {
+        const inp = document.getElementById('ac-trusted_node_ids')
+        if (!inp) return
+        const cur = (inp.value || '').split(',').map(s => s.trim()).filter(Boolean)
+        if (!cur.includes(nid)) cur.push(nid)
+        inp.value = cur.join(',')
+        inp.dispatchEvent(new Event('change', { bubbles: true }))
+      })
+      row.appendChild(addBtn)
+      pinned.appendChild(row)
+    }
+  }
+  if (rej) {
+    rej.innerHTML = ''
+    const rows = data.rejected || []
+    if (!rows.length) {
+      const empty = document.createElement('div')
+      empty.className = 'kn-empty'
+      empty.textContent = '(no pending rejections)'
+      rej.appendChild(empty)
+    }
+    for (const row of rows) {
+      const node = document.createElement('div')
+      node.className = 'kn-rejection-row'
+      const expected = (row.expected_node_id || '').slice(0, 8)
+      const seen = (row.node_id || '').slice(0, 8)
+      const text = document.createElement('div')
+      text.textContent = `${row.service_name} — expected ${expected}, seen ${seen} from ${row.host_seen || ''}`
+      node.appendChild(text)
+      const attest = document.createElement('button')
+      attest.type = 'button'
+      attest.textContent = 'Attest'
+      attest.addEventListener('click', async () => {
+        await fetch('/api/admin/known-nodes/attest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ service: row.service_name, node_id: row.node_id, host: row.host_seen || '' }),
+        })
+        loadKnownNodes()
+      })
+      node.appendChild(attest)
+      const forget = document.createElement('button')
+      forget.type = 'button'
+      forget.textContent = 'Forget'
+      forget.addEventListener('click', async () => {
+        await fetch('/api/admin/known-nodes/forget', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ service: row.service_name }),
+        })
+        loadKnownNodes()
+      })
+      node.appendChild(forget)
+      rej.appendChild(node)
+    }
+  }
+}
+
+document.getElementById('kn-refresh')?.addEventListener('click', loadKnownNodes)
+
+if (document.getElementById('kn-pinned-list') || document.getElementById('kn-rejections-list')) {
+  loadKnownNodes()
+}
