@@ -912,12 +912,31 @@ async def chat(body: ChatRequest, request: Request):
     if streaming:
         payload["stream_options"] = {"include_usage": True}
 
+    from saturn import receipt as _receipt
+    configured = {"model": body.model, **raw_params}
+    system_prompt = next(
+        (m.get("content") for m in body.messages if isinstance(m, dict) and m.get("role") == "system" and isinstance(m.get("content"), str)),
+        None,
+    )
+
     if not streaming:
         async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
             r = await client.post(f"{base}/chat/completions", json=payload, headers=headers)
             if r.status_code != 200:
                 raise HTTPException(r.status_code, "upstream error")
-            return r.json()
+            data = r.json()
+            applied = {"max_tokens": body.max_tokens}
+            if data.get("model"):
+                applied["model"] = data["model"]
+            if data.get("usage"):
+                applied["usage"] = data["usage"]
+            for c in data.get("choices") or []:
+                if isinstance(c, dict) and c.get("finish_reason"):
+                    applied["finish_reason"] = c["finish_reason"]
+            data["saturn_meta"] = _receipt.build_meta(
+                configured, applied, system_prompt, requested_model=body.model
+            )
+            return data
 
     sem = _ip_sem(ip)
     if sem.locked():
@@ -925,6 +944,7 @@ async def chat(body: ChatRequest, request: Request):
                             headers={"Retry-After": "2"})
 
     async def generate():
+        applied = {"max_tokens": body.max_tokens}
         async with sem:
             async with _global_semaphore:
                 _ip_active[ip] = _ip_active.get(ip, 0) + 1
@@ -936,6 +956,11 @@ async def chat(body: ChatRequest, request: Request):
                                 yield f"data: {err.decode()}\n\n"
                                 return
                             async for line in r.aiter_lines():
+                                if line.startswith("data:") and "[DONE]" in line:
+                                    yield _receipt.emit_meta_line(configured, applied, system_prompt, body.model)
+                                    yield line + "\n"
+                                    continue
+                                _receipt.update_applied_from_chunk(applied, line)
                                 if line:
                                     yield line + "\n"
                                 else:
