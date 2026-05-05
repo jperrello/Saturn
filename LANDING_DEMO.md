@@ -104,6 +104,15 @@ add_init_script + page.route auth wrapper).
 | cbt.5 zt2 (tunnel filter) | `0709ad6` (Saturn-zt2) | [`cbt.5.zt2-tunnel-filter.md`](demo/recordings/cbt.5.zt2-tunnel-filter.md) | `TUNNEL_PREFIXES = ('tun','utun','wg','tap','docker','veth','ipsec','gif','stf')` skipped in `isolation._link_ifaces()`. Closes a VPN-posture leak via `/api/discover.isolation.ifaces_with_link` and stops `utun` from masking real isolation. |
 | cbt.7 x9c (v6 filter) | `56ee730` (Saturn-x9c) | [`cbt.7.x9c-v6-filter.md`](demo/recordings/cbt.7.x9c-v6-filter.md) | `routable_addrs(family='v6')` now lowercases + rejects fe80::/10 (all cases), fc00::/7 ULA, 2002::/16 6to4, 2001::/32 Teredo (preserves 2001:db8::/32 docs). Stops cbt.7.advertise from packing unroutable v6 into AAAA. |
 
+### Phase 4 — P1 security drop (24/24 tests green)
+
+| Bead | Commit | Artifact | Headline |
+|------|--------|----------|----------|
+| Saturn-xqw | `127f708` | [`cbt.sec.xqw-api-base-ssrf.md`](demo/recordings/cbt.sec.xqw-api-base-ssrf.md) | **P1.** Peer-asserted `api_base` via TXT → SSRF (cloud metadata at 169.254.169.254, loopback, RFC-1918, CGNAT, link-local, ULA). Saturn now classifies the resolved host at the dispatch boundary and refuses the dangerous prefixes; public-host control still passes. |
+| Saturn-93w | `5930a72` | [`cbt.sec.93w-tofu-allowlist.md`](demo/recordings/cbt.sec.93w-tofu-allowlist.md) | **P1.** TOFU pin-race fix. New `~/.saturn/allowlist.json` `name → node_id` map consulted **before** TOFU in `_classify_trust()`; the legit `node_id` is authoritative and squatters get `rebind_rejected`. Closes the "stuck-in-bad-state forever" failure mode in the trust-anchor chain. |
+| Saturn-eon | `b19fb80` | [`cbt.sec.eon-txt-sanitize.md`](demo/recordings/cbt.sec.eon-txt-sanitize.md) | **P2.** `_sanitize_txt_value` mapped over **all** TXT values, not just `models` (`api_base`, `dep`, `deployment`, `api_type`, `cost`, …). Strips `\n` / `\r` / `\x00`; legitimate URL chars preserved. Defense-in-depth atop xqw at the parser entrance. |
+| Saturn-jfs | `4330b4d` | [`cbt.sec.jfs-discover-rate.md`](demo/recordings/cbt.sec.jfs-discover-rate.md) | **P2.** `/api/discover` (5 s `discover()` + 4 s `isolation.probe()` ≈ 9 s blocking) was un-rate-limited; 6 attacker requests forced 54 s of amplification. Handler now `_check_rate`'s at entry — 429 + `Retry-After` mirrors `/api/chat` / `/api/system/chat`. |
+
 ### Wave 2 — integrate beads (12/12 tests green)
 
 | Bead | Commit | Artifact | Headline |
