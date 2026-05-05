@@ -1703,3 +1703,299 @@ are independently revertible per surface if a regression appears.
 ≈ **45 lines code change** (all four surfaces) + **≈100 lines tests**.
 Single PR. No new dependencies. Schema-stable: `schema_version=1`
 already-shipped envelope works on every surface.
+
+---
+
+## §17.G — mDNS edge cases (cbt.5–cbt.8) — rough pass
+
+Four edges from RUN_BRIEF_MAY05 §B.3. Each subsection follows the established 9-section shape (audit → public surface → integration → UX → config → tests → migration → posture → hand-off). Rough pass: shape locked, prose may be tightened in full pass.
+
+### 17.G.1 — cbt.5 — AP isolation detection + Web-UI clear-error
+
+#### 17.G.1.1 Audit
+
+- **Web-UI route:** `/api/discover` at `saturn/web.py:614-633`.
+- **Network Scan tab:** `Web-UI/index.html:99-113` (button `#discover-btn`, status `#scan-status`).
+- **Empty-state copy:** `Web-UI/app.js:946` — `"No peers found on this LAN."` — no distinction between "I'm not advertising," "I'm advertising but multicast is broken," and "no peers exist."
+- **Advertise entry:** `SaturnAdvertiser.register()` at `saturn/discovery.py:513-532` — succeeds locally even when the AP blocks multicast; nothing in the call chain returns a "peers acked my SRV" signal.
+- **Discover entry:** `SaturnDiscovery.discover()` at `saturn/discovery.py:275-290` — backend emits `added`/`updated`/`removed` only; no "browse-started-no-results" event.
+
+#### 17.G.1.2 Public surface — `saturn/mdns/isolation.py` (new)
+
+```python
+@dataclass
+class IsolationProbe:
+    advertising: bool
+    self_seen: bool
+    peers_seen: int
+    ifaces_with_link: List[str]
+    suspected_ap_isolation: bool
+    diagnosis: str
+
+def probe(timeout: float = 4.0) -> IsolationProbe: ...
+```
+
+`probe()` advertises a transient `_saturn-probe._tcp.local.` record on a random port, browses for it from the same process, and reports:
+- `self_seen=False, advertising=True` → loopback multicast broken (rare; usually firewall).
+- `self_seen=True, peers_seen=0, ifaces_with_link>=1` → likely AP isolation (eduroam/UCSC-Guest pattern, RUN_BRIEF_MAY03 §6.1.2).
+- `self_seen=True, peers_seen=0, ifaces_with_link=0` → no network.
+
+#### 17.G.1.3 Integration in `saturn/web.py`
+
+`/api/discover` handler (saturn/web.py:614-633) augments response:
+```json
+{"services": [...], "isolation": {"suspected_ap_isolation": true, "diagnosis": "..."}}
+```
+On `suspected_ap_isolation=True`, Web-UI replaces the "No peers found" copy with the diagnosis + a `[Switch to manual config]` link to `#config-manual`.
+
+#### 17.G.1.4 UX — `Web-UI/app.js`
+
+Replace the static empty-state branch at `Web-UI/app.js:946` with conditional render:
+- `data.isolation.suspected_ap_isolation` → red-tinted card with diagnosis + manual-config CTA.
+- Otherwise → existing "No peers found" copy.
+
+#### 17.G.1.5 CONFIG_FIELDS
+
+None. Probe is on-demand, triggered by Network Scan button.
+
+#### 17.G.1.6 Tests — `saturn/tests/test_isolation.py`
+
+- **probe-loopback:** start advertiser + probe in same process → `self_seen=True`.
+- **probe-no-network:** mock `socket.if_nameindex()` empty → `ifaces_with_link=0, suspected=False`.
+- **integration-web:** hit `/api/discover` while advertising; assert `isolation` key present and well-formed.
+- No mocks of multicast — use a loopback-only test bind on a random port.
+
+#### 17.G.1.7 Migration / failure modes
+
+- Probe failure (timeout, OSError) → return `IsolationProbe(diagnosis="probe failed: ...")`. Web-UI falls back to legacy empty-state copy.
+- No regression risk: `/api/discover` is additive (new key in response).
+
+#### 17.G.1.8 Posture-ready prose
+
+> Saturn's Network Scan now distinguishes between "no peers exist" and "the network is hostile to multicast." On AP-isolated networks (common at universities and guest Wi-Fi), Saturn detects the condition and offers a one-click manual-config path.
+
+#### 17.G.1.9 Hand-off — cbt.5
+
+Brutus owns contract; hardener implements `isolation.py` + Web-UI patch; demo capture: showboat clip of Network Scan on a deliberately AP-isolated network (use `pfctl` block on macOS or a guest hotspot).
+
+---
+
+### 17.G.2 — cbt.6 — Multi-interface bind-all + advertise-per-routable-address
+
+#### 17.G.2.1 Audit
+
+- **`get_lan_ip()`** at `saturn/discovery.py:414-422` returns single primary IP via UDP-connect-to-8.8.8.8 trick. **Insufficient** for multi-NIC.
+- **Userspace** (`saturn/mdns/userspace.py:79-96`):
+  - Line 81: `host_ip = get_lan_ip()` — single address.
+  - Line 83: `addr = [socket.inet_aton(host_ip)]` — single-element list passed to `ServiceInfo(addresses=...)`.
+- **Bonjour** (`saturn/mdns/bonjour.py:199-212`): passes `interfaceIndex=0` (all interfaces); daemon auto-selects addresses. Implicitly multi-interface, but Saturn has no visibility/control.
+- **Avahi** (`saturn/mdns/avahi.py:103-113`): `AVAHI_IF_UNSPEC` + `AVAHI_PROTO_UNSPEC` — daemon publishes on all configured interfaces. Same story as Bonjour.
+- **Net effect:** userspace backend (Linux-no-avahi, Windows) is single-NIC; Bonjour/Avahi are multi-NIC by accident.
+
+#### 17.G.2.2 Public surface — `saturn/mdns/interfaces.py` (new)
+
+```python
+def routable_addrs() -> List[str]:
+    """All non-loopback IPv4 addresses on UP interfaces with default routes."""
+```
+Implementation: `psutil.net_if_addrs()` filtered by `psutil.net_if_stats()[iface].isup` and address family `AF_INET`. Excludes link-local (`169.254/16`) and loopback. **Add `psutil` to pyproject if not already present.**
+
+#### 17.G.2.3 Integration
+
+**Userspace** (`saturn/mdns/userspace.py:79-96`):
+```python
+addrs = [socket.inet_aton(ip) for ip in routable_addrs()] or [socket.inet_aton(get_lan_ip())]
+info = ServiceInfo(..., addresses=addrs, ...)
+```
+zeroconf's `ServiceInfo` natively accepts a list of address records — no per-iface duplication needed.
+
+**Bonjour** (`saturn/mdns/bonjour.py:199-212`): no change; `interfaceIndex=0` already covers all.
+
+**Avahi** (`saturn/mdns/avahi.py:103-113`): no change.
+
+#### 17.G.2.4 UX
+
+None. Transparent network-layer change.
+
+#### 17.G.2.5 CONFIG_FIELDS
+
+Optional opt-out:
+```python
+("advertise_all_interfaces", bool, default=True, env="SATURN_ADVERTISE_ALL")
+```
+If `False`, fall back to single-address `get_lan_ip()` legacy behavior.
+
+#### 17.G.2.6 Tests
+
+- **routable-addrs-unit:** mock `psutil.net_if_addrs()` with eth0+wlan0+lo → returns 2 non-loopback addrs.
+- **userspace-multi-addr:** advertise on userspace backend with `routable_addrs()` returning 2 IPs → `ServiceInfo.addresses` len == 2.
+- **integration:** real multi-NIC machine via harness (qj5.7) — advertise from server, browse from clients on each NIC subnet, both must see the service. **No mocks** for the integration tier (per RUN_BRIEF_MAY05 hard rule).
+
+#### 17.G.2.7 Migration / failure modes
+
+- `psutil` import failure → fall back to single-IP legacy path with warning.
+- Empty `routable_addrs()` (no UP interfaces) → fall back to `get_lan_ip()` (which itself may raise OSError; catch and skip advertise with warning).
+
+#### 17.G.2.8 Posture-ready prose
+
+> A Saturn server with both Wi-Fi and Ethernet (or any multi-NIC config) now advertises on every routable interface. Clients on either subnet see the same service without manual config.
+
+#### 17.G.2.9 Hand-off — cbt.6
+
+Brutus contract; hardener implements `interfaces.py` + userspace integration; demo: harness with two veth pairs (Linux) or two physical NICs (macOS box) showing same node_id resolved from both client subnets.
+
+---
+
+### 17.G.3 — cbt.7 — IPv6 / dual-stack AAAA records + dedup
+
+#### 17.G.3.1 Audit
+
+- `ServiceRecord.host: str` (single string) at `saturn/mdns/backend.py:6-12`. Schema is **address-singular**.
+- **Userspace** (`saturn/mdns/userspace.py:34`): `socket.inet_ntoa(info.addresses[0])` — IPv4-only via `inet_ntoa`; first element only.
+- **Bonjour** (`saturn/mdns/bonjour.py:367`): uses hostname string only — Bonjour daemon resolves to one address for us.
+- **Avahi** (`saturn/mdns/avahi.py:217`): `host=str(address)` — single resolved address from `ResolveService()`.
+- **Discovery dedup** (`saturn/discovery.py:211-214`): keyed by `node_id:name` — collapses IPv4 and IPv6 of same service into one entry **only if backend reports the same name twice**. Most backends report once, so this works by accident.
+
+#### 17.G.3.2 Public surface — `saturn/mdns/backend.py` schema change
+
+```python
+@dataclass
+class ServiceRecord:
+    name: str
+    host: str           # primary (back-compat)
+    addresses: List[str] = field(default_factory=list)  # NEW: all A + AAAA
+    port: int
+    txt: Dict[str, str]
+```
+
+`SaturnService` (`saturn/discovery.py:42`) gains:
+```python
+addresses: List[str] = field(default_factory=list)
+ipv6: Optional[str] = None  # convenience: first AAAA if any
+```
+
+#### 17.G.3.3 Integration
+
+**Userspace** (`saturn/mdns/userspace.py:28-47`):
+```python
+addrs = []
+for addr in (info.addresses or []):
+    if len(addr) == 4: addrs.append(socket.inet_ntoa(addr))
+    elif len(addr) == 16: addrs.append(socket.inet_ntop(socket.AF_INET6, addr))
+host = addrs[0] if addrs else info.server.rstrip(".")
+```
+
+**Bonjour** (`saturn/mdns/bonjour.py:359-398`): use `DNSServiceGetAddrInfo` post-resolve to fetch A+AAAA. New helper, ~30 LOC.
+
+**Avahi** (`saturn/mdns/avahi.py:207-224`): `ResolveService` already returns protocol; collect both AVAHI_PROTO_INET and INET6 by issuing two browses or by accumulating across protocol-specific callbacks.
+
+**Advertise side:** `SaturnAdvertiser` builds `addresses=` list with both AF_INET and AF_INET6 routable addrs (extends cbt.6 `routable_addrs()` to a dual-stack helper).
+
+#### 17.G.3.4 UX
+
+`/v1/discover` response includes `addresses: [...]`. Web-UI Network Scan card shows IPv6 badge when AAAA is present. Optional in rough pass; lock for full pass.
+
+#### 17.G.3.5 CONFIG_FIELDS
+
+```python
+("prefer_ipv6", bool, default=False, env="SATURN_PREFER_V6")
+```
+When True, client uses first AAAA over A in connection attempts.
+
+#### 17.G.3.6 Tests
+
+- **resolve-dual-stack:** advertise with dual-stack addresses; assert both v4 and v6 in `ServiceRecord.addresses`.
+- **dedup-dual-stack:** same node_id reported via v4 and v6 backends → single `SaturnService` with both addresses. **No double-listing.**
+- **prefer-v6:** with `SATURN_PREFER_V6=1`, client connects v6 first; falls back to v4 on connect timeout.
+- Integration: real IPv6 LAN (e.g., link-local `fe80::/10` over loopback or test ULA `fd00::/8`).
+
+#### 17.G.3.7 Migration / failure modes
+
+- Existing callers using `service.host` continue to work (`host` retained as back-compat primary).
+- IPv6 disabled at OS level → `addresses` list contains only v4; `ipv6=None`. No regression.
+- AAAA record present but unreachable (link-local on wrong iface) → connect-timeout falls back; cbt.4 failover handles this.
+
+#### 17.G.3.8 Posture-ready prose
+
+> Saturn now advertises and resolves IPv6 alongside IPv4. Dual-stack clients prefer v6 when configured; mixed-stack networks dedup properly (same service is not listed twice).
+
+#### 17.G.3.9 Hand-off — cbt.7
+
+Brutus contract; hardener implements schema change + per-backend resolve; demo: dual-stack discover on a ULA network with both addresses visible in receipt.
+
+---
+
+### 17.G.4 — cbt.8 — Large TXT records: advertise-time validation + safe ceiling
+
+#### 17.G.4.1 Audit
+
+- **TXT build:** `SaturnAdvertiser._properties()` at `saturn/discovery.py:470-511`.
+- **Per-value cap:** `MAX_VALUE_BYTES = 200` (line 472), only enforced for the `models` value (lines 481-489) via truncation; logs `mtrunc` flag.
+- **TXT encoding:** `_encode_txt()` at `saturn/mdns/bonjour.py:83-89` — 1-byte length prefix per `key=value` pair (RFC 1035 §3.3.14 / RFC 6763 §6).
+- **No total-record check.** No validation that `sum(len(part) for part in parts) <= safe_ceiling`. With ~13 keys + bloated `models`/`capabilities`, real-world TXT can exceed 1000 bytes silently.
+
+#### 17.G.4.2 Public surface — `saturn/mdns/txt.py` (new)
+
+```python
+TXT_SAFE_CEILING = 1200  # bytes; leaves headroom under typical 1500-byte MTU
+
+class TxtTooLarge(ValueError): ...
+
+def validate(props: Dict[str, str]) -> int:
+    """Return total encoded byte count; raise TxtTooLarge if > ceiling
+    or any individual entry > 255 bytes (RFC 6763 §6.1)."""
+```
+
+#### 17.G.4.3 Integration
+
+`SaturnAdvertiser.register()` at `saturn/discovery.py:513-532` calls `validate(self._properties())` **before** delegating to `backend.advertise()`. On `TxtTooLarge`:
+1. Log error with offending keys + sizes.
+2. **Truncate `models` first** (already partially supported), then `capabilities`, then `features` — drop entries until under ceiling.
+3. Set `mtrunc=1` (already a flag) so receivers know payload is partial.
+4. If still over ceiling after pruning, **fail register()** with a clear exception. Better to refuse to advertise than to ship a record that gets fragmented/dropped on the wire.
+
+#### 17.G.4.4 UX
+
+CLI `saturn serve` surfaces `TxtTooLarge` as a startup error with the key sizes table. Web-UI Status page shows a warning badge if `mtrunc=1` is set on local advertisement.
+
+#### 17.G.4.5 CONFIG_FIELDS
+
+```python
+("txt_safe_ceiling", int, default=1200, env="SATURN_TXT_CEILING")
+```
+Allows operators on jumbo-frame networks to raise (rare).
+
+#### 17.G.4.6 Tests
+
+- **validate-under-ceiling:** typical props (12 keys, 5 models) → returns total bytes < 1200, no raise.
+- **validate-oversize-individual:** key with 300-byte value → raises `TxtTooLarge`.
+- **validate-oversize-total:** props summing to 1300 bytes → raises.
+- **register-truncates:** advertise with bloated models list → register succeeds; resolved TXT has `mtrunc=1` and fewer models.
+- **register-fails-loud:** props that can't be pruned under ceiling (e.g., huge `features` list) → register raises with actionable message.
+
+#### 17.G.4.7 Migration / failure modes
+
+- Existing advertisers with small TXT: no change.
+- Advertisers near the ceiling: pruning kicks in, `mtrunc=1` set; consumers already handle the flag (qj5.x).
+- Hard fail: only when even minimal pruning can't fit, which would require a malformed config — fail-loud is correct.
+
+#### 17.G.4.8 Posture-ready prose
+
+> Saturn validates TXT record size at advertise time against an RFC 6762-aware safe ceiling (1200 bytes default). Oversized payloads are pruned with a `mtrunc` flag; pathological configs fail loudly rather than producing fragmented multicast packets that get silently dropped.
+
+#### 17.G.4.9 Hand-off — cbt.8
+
+Brutus contract; hardener implements `txt.py` + advertiser integration; demo: showboat clip of `saturn serve --bloated-models` rejecting cleanly with actionable error; integration test pinning a known-bad config to verify the failure mode.
+
+---
+
+## §17.G summary
+
+| § | Bead | New module | Schema change | Risk |
+|---|---|---|---|---|
+| 17.G.1 | cbt.5 | `saturn/mdns/isolation.py` | `/api/discover` response gains `isolation` key (additive) | Low |
+| 17.G.2 | cbt.6 | `saturn/mdns/interfaces.py` | None (transparent) | Low |
+| 17.G.3 | cbt.7 | none (extends backend.py) | `ServiceRecord.addresses: List[str]` (additive) | Medium |
+| 17.G.4 | cbt.8 | `saturn/mdns/txt.py` | None (validation only) | Low |
+
+**Suggested implementation order** (rough pass): cbt.8 → cbt.5 → cbt.6 → cbt.7. Rationale: cbt.8 is smallest blast radius and unblocks cbt.6/cbt.7 (both add TXT keys / address counts that benefit from validation). cbt.7 is largest schema change; do it last.

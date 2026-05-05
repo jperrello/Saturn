@@ -2405,3 +2405,57 @@ documented in NSWorkspace reference. The "SPS extends past TTL while
 host is asleep" observation is from on-the-wire behaviour reports;
 not a documented contract, which is why 16.4.2 unregisters rather
 than relying on TTL.]
+
+---
+
+# Phase-4 addendum — non-failover surface (2026-05-05)
+
+Companion to FAILOVER_SECURITY.md phase-4. The two new P1 (Saturn-xqw `api_base` SSRF, Saturn-93w TOFU pin-race) plus the prior P1 (Saturn-zd6 `_failover_state` unbounded) are tracked there. Below: four lower findings on surfaces **outside** cbt.4 / wave-2 mDNS edges. No new beads filed; observations feed deployment guidance.
+
+## (1) `known_nodes.json` poisoning — local-trust gap (P3, by-design)
+
+`~/.saturn/known_nodes.json` is created mode `0600` (`saturn/mdns/known_nodes.py:55`); writes atomic via tmp+rename. **Cross-process** lock missing — flagged in DISCOVERY_AUDIT.md §(c). Unflagged: any process running as the same user can pre-poison the file before Saturn first runs, planting `name → node_id` pins that reject legit advertisers on first sight. By-design under Saturn's local-trust model (user owns their `~/.saturn/`); should be **documented in deployment guidance**. Cheap improvement: log pin source (TOFU / operator-asserted / file-prepopulated) on first selection so operators can audit what they trusted.
+
+**Cite:** `saturn/mdns/known_nodes.py:18,38-57`.
+
+## (2) `/v1/*` runner auth — token-distribution problem (P2 design observation)
+
+`saturn/runner.py:453-469` gates `/v1/health`, `/v1/models`, `/v1/chat/completions` behind `Authorization: Bearer $SATURN_RUNNER_TOKEN` checked with `hmac.compare_digest`. Code path is solid — fail-closed on missing env, constant-time compare, correct `WWW-Authenticate`.
+
+The design question: client-side failover (cbt.4) probes each peer's `/v1/health`. **How does it acquire each peer's token?**
+- **Shared cluster token** — every peer accepts the same value. Compromise of one peer = compromise of all. Acceptable for closed-LAN demo; insufficient for production.
+- **Per-peer token** — each peer owns its own token; clients learn out-of-band (Saturn TXT does not — and must not — carry the token).
+
+Codebase appears to assume shared-token without saying so. Recommend: document the assumption in CONFIG_FIELDS / runner README; file an epic when this graduates beyond demo trust to add a per-peer flow (OAuth-style or similar).
+
+**Cite:** `saturn/runner.py:453-469,497-526`.
+
+## (3) Runner upstream proxying — config-trust, no URL validation (P3)
+
+`saturn/runner.py:497` uses `runner.config.upstream.base_url` verbatim. No scheme/host validation. Config is operator-asserted (file or env), so this is config-trust, **not** the same class as peer-asserted `api_base` (Saturn-xqw P1). Defense-in-depth would still be cheap: reject non-`http(s)` schemes with a one-line allowlist. ~5 LOC.
+
+**Cite:** `saturn/runner.py:497-498`.
+
+## (4) mDNS goodbye-flood eviction (P3, protocol-inherent)
+
+Any LAN host can multicast a goodbye (TTL=0 announcement) for a victim service-name. Both `python-zeroconf` and Bonjour will process and evict; Saturn's `services` dict will see `'removed'` and drop the entry. This is **inherent to mDNS** (RFC 6762 has no signed goodbye), not Saturn-specific. Real mitigation requires going off-protocol (signed records, OOB attestation). Cheap forensic improvement: log goodbye events at INFO with source identification when the underlying socket exposes it; operators can spot floods.
+
+**Cite:** `saturn/mdns/userspace.py` (removal callback path); `saturn/mdns/bonjour.py:336`.
+
+## (5) HTTP request smuggling on `/v1/chat/completions` — verified clean
+
+Runner reconstructs the upstream payload from a validated pydantic `ChatRequest` (`saturn/runner.py:495-518`). Does **not** pass through arbitrary client headers — only constructs `Authorization` + `Content-Type` from runner-side state (`:500-502`). Response streams via `iter_lines()` with explicit `data: ...\n\n` re-emission (`:546-558`). **No client-controlled header reaches upstream; no smuggling vector.** Body-size cap still inherits FastAPI default — fold `MAX_BODY_BYTES` middleware fix into the FAILOVER_SECURITY.md §1 follow-up.
+
+---
+
+## Phase-4 addendum summary
+
+| § | Severity | Action |
+|---|---|---|
+| (1) `known_nodes.json` poisoning | P3 (by-design) | Document trust model; log pin source |
+| (2) `/v1/*` token-distribution | P2 (design observation) | Document shared-token assumption; epic for per-peer |
+| (3) runner upstream URL validation | P3 (defense-in-depth) | 5-line scheme allowlist |
+| (4) mDNS goodbye-flood | P3 (protocol-inherent) | Log goodbye events with source for forensics |
+| (5) `/v1/chat/completions` smuggling | None | Verified clean |
+
+No new P1. Brutus needs no new contracts; observations are operator-facing.
