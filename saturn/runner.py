@@ -25,7 +25,8 @@ from dotenv import load_dotenv
 
 from .config import load_service_config, ServiceConfig, list_service_configs, SERVICES_DIR
 from .discovery import SaturnAdvertiser, get_lan_ip
-from .servers import ChatMessage, ChatRequest, proxy_sse
+from .servers import ChatMessage, ChatRequest, proxy_sse, sse
+from . import receipt
 
 SATURN_ENV_FILE = Path.home() / ".saturn" / ".env"
 load_dotenv(SATURN_ENV_FILE)
@@ -528,10 +529,53 @@ class ServiceRunner:
                     logger.error(f"Upstream error: {response.text}")
                     raise HTTPException(status_code=response.status_code, detail=f"Upstream error: {response.text}")
 
+                configured = {"model": request.model}
+                if request.temperature is not None:
+                    configured["temperature"] = request.temperature
+                if request.max_tokens is not None:
+                    configured["max_tokens"] = request.max_tokens
+                system_prompt = next(
+                    (m.content for m in request.messages if m.role == "system" and isinstance(m.content, str)),
+                    None,
+                )
+
                 if request.stream:
-                    return proxy_sse(response)
-                else:
-                    return response.json()
+                    def gen():
+                        applied = {"max_tokens": request.max_tokens}
+                        try:
+                            for line in response.iter_lines():
+                                if not line:
+                                    continue
+                                decoded = line.decode("utf-8") if isinstance(line, bytes) else line
+                                if decoded.startswith("data: "):
+                                    data = decoded[6:]
+                                    if data == "[DONE]":
+                                        yield receipt.emit_meta_line(configured, applied, system_prompt, request.model).encode("utf-8")
+                                        yield b"data: [DONE]\n\n"
+                                        break
+                                    try:
+                                        parsed = json.loads(data)
+                                    except json.JSONDecodeError:
+                                        continue
+                                    receipt.update_applied_from_chunk(applied, decoded)
+                                    yield f"data: {json.dumps(parsed)}\n\n".encode("utf-8")
+                        finally:
+                            response.close()
+                    return sse(gen())
+
+                data = response.json()
+                applied = {"max_tokens": request.max_tokens}
+                if data.get("model"):
+                    applied["model"] = data["model"]
+                if data.get("usage"):
+                    applied["usage"] = data["usage"]
+                for c in data.get("choices") or []:
+                    if isinstance(c, dict) and c.get("finish_reason"):
+                        applied["finish_reason"] = c["finish_reason"]
+                data["saturn_meta"] = receipt.build_meta(
+                    configured, applied, system_prompt, requested_model=request.model
+                )
+                return data
 
             except requests.Timeout:
                 raise HTTPException(status_code=504, detail="Upstream request timed out")

@@ -901,7 +901,15 @@ async def proxy_chat(body: ManualChatRequest, request: Request):
 
     base = body.base_url.rstrip("/")
 
+    from saturn import receipt as _receipt
+    configured = {"model": body.model, **raw_params}
+    system_prompt = next(
+        (m.get("content") for m in body.messages if isinstance(m, dict) and m.get("role") == "system" and isinstance(m.get("content"), str)),
+        None,
+    )
+
     async def generate():
+        applied = {"max_tokens": body.max_tokens}
         async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
             async with client.stream("POST", f"{base}/chat/completions", json=payload, headers=headers) as r:
                 if r.status_code != 200:
@@ -909,6 +917,11 @@ async def proxy_chat(body: ManualChatRequest, request: Request):
                     yield f'data: {{"error": "upstream {r.status_code}"}}\n\n'
                     return
                 async for line in r.aiter_lines():
+                    if line.startswith("data:") and "[DONE]" in line:
+                        yield _receipt.emit_meta_line(configured, applied, system_prompt, body.model)
+                        yield line + "\n"
+                        continue
+                    _receipt.update_applied_from_chunk(applied, line)
                     if line:
                         yield line + "\n"
                     else:
