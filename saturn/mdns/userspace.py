@@ -5,7 +5,7 @@ import queue
 import threading
 from typing import Callable
 
-from zeroconf import Zeroconf, ServiceBrowser, ServiceInfo, ServiceListener, NonUniqueNameException
+from zeroconf import Zeroconf, ServiceBrowser, ServiceInfo, ServiceListener, NonUniqueNameException, IPVersion
 
 from saturn.mdns.backend import MdnsBackend, AdvertiseSpec, ServiceRecord, ServiceEvent
 from saturn.mdns.conflict import get_instance_name, update_instance_name, next_name
@@ -30,13 +30,26 @@ def _resolve(zc: Zeroconf, type_: str, name: str) -> ServiceRecord | None:
     info = zc.get_service_info(type_, name)
     if not info:
         return None
+    raws: list[bytes] = []
     try:
-        if info.addresses:
-            host = socket.inet_ntoa(info.addresses[0])
-        else:
-            host = info.server.rstrip(".")
+        raws = list(info.addresses_by_version(IPVersion.All) or [])
     except Exception:
-        host = info.server.rstrip(".") if info.server else "unknown"
+        raws = list(info.addresses or [])
+    addrs: list[str] = []
+    for raw in raws:
+        try:
+            if len(raw) == 4:
+                addrs.append(socket.inet_ntoa(raw))
+            elif len(raw) == 16:
+                addrs.append(socket.inet_ntop(socket.AF_INET6, raw))
+        except Exception:
+            continue
+    if addrs:
+        host = addrs[0]
+    elif info.server:
+        host = info.server.rstrip(".")
+    else:
+        host = "unknown"
     txt = _parse_txt(info.properties)
     sname = name.replace(f".{type_}", "")
     return ServiceRecord(
@@ -45,6 +58,7 @@ def _resolve(zc: Zeroconf, type_: str, name: str) -> ServiceRecord | None:
         host=host,
         port=info.port,
         txt=txt,
+        addresses=addrs,
     )
 
 
