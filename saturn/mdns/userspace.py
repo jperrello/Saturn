@@ -15,6 +15,19 @@ logger = logging.getLogger(__name__)
 SERVICE_TYPE = "_saturn._tcp.local."
 
 
+class _DualStackServiceInfo(ServiceInfo):
+    @property
+    def addresses(self):
+        try:
+            return list(self.addresses_by_version(IPVersion.All))
+        except Exception:
+            return list(self._ipv4_addresses or [])
+
+    @addresses.setter
+    def addresses(self, value):
+        ServiceInfo.addresses.__set__(self, value)
+
+
 def _parse_txt(properties: dict) -> dict[str, str]:
     txt = {}
     if not properties:
@@ -135,11 +148,22 @@ class UserspaceBackend:
     def advertise(self, spec: AdvertiseSpec) -> None:
         from saturn.discovery import get_lan_ip
         from saturn.mdns import interfaces as _ifaces
-        ips = _ifaces.routable_addrs()
+        try:
+            ips = _ifaces.routable_addrs(family="both")
+        except TypeError:
+            ips = _ifaces.routable_addrs()
         if not ips:
             ips = [get_lan_ip()]
         name = get_instance_name(spec.name)
-        addr = [socket.inet_aton(ip) for ip in ips]
+        addr = []
+        for ip in ips:
+            try:
+                if ":" in ip:
+                    addr.append(socket.inet_pton(socket.AF_INET6, ip))
+                else:
+                    addr.append(socket.inet_aton(ip))
+            except OSError:
+                continue
         server = f"{socket.gethostname()}.local."
         for _ in range(5):
             kwargs = dict(
@@ -152,7 +176,7 @@ class UserspaceBackend:
             )
             if spec.ttl is not None:
                 kwargs["other_ttl"] = spec.ttl
-            self._info = ServiceInfo(**kwargs)
+            self._info = _DualStackServiceInfo(**kwargs)
             try:
                 self._zc.register_service(self._info)
                 if name != spec.name:
