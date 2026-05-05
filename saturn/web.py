@@ -83,6 +83,181 @@ async def lifespan(app):
 app = FastAPI(title="Saturn Web UI", lifespan=lifespan)
 
 
+# --- Web UI session gate (Saturn-828) ---
+
+import hashlib as _hashlib
+import secrets as _secrets
+
+DEFAULT_GATE_PASSWORD = "Saturn"
+SESSION_COOKIE = "saturn_session"
+SESSION_TTL_S = 60 * 60 * 12
+
+_sessions: dict[str, float] = {}
+
+GATE_OPEN_PATHS = {
+    "/api/auth/login",
+    "/api/auth/logout",
+    "/api/auth/status",
+    "/api/auth/password",
+    "/login",
+    "/login.html",
+    "/v1/health",
+    "/favicon.ico",
+}
+
+
+def _gate_state() -> dict:
+    cfg = _load_admin_config()
+    return cfg.get("gate") or {}
+
+
+def _gate_save(state: dict):
+    cfg = _load_admin_config()
+    cfg["gate"] = state
+    _save_admin_config(cfg)
+
+
+def _hash_pw(pw: str, salt: str) -> str:
+    return _hashlib.scrypt(pw.encode(), salt=salt.encode(), n=2**14, r=8, p=1, dklen=32).hex()
+
+
+def _ensure_gate() -> dict:
+    state = _gate_state()
+    if state.get("hash") and state.get("salt"):
+        return state
+    salt = _secrets.token_hex(16)
+    state = {
+        "salt": salt,
+        "hash": _hash_pw(DEFAULT_GATE_PASSWORD, salt),
+        "must_change": True,
+    }
+    _gate_save(state)
+    return state
+
+
+def _verify_pw(pw: str) -> bool:
+    import hmac
+    state = _ensure_gate()
+    candidate = _hash_pw(pw or "", state["salt"])
+    return hmac.compare_digest(candidate, state["hash"])
+
+
+def _new_session() -> str:
+    token = _secrets.token_urlsafe(32)
+    _sessions[token] = time.time() + SESSION_TTL_S
+    if len(_sessions) > 1000:
+        for k in [k for k, exp in _sessions.items() if exp < time.time()]:
+            _sessions.pop(k, None)
+    return token
+
+
+def _session_valid(token: Optional[str]) -> bool:
+    if not token:
+        return False
+    exp = _sessions.get(token)
+    if not exp:
+        return False
+    if exp < time.time():
+        _sessions.pop(token, None)
+        return False
+    return True
+
+
+def _has_session(request: Request) -> bool:
+    return _session_valid(request.cookies.get(SESSION_COOKIE))
+
+
+def _has_bearer(request: Request) -> bool:
+    import hmac
+    expected = os.environ.get(ADMIN_TOKEN_ENV, "")
+    if not expected:
+        return False
+    auth = request.headers.get("authorization") or ""
+    if not auth.lower().startswith("bearer "):
+        return False
+    return hmac.compare_digest(auth.split(" ", 1)[1].strip(), expected)
+
+
+@app.middleware("http")
+async def gate_middleware(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/") or path.startswith("/v1/"):
+        return await call_next(request)
+    if path in GATE_OPEN_PATHS:
+        return await call_next(request)
+    if _has_session(request) or _has_bearer(request):
+        return await call_next(request)
+    if path.startswith("/admin/") or path == "/configure":
+        return JSONResponse({"error": "auth_required"}, status_code=401)
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/login", status_code=303)
+
+
+class _LoginBody(BaseModel):
+    password: str
+
+
+class _ChangePwBody(BaseModel):
+    old: str
+    new: str
+
+
+@app.get("/api/auth/status")
+async def auth_status(request: Request):
+    state = _ensure_gate()
+    return {
+        "authenticated": _has_session(request),
+        "must_change": bool(state.get("must_change")),
+    }
+
+
+@app.post("/api/auth/login")
+async def auth_login(body: _LoginBody):
+    if not _verify_pw(body.password):
+        raise HTTPException(401, "Invalid password")
+    token = _new_session()
+    state = _ensure_gate()
+    resp = JSONResponse({"ok": True, "must_change": bool(state.get("must_change"))})
+    resp.set_cookie(SESSION_COOKIE, token, max_age=SESSION_TTL_S, httponly=True, samesite="lax", path="/")
+    return resp
+
+
+@app.post("/api/auth/logout")
+async def auth_logout(request: Request):
+    tok = request.cookies.get(SESSION_COOKIE)
+    if tok:
+        _sessions.pop(tok, None)
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(SESSION_COOKIE, path="/")
+    return resp
+
+
+@app.post("/api/auth/password")
+async def auth_password(body: _ChangePwBody, request: Request):
+    state = _ensure_gate()
+    if not _has_session(request) and not state.get("must_change"):
+        raise HTTPException(401, "auth_required")
+    if not _verify_pw(body.old):
+        raise HTTPException(401, "Invalid current password")
+    if len(body.new) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    salt = _secrets.token_hex(16)
+    _gate_save({"salt": salt, "hash": _hash_pw(body.new, salt), "must_change": False})
+    _sessions.clear()
+    token = _new_session()
+    resp = JSONResponse({"ok": True})
+    resp.set_cookie(SESSION_COOKIE, token, max_age=SESSION_TTL_S, httponly=True, samesite="lax", path="/")
+    return resp
+
+
+@app.get("/login")
+async def login_page():
+    page = WEB_DIR / "login.html"
+    if page.is_file():
+        return FileResponse(page)
+    raise HTTPException(404, "login.html missing")
+
+
 # --- API Models ---
 
 class _UpstreamCreate(BaseModel):
@@ -528,8 +703,10 @@ ADMIN_PASSWORD = os.environ.get("SATURN_ADMIN_PASSWORD", "saturn")
 ADMIN_TOKEN_ENV = os.environ.get("SATURN_ADMIN_TOKEN_ENV", "SATURN_ADMIN_TOKEN")
 
 
-def require_admin(authorization: Optional[str] = Header(default=None)):
+def require_admin(request: Request, authorization: Optional[str] = Header(default=None)):
     import hmac
+    if _has_session(request):
+        return True
     expected = os.environ.get(ADMIN_TOKEN_ENV, "")
     bad = HTTPException(status_code=401, detail="Unauthorized", headers={"WWW-Authenticate": "Bearer"})
     if not expected:

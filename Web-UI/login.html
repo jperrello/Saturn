@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Saturn — Sign in</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    background: radial-gradient(circle at 50% 30%, #1a1a26 0%, #050507 70%);
+    color: #e8e8ee;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  .card {
+    width: min(360px, 90vw);
+    padding: 32px 28px;
+    background: rgba(20, 20, 30, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  }
+  h1 {
+    margin: 0 0 4px;
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+  .sub {
+    margin: 0 0 24px;
+    color: #888;
+    font-size: 13px;
+  }
+  label {
+    display: block;
+    margin: 14px 0 6px;
+    font-size: 12px;
+    color: #aaa;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+  input[type=password] {
+    width: 100%;
+    padding: 10px 12px;
+    background: #0d0d12;
+    border: 1px solid #2a2a36;
+    border-radius: 6px;
+    color: #fff;
+    font-size: 14px;
+    outline: none;
+  }
+  input[type=password]:focus { border-color: #6a6aff; }
+  button {
+    width: 100%;
+    margin-top: 18px;
+    padding: 11px;
+    background: #4a4aff;
+    border: 0;
+    border-radius: 6px;
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: 0.4px;
+  }
+  button:hover { background: #5a5aff; }
+  button:disabled { background: #333; cursor: not-allowed; }
+  .err {
+    margin-top: 12px;
+    color: #ff7a7a;
+    font-size: 13px;
+    min-height: 18px;
+  }
+  .notice {
+    margin-top: 14px;
+    padding: 10px 12px;
+    background: rgba(255, 200, 80, 0.1);
+    border: 1px solid rgba(255, 200, 80, 0.3);
+    border-radius: 6px;
+    color: #ffc850;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Saturn</h1>
+  <p class="sub" id="sub">Sign in to continue</p>
+
+  <form id="login-form">
+    <label for="pw">Password</label>
+    <input type="password" id="pw" autocomplete="current-password" autofocus required>
+    <button type="submit" id="submit">Sign in</button>
+  </form>
+
+  <form id="change-form" style="display:none">
+    <div class="notice">First-run: please set a new password.</div>
+    <label for="old">Current password</label>
+    <input type="password" id="old" autocomplete="current-password" required>
+    <label for="new1">New password</label>
+    <input type="password" id="new1" autocomplete="new-password" required minlength="6">
+    <label for="new2">Confirm new password</label>
+    <input type="password" id="new2" autocomplete="new-password" required minlength="6">
+    <button type="submit" id="change-submit">Set password</button>
+  </form>
+
+  <div class="err" id="err"></div>
+</div>
+
+<script>
+  const err = document.getElementById('err');
+  const loginForm = document.getElementById('login-form');
+  const changeForm = document.getElementById('change-form');
+  const sub = document.getElementById('sub');
+
+  function showChange() {
+    loginForm.style.display = 'none';
+    changeForm.style.display = 'block';
+    sub.textContent = 'Set a new password before continuing';
+  }
+
+  loginForm.addEventListener('submit', async e => {
+    e.preventDefault();
+    err.textContent = '';
+    const pw = document.getElementById('pw').value;
+    const r = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw }),
+    });
+    if (!r.ok) {
+      err.textContent = 'Wrong password';
+      document.getElementById('pw').value = '';
+      return;
+    }
+    const body = await r.json();
+    if (body.must_change) {
+      document.getElementById('old').value = pw;
+      showChange();
+      document.getElementById('new1').focus();
+      return;
+    }
+    window.location.href = '/';
+  });
+
+  changeForm.addEventListener('submit', async e => {
+    e.preventDefault();
+    err.textContent = '';
+    const oldp = document.getElementById('old').value;
+    const n1 = document.getElementById('new1').value;
+    const n2 = document.getElementById('new2').value;
+    if (n1 !== n2) { err.textContent = 'Passwords do not match'; return; }
+    if (n1.length < 6) { err.textContent = 'Password must be at least 6 characters'; return; }
+    const r = await fetch('/api/auth/password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ old: oldp, new: n1 }),
+    });
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      err.textContent = b.detail || 'Failed to set password';
+      return;
+    }
+    window.location.href = '/';
+  });
+
+  fetch('/api/auth/status').then(r => r.json()).then(s => {
+    if (s.authenticated && !s.must_change) window.location.href = '/';
+  }).catch(() => {});
+</script>
+</body>
+</html>
