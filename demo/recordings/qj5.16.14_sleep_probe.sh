@@ -18,28 +18,57 @@ echo "── Directed re-mint trace ──────────────�
 "$PY" - <<'PY'
 import sys
 try:
-    from saturn.mdns import sleep as ssleep
-    from saturn.runner import _beacon_on_sleep, _beacon_on_wake
-    from saturn.runner import CredentialManager
+    from saturn.mdns import sleep as ssleep  # noqa: F401
+    from saturn.runner import _beacon_on_sleep, _beacon_on_wake, CredentialManager
 except (ModuleNotFoundError, ImportError) as e:
     print(f"  (impl pending — {e.__class__.__name__}: {e})")
     sys.exit(0)
 
+class FakeProvider:
+    """Stand-in for an upstream provider — yields synthetic key/handle pairs."""
+    endpoint = "https://fake.invalid/keys"
+    api_base = "https://fake.invalid/api"
+    counter = [0]
+    @staticmethod
+    def payload(expiration, max_budget_usd=None): return {}
+    @staticmethod
+    def parse(data):
+        FakeProvider.counter[0] += 1
+        n = FakeProvider.counter[0]
+        return f"fake-key-{n:08d}", f"fake-handle-{n}"
+    @staticmethod
+    def revoke(*a, **k): pass
+
 class FakeBeacon:
-    txt = {}
     advertised = False
     def register(self):     self.advertised = True
     def unregister(self):   self.advertised = False
     def re_register(self):  self.advertised = True
 
-cm = CredentialManager()
+# Patch CredentialManager.create to bypass real upstream POSTs.
+import saturn.runner as _r
+_orig_post = _r.requests.post if hasattr(_r, "requests") else None
+
+import types
+class _FakeResp:
+    status_code = 200
+    def raise_for_status(self): pass
+    def json(self): return {}
+def _fake_post(*a, **k): return _FakeResp()
+def _fake_delete(*a, **k): return _FakeResp()
+import requests as _rq
+_rq.post = _fake_post
+_rq.delete = _fake_delete
+
+cm = CredentialManager(provider=FakeProvider, api_key="parent-key",
+                       rotation_interval=400, expiration_interval=600)
 cm.create(); k_before = cm.current()
 b = FakeBeacon(); b.register()
 
-print(f"  BEFORE sleep  advertised={b.advertised}  key[:8]={k_before[:8]}")
+print(f"  BEFORE sleep  advertised={b.advertised}  key[:14]={k_before[:14]}")
 _beacon_on_sleep(b, cm)
 print(f"  ON SLEEP      advertised={b.advertised}  needs_remint={cm.needs_remint()}")
 _beacon_on_wake(b, cm)
 k_after = cm.current()
-print(f"  ON WAKE       advertised={b.advertised}  key[:8]={k_after[:8]}  rotated={k_before != k_after}")
+print(f"  ON WAKE       advertised={b.advertised}  key[:14]={k_after[:14]}  rotated={k_before != k_after}")
 PY

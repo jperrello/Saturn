@@ -23,14 +23,21 @@ from saturn.providers import openrouter as orp
 from saturn.providers import deepinfra as dip
 
 
-print("── (1) Provider .payload() shape — what saturn asks the upstream to mint ──")
+print("── (1) Provider .payload() shape — default vs plumbed budget ──")
 for label, mod in [("openrouter", orp), ("deepinfra", dip)]:
-    p = mod.payload(expiration=600)
-    has_limit  = "limit" in p
-    has_models = "allowed_models" in p or "models" in p
-    print(f"  {label:12s} payload={json.dumps(p)}")
-    print(f"  {'':12s} limit field present: {has_limit}    "
-          f"model allowlist present: {has_models}")
+    default = mod.payload(expiration=600)
+    try:
+        plumbed = mod.payload(expiration=600, max_budget_usd=0.10)
+        plumbed_ok = True
+    except TypeError:
+        plumbed = default
+        plumbed_ok = False
+    cap_keys = [k for k in ("limit", "max_budget_usd")
+                if k in plumbed and plumbed[k] is not None]
+    print(f"  {label:12s} default-call:  {json.dumps(default)}")
+    print(f"  {'':12s} budget-call:   {json.dumps(plumbed)}")
+    print(f"  {'':12s} accepts max_budget_usd kwarg: {plumbed_ok}    "
+          f"cap fields: {cap_keys}")
 
 print()
 print("── (2) revoke() implementation surface ──")
@@ -55,7 +62,11 @@ from saturn.web import AdminConfig
 fields = AdminConfig.model_fields
 for name in ("beacon_max_budget_usd", "max_budget_usd"):
     print(f"  AdminConfig has '{name}': {name in fields}")
-print(f"  (gate read by BeaconConfig today: NO — see saturn/runner.py:{200})")
+import inspect as _inspect
+from saturn import runner as _runner
+src = _inspect.getsource(_runner.CredentialManager.__init__)
+piped = "max_budget_usd" in src and "self.max_budget_usd" in src
+print(f"  CredentialManager threads max_budget_usd into payload: {piped}")
 
 print()
 print("── (5) Optional: real OpenRouter round-trip (uses provisioning key) ──")
@@ -63,7 +74,7 @@ prov = os.environ.get("OPENROUTER_PROVISIONING_KEY", "")
 if not prov:
     print("  skipped — OPENROUTER_PROVISIONING_KEY unset")
 else:
-    body = orp.payload(expiration=120)
+    body = orp.payload(expiration=120, max_budget_usd=0.05)
     req = urllib.request.Request(
         "https://openrouter.ai/api/v1/keys",
         data=json.dumps(body).encode(),
