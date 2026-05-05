@@ -1,0 +1,14 @@
+{
+  "shots": {
+    "01_admin_gate": "tests/bombadil/results/walkthrough_may05_eve/01_admin_gate.png",
+    "02_change_password": "tests/bombadil/results/walkthrough_may05_eve/02_change_password.png",
+    "03_network_scan": "tests/bombadil/results/walkthrough_may05_eve/03_network_scan.png",
+    "04_system_integrate": "tests/bombadil/results/walkthrough_may05_eve/04_system_integrate.png",
+    "05_system_admin_subview": "tests/bombadil/results/walkthrough_may05_eve/05_system_admin_subview.png",
+    "06_chat_plus_menu": "tests/bombadil/results/walkthrough_may05_eve/06_chat_plus_menu.png",
+    "07_mcp_popup": "tests/bombadil/results/walkthrough_may05_eve/07_mcp_popup.png",
+    "08_settings_popup": "tests/bombadil/results/walkthrough_may05_eve/08_settings_popup.png"
+  },
+  "admin_subview_computed_visible": true,
+  "settings_param_count": 0
+}
