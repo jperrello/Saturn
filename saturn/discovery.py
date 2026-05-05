@@ -113,7 +113,7 @@ class SaturnService:
 
     @property
     def effective_endpoint(self) -> str:
-        if self.deployment == "cloud" and self.api_base:
+        if self.deployment == "cloud" and self.api_base and _safe_api_base(self.api_base):
             return self.api_base
         return f"http://{self.host}:{self.port}/v1"
 
@@ -172,7 +172,7 @@ class SaturnDiscovery:
             version=props.get('version', '1.0'),
             deployment=props.get('dep', props.get('deployment', 'network')),
             api_type=props.get('api_type', props.get('api', 'openai')),
-            api_base=props.get('api_base', ''),
+            api_base=_safe_api_base(props.get('api_base', '')),
             priority=int(props.get('priority', 100)),
             ephemeral_key=props.get('ephemeral_key', ''),
             rotation_interval=rotation_interval,
@@ -306,6 +306,33 @@ class SaturnDiscovery:
     def stop(self):
         self._backend.stop_browse()
         self._backend.close()
+
+
+def _safe_api_base(url: str) -> str:
+    if not url:
+        return ""
+    import ipaddress
+    import urllib.parse
+    try:
+        u = urllib.parse.urlparse(url)
+    except Exception:
+        return ""
+    if u.scheme != "https":
+        return ""
+    host = u.hostname or ""
+    if not host or host.lower() == "localhost":
+        return ""
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return url
+    if (ip.is_loopback or ip.is_link_local or ip.is_private
+            or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+        return ""
+    if isinstance(ip, ipaddress.IPv4Address):
+        if ipaddress.IPv4Network("100.64.0.0/10").supernet_of(ipaddress.IPv4Network(f"{ip}/32")):
+            return ""
+    return url
 
 
 def connect_address(service: "SaturnService") -> str:
