@@ -1524,6 +1524,53 @@ async def forget_known_node(body: ForgetBody, _=Depends(require_admin)):
     return _known_nodes.load()
 
 
+
+@app.get("/admin/configure")
+@app.get("/configure")
+async def admin_configure_route(_=Depends(require_admin)):
+    import html as _html
+    import re as _re
+    from fastapi.responses import HTMLResponse
+    index = WEB_DIR / "index.html"
+    if not index.is_file():
+        raise HTTPException(404, "Not found")
+    text = index.read_text()
+    m = _re.search(
+        r'<section\s+id="admin-configure-page"[^>]*>(.*?)</section>',
+        text, _re.DOTALL,
+    )
+    inner = m.group(0) if m else ""
+    cfg = _load_admin_config()
+    for name in AdminConfig.model_fields:
+        if name not in cfg or cfg[name] is None:
+            continue
+        v = cfg[name]
+        if isinstance(v, bool):
+            continue
+        if isinstance(v, list):
+            rendered = ",".join(str(x) for x in v)
+        elif isinstance(v, dict):
+            rendered = json.dumps(v)
+        else:
+            rendered = str(v)
+        escaped = _html.escape(rendered, quote=True)
+        inner = _re.sub(
+            r'(<input(?:[^>]*?)\sid="ac-' + _re.escape(name) + r'")(?![^>]*\svalue=)',
+            lambda mm, e=escaped: mm.group(1) + f' value="{e}"',
+            inner,
+        )
+    page = (
+        '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+        '<title>Admin Configure</title>'
+        '<link rel="stylesheet" href="/styles.css">'
+        '</head><body class="admin-configure-body">'
+        + inner.replace('class="hidden admin-configure-page"', 'class="admin-configure-page"')
+        + '<script type="module" src="/app.js"></script>'
+        '</body></html>'
+    )
+    return HTMLResponse(page)
+
+
 # --- Static files ---
 
 @app.get("/{path:path}")

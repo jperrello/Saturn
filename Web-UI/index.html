@@ -99,6 +99,7 @@
       <button class="tab active" data-tab="discover">Network Scan</button>
       <button class="tab" data-tab="system">System</button>
       <button class="tab" data-tab="chat">Chat</button>
+      <button id="admin-configure-nav-btn" class="tab" style="margin-left:auto">Admin Configure</button>
     </nav>
 
     <!-- DISCOVER -->
@@ -120,10 +121,74 @@
               <div class="discover-section-title">Services</div>
               <div id="server-list" class="checklist"></div>
               <button id="config-btn" class="btn" style="margin:16px 0">Configure New Service</button>
+              <button id="admin-configure-btn" class="btn btn-secondary" style="margin:0 0 16px 0">Admin Configure</button>
             </div>
           </div>
         </div>
       </div>
+
+      <section id="admin-configure-page" class="hidden admin-configure-page">
+        <h2 class="config-heading">Admin Configure</h2>
+        <fieldset class="config-section admin-section" data-admin-group="A1">
+          <legend>General — Model filter &amp; Budget</legend>
+          <label>Model filter <input id="ac-model_filter" type="text"></label>
+          <label>Max budget <input id="ac-max_budget" type="number" step="0.01"></label>
+          <label>Budget duration <input id="ac-budget_duration" type="text"></label>
+        </fieldset>
+        <fieldset class="config-section admin-section" data-admin-group="A2">
+          <legend>Authentication — Tokens &amp; Session</legend>
+          <label>Admin session TTL (seconds) <input id="ac-admin_session_ttl_s" type="number"></label>
+          <label>Admin token env <input id="ac-admin_token_env" type="text"></label>
+          <label>Runner token env <input id="ac-runner_token_env" type="text"></label>
+          <label>Admin password env <input id="ac-admin_password_env" type="text"></label>
+        </fieldset>
+        <fieldset class="config-section admin-section" data-admin-group="A3">
+          <legend>Network posture — Bind, TLS, CORS</legend>
+          <label>Bind host <input id="ac-bind_host" type="text"></label>
+          <label>Runner bind host <input id="ac-runner_bind_host" type="text"></label>
+          <label>Trusted proxies (CIDRs, comma-separated) <input id="ac-trusted_proxies" type="text"></label>
+          <label>CORS origins (comma-separated) <input id="ac-cors_origins" type="text"></label>
+        </fieldset>
+        <fieldset class="config-section admin-section" data-admin-group="A4">
+          <legend>Rate limits &amp; Throughput</legend>
+          <label>Rate rpm (requests per minute) <input id="ac-rate_rpm" type="number"></label>
+          <label>Rate tpm (tokens per minute) <input id="ac-rate_tpm" type="number"></label>
+          <label>Rate concurrent per IP <input id="ac-rate_concurrent_per_ip" type="number"></label>
+          <label>Max budget USD <input id="ac-max_budget_usd" type="number" step="0.01"></label>
+          <label>Budget period <input id="ac-budget_period" type="text"></label>
+          <label>Per-IP max budget USD <input id="ac-per_ip_max_budget_usd" type="number" step="0.01"></label>
+        </fieldset>
+        <fieldset class="config-section admin-section" data-admin-group="A5">
+          <legend>Endpoint policy — Public routes</legend>
+          <label>Public routes (comma-separated) <input id="ac-public_routes" type="text"></label>
+          <label>Require auth on /v1 <input id="ac-require_auth_on_v1" type="checkbox"></label>
+        </fieldset>
+        <fieldset class="config-section admin-section" data-admin-group="A6">
+          <legend>Proxy hygiene &amp; Redact</legend>
+          <label>Proxy models method <input id="ac-proxy_models_method" type="text"></label>
+          <label>Redact proxy keys in logs <input id="ac-redact_proxy_keys_in_logs" type="checkbox"></label>
+        </fieldset>
+        <fieldset class="config-section admin-section" data-admin-group="A7">
+          <legend>MCP — allowed URLs &amp; auth env</legend>
+          <label>MCP allowed URLs (comma-separated) <input id="ac-mcp_allowed_urls" type="text"></label>
+          <label>MCP auth token envs (JSON) <input id="ac-mcp_auth_token_envs" type="text"></label>
+        </fieldset>
+        <fieldset class="config-section admin-section" data-admin-group="A8">
+          <legend>Service identity — Trust mode &amp; Node IDs</legend>
+          <label>Trust mode
+            <select id="ac-trust_mode">
+              <option value="tofu">tofu</option>
+              <option value="allowlist">allowlist</option>
+              <option value="open">open</option>
+            </select>
+          </label>
+          <label>Trusted node IDs (UUIDs, comma-separated) <input id="ac-trusted_node_ids" type="text"></label>
+        </fieldset>
+        <div class="ac-actions">
+          <button id="ac-save" class="btn">Save</button>
+          <button id="ac-close" class="btn btn-secondary">Close</button>
+        </div>
+      </section>
 
       <div id="config-page" class="hidden">
         <div class="config-full">
@@ -974,6 +1039,16 @@
       "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
     }
   }
+  </script>
+  <script>
+    (function () {
+      var path = window.location.pathname;
+      var hash = window.location.hash;
+      if (path === '/admin/configure' || path === '/configure' || hash === '#admin' || hash === '#configure') {
+        var p = document.getElementById('admin-configure-page');
+        if (p) p.classList.remove('hidden');
+      }
+    })();
   </script>
   <script type="module" src="app.js"></script>
 </body>

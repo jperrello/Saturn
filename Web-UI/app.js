@@ -4303,3 +4303,156 @@ if (_msgs) {
   }).observe(_msgs, { childList: true })
   document.querySelectorAll('#messages .msg.user').forEach(ensureEditAffordance)
 }
+
+// --- Saturn-hft (qj5.13 commit-2): admin Configure page ---
+
+const AC_FIELDS = [
+  ['model_filter', 'string'],
+  ['max_budget', 'float'],
+  ['budget_duration', 'string'],
+  ['admin_session_ttl_s', 'int'],
+  ['admin_token_env', 'string'],
+  ['runner_token_env', 'string'],
+  ['admin_password_env', 'string'],
+  ['bind_host', 'string'],
+  ['runner_bind_host', 'string'],
+  ['trusted_proxies', 'list'],
+  ['cors_origins', 'list'],
+  ['rate_rpm', 'int'],
+  ['rate_tpm', 'int'],
+  ['rate_concurrent_per_ip', 'int'],
+  ['max_budget_usd', 'float'],
+  ['budget_period', 'string'],
+  ['per_ip_max_budget_usd', 'float'],
+  ['public_routes', 'list'],
+  ['require_auth_on_v1', 'bool'],
+  ['proxy_models_method', 'string'],
+  ['redact_proxy_keys_in_logs', 'bool'],
+  ['mcp_allowed_urls', 'list'],
+  ['mcp_auth_token_envs', 'json'],
+  ['trust_mode', 'string'],
+  ['trusted_node_ids', 'list'],
+]
+
+let _acDirty = false
+let _acPoller = null
+
+function _acClearErrors() {
+  document.querySelectorAll('#admin-configure-page .field-error').forEach(e => e.remove())
+}
+
+async function loadAdminConfigure() {
+  try {
+    const res = await fetch('/api/admin/config')
+    if (!res.ok) return
+    const cfg = await res.json()
+    for (const [name, type] of AC_FIELDS) {
+      const el = document.getElementById('ac-' + name)
+      if (!el) continue
+      if (document.activeElement === el) continue
+      const v = cfg[name]
+      if (type === 'bool') el.checked = !!v
+      else if (v === null || v === undefined) { /* leave as-is */ }
+      else if (type === 'list') el.value = Array.isArray(v) ? v.join(',') : ''
+      else if (type === 'json') el.value = (typeof v === 'object' && v) ? JSON.stringify(v) : ''
+      else el.value = String(v)
+    }
+  } catch { /* ignore */ }
+}
+
+async function saveAdminConfigure() {
+  _acClearErrors()
+  const body = {}
+  for (const [name, type] of AC_FIELDS) {
+    const el = document.getElementById('ac-' + name)
+    if (!el) continue
+    if (type === 'bool') { body[name] = el.checked; continue }
+    const raw = (el.value || '').trim()
+    if (raw === '') continue
+    if (type === 'int') {
+      const n = parseInt(raw, 10)
+      if (Number.isFinite(n)) body[name] = n
+    } else if (type === 'float') {
+      const n = parseFloat(raw)
+      if (Number.isFinite(n)) body[name] = n
+    } else if (type === 'list') {
+      body[name] = raw.split(',').map(s => s.trim()).filter(Boolean)
+    } else if (type === 'json') {
+      try { body[name] = JSON.parse(raw) } catch { /* skip malformed */ }
+    } else body[name] = raw
+  }
+  const res = await fetch('/api/admin/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (res.status === 422) {
+    let parsed = {}
+    try { parsed = await res.json() } catch {}
+    const errs = (parsed.detail && parsed.detail.errors) || []
+    for (const msg of errs) {
+      const lower = String(msg).toLowerCase()
+      for (const [name] of AC_FIELDS) {
+        if (lower.includes(name)) {
+          const el = document.getElementById('ac-' + name)
+          if (el) {
+            const region = el.closest('label, fieldset')
+            const span = document.createElement('span')
+            span.className = 'field-error'
+            span.textContent = msg
+            region.appendChild(span)
+          }
+          break
+        }
+      }
+    }
+    return
+  }
+  if (res.ok) {
+    _acDirty = false
+    if (typeof toast === 'function') toast('Saved')
+  }
+}
+
+function showAdminConfigure() {
+  const page = document.getElementById('admin-configure-page')
+  if (!page) return
+  page.classList.remove('hidden')
+  loadAdminConfigure()
+  if (!_acPoller) {
+    _acPoller = setInterval(() => {
+      const p = document.getElementById('admin-configure-page')
+      if (!p || p.classList.contains('hidden') || _acDirty) return
+      loadAdminConfigure()
+    }, 500)
+  }
+}
+
+function hideAdminConfigure() {
+  document.getElementById('admin-configure-page')?.classList.add('hidden')
+}
+
+function checkAdminConfigureRoute() {
+  const path = window.location.pathname
+  const hash = window.location.hash
+  if (path === '/admin/configure' || path === '/configure' || hash === '#admin' || hash === '#configure') {
+    showAdminConfigure()
+  }
+}
+
+document.querySelectorAll('#admin-configure-page input, #admin-configure-page select').forEach(el => {
+  el.addEventListener('input', () => { _acDirty = true })
+  el.addEventListener('change', () => { _acDirty = true })
+})
+document.getElementById('ac-save')?.addEventListener('click', saveAdminConfigure)
+document.getElementById('ac-close')?.addEventListener('click', hideAdminConfigure)
+document.getElementById('admin-configure-btn')?.addEventListener('click', () => {
+  window.location.hash = 'admin'
+  showAdminConfigure()
+})
+document.getElementById('admin-configure-nav-btn')?.addEventListener('click', () => {
+  window.location.hash = 'admin'
+  showAdminConfigure()
+})
+window.addEventListener('hashchange', checkAdminConfigureRoute)
+checkAdminConfigureRoute()
