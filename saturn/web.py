@@ -149,6 +149,7 @@ _breakers: dict[str, dict] = {}  # name -> {failures, opened_at, health_fails}
 _failover_hysteresis: dict = {"name": None, "at": 0.0}  # last peer used when no convo_id
 HYSTERESIS_S = 30.0
 MAX_STICKY = 10000
+MAX_STICKY_PER_IP = 100
 STICKY_TTL_S = 3600.0
 
 
@@ -158,6 +159,10 @@ def _alias_peer(name: str) -> str:
 
 
 class _StickyMap(OrderedDict):
+    def __init__(self):
+        super().__init__()
+        self._by_ip: dict = {}
+
     def _ttl(self):
         return globals().get("STICKY_TTL_S", 3600.0)
 
@@ -167,8 +172,17 @@ class _StickyMap(OrderedDict):
             ts, _ = OrderedDict.__getitem__(self, k)
             if ts < cutoff:
                 OrderedDict.__delitem__(self, k)
+                self._drop_from_buckets(k)
             else:
                 break
+
+    def _drop_from_buckets(self, key):
+        for ip, bucket in list(self._by_ip.items()):
+            if key in bucket:
+                bucket.remove(key)
+                if not bucket:
+                    self._by_ip.pop(ip, None)
+                return
 
     def __setitem__(self, key, value):
         self._purge_expired()
@@ -176,7 +190,26 @@ class _StickyMap(OrderedDict):
         OrderedDict.move_to_end(self, key)
         cap = globals().get("MAX_STICKY", 10000)
         while len(self) > cap:
-            OrderedDict.popitem(self, last=False)
+            old, _ = OrderedDict.popitem(self, last=False)
+            self._drop_from_buckets(old)
+
+    def set_with_ip(self, key, value, ip):
+        bucket = self._by_ip.setdefault(ip, [])
+        per_ip_cap = globals().get("MAX_STICKY_PER_IP", 100)
+        while len(bucket) >= per_ip_cap:
+            old = bucket.pop(0)
+            try:
+                OrderedDict.__delitem__(self, old)
+            except KeyError:
+                pass
+        if key in bucket:
+            bucket.remove(key)
+        self[key] = value
+        bucket.append(key)
+
+    def clear(self):
+        super().clear()
+        self._by_ip.clear()
 
     def __contains__(self, key):
         if not OrderedDict.__contains__(self, key):
@@ -202,6 +235,10 @@ class _StickyMap(OrderedDict):
 
 
 _failover_state = _StickyMap()  # conversation_id -> peer_name (sticky), bounded
+
+
+def _set_sticky(convo_id: str, peer: str, ip: str) -> None:
+    _failover_state.set_with_ip(convo_id, peer, ip)
 _health: dict[str, bool] = {}
 _tunnel_proc: Optional[asyncio.subprocess.Process] = None
 _tunnel_url: Optional[str] = None
@@ -1263,7 +1300,7 @@ async def brutus_chat(body: BrutusChat, request: Request, _=Depends(require_admi
 
         _record_success(c["name"])
         if convo_id:
-            _failover_state[convo_id] = c["name"]
+            _set_sticky(convo_id, c["name"], ip)
         else:
             _failover_hysteresis["name"] = c["name"]
             _failover_hysteresis["at"] = time.time()
