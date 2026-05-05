@@ -69,6 +69,16 @@ add_init_script + page.route auth wrapper).
 
 ---
 
+## 8 · MAY05 run — Bucket-1 polish + new feature work
+
+| Bead | Commit | Artifact | Headline |
+|------|--------|----------|----------|
+| cbt.1 | `347bdc9` | [`cbt.1-receipt-lift.md`](demo/recordings/cbt.1-receipt-lift.md) | `saturn_meta` envelope lifted onto `/api/proxy/chat` (SSE meta line) and runner `/v1/chat/completions` (stream + non-stream). Three surfaces green via `test_receipt_meta_lift.py` against real Ollama. |
+| cbt.2.a | regression-guard | [`cbt.2.a-long-messages.md`](demo/recordings/cbt.2.a-long-messages.md) | HTTP-layer regression guard for >4k-token messages: 200 SSE, time-to-first-byte <5s, receipt with `prompt_tokens ≥ 1000`. UI-freeze proof tracks under Saturn-3t8. |
+| cbt.2.c | `5ac0a28` | [`cbt.2.c-mcp-unreachable.md`](demo/recordings/cbt.2.c-mcp-unreachable.md) | `MCPClientManager.call()` unwraps `BaseExceptionGroup` so an unreachable MCP server reads `MCP server '<name>' unreachable at <url>: <inner>` instead of anyio's TaskGroup blob. Real closed-TCP-port test; no mocks. |
+| cbt.4 | `4f05fdb` | [`cbt.4-failover.md`](demo/recordings/cbt.4-failover.md) | Client-side failover on `/api/system/chat`: active 5xx → switch in 130 ms (cap 2 s); sticky session pinned by `X-Saturn-Conversation-Id`; per-model affinity fails loud; `saturn_meta.routing.events` records every switch. Two-peer subprocess harness via `cbt.4_failover_probe.sh`. |
+| cbt.5 | pre-stage | [`cbt.5_ap_isolation_repro.md`](demo/recordings/cbt.5_ap_isolation_repro.md) | Operator-grade (eduroam/UCSC-Guest two-host) + developer-grade (`pf` rule / `UserspaceBackend.fault_filter`) reproduction notes for the AP-isolation detector; rodney captures pending detector implementation. |
+
 ## How to use this on re-entry
 
 1. **`bash tests/harness/run.sh`** — smoke the harness against the
