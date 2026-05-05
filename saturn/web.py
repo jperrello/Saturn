@@ -1891,8 +1891,12 @@ class MCPServerAdd(BaseModel):
 
 
 class MCPToolCall(BaseModel):
-    server: str
-    tool: str
+    # Tool calls accept either an explicit (server, tool) pair or just a tool
+    # `name` (resolved against the tools cache). The client currently sends
+    # the bare name; older callers may send the pair.
+    server: Optional[str] = None
+    tool: Optional[str] = None
+    name: Optional[str] = None
     arguments: dict = {}
 
 
@@ -1926,7 +1930,27 @@ async def mcp_tools():
 
 @app.post("/api/mcp/tools/call")
 async def mcp_call(body: MCPToolCall):
-    return await mcp_manager.call(body.server, body.tool, body.arguments)
+    server = body.server
+    tool = body.tool or body.name
+    if not tool:
+        raise HTTPException(400, "tool name required")
+    if not server:
+        match = next((t for t in mcp_manager.tools() if t.get("name") == tool), None)
+        if not match:
+            return {"errorKind": "config", "tool": tool, "server": "",
+                    "error": f"MCP server unreachable: tool {tool!r} not found in any configured server"}
+        server = match["server"]
+    return await mcp_manager.call(server, tool, body.arguments)
+
+
+# Saturn-cbt.2.3: download the full body of a tool result whose inline payload
+# was truncated. Cached in mcp_manager keyed by result_id with a TTL.
+@app.get("/api/mcp/result/{rid}")
+async def mcp_result(rid: str):
+    full = mcp_manager.get_result(rid)
+    if full is None:
+        raise HTTPException(404, "Tool result not found or expired")
+    return {"content": full}
 
 
 # --- Rate Limit & Usage API (SAT-2n8.1, SAT-2n8.2) ---

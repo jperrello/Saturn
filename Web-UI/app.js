@@ -2743,13 +2743,44 @@ async function executeToolCalls(calls, bubble) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: tc.name, arguments: args }),
       })
-      const data = await res.json()
-      results.push({ name: tc.name, content: data.content || data })
+      const data = await res.json().catch(() => ({}))
+      // Server returns either a normal {content,...} payload or an error
+      // envelope {errorKind, error, tool, server, ...}. We surface both
+      // shapes to the badge renderer; subsequent tool calls and chat
+      // messages continue regardless (Saturn-cbt.2.3 C1, C2, C4).
+      if (data.errorKind || data.error) {
+        results.push({
+          name: tc.name,
+          error: data.error || `MCP call failed (HTTP ${res.status})`,
+          errorKind: data.errorKind || 'internal',
+          server: data.server,
+          tool: data.tool,
+        })
+        continue
+      }
+      results.push({
+        name: tc.name,
+        content: data.content || data,
+        truncated: data.truncated || null,
+      })
     } catch (e) {
-      results.push({ name: tc.name, error: e.message })
+      // Network-level failure between Web-UI and saturn/web.py — the saturn
+      // process itself is unreachable, not the MCP server. Render as
+      // unreachable so the user gets a clear inline message.
+      results.push({
+        name: tc.name,
+        error: `MCP server unreachable: ${tc.name} (${e.message})`,
+        errorKind: 'unreachable',
+      })
     }
   }
   return results
+}
+
+function fmtBytes(n) {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
 function renderPermissionBadges(calls, results) {
@@ -2757,15 +2788,54 @@ function renderPermissionBadges(calls, results) {
     const r = results[i]
     if (!r) return renderToolCallBadge(tc.name, {})
     if (r.denied) return `<span class="tool-call-badge denied">${esc(tc.name)} [denied]</span>`
-    let args = {}
-    try { args = JSON.parse(tc.arguments) } catch {}
+    if (r.error) {
+      const kind = r.errorKind || 'internal'
+      const cls = kind === 'timeout' ? 'mcp-timeout'
+                : kind === 'unreachable' ? 'mcp-unreachable'
+                : 'mcp-error'
+      return `<span class="tool-call-badge ${cls}">${esc(tc.name)} [${kind}]</span>`
+        + `<pre class="tool-result-content mcp-error-msg">${esc(r.error)}</pre>`
+    }
     const badge = `<span class="tool-call-badge approved">${esc(tc.name)}</span>`
-    const content = r.error
-      ? `<pre class="tool-result-content" style="color:var(--red)">${esc(r.error)}</pre>`
-      : renderToolResult(r.content ? (Array.isArray(r.content) ? r.content : [{ text: JSON.stringify(r.content) }]) : [])
-    return badge + content
+    let body = renderToolResult(r.content ? (Array.isArray(r.content) ? r.content : [{ text: JSON.stringify(r.content) }]) : [])
+    if (r.truncated) {
+      const t = r.truncated
+      body += `<div class="mcp-truncated" data-rid="${esc(t.result_id)}">`
+        + `<span>⚠ result too large to inline — showing ${fmtBytes(t.kept_bytes)} of ${fmtBytes(t.full_bytes)}.</span>`
+        + ` <button class="btn btn-secondary mcp-full-btn" data-url="${esc(t.download_url)}">View full</button>`
+        + `</div>`
+    }
+    return badge + body
   }).join('')
 }
+
+// Delegated handler for "View full" buttons on truncated MCP results.
+// Fetches the full payload from the cached server endpoint and either
+// downloads it as JSON or copies it to the clipboard if small enough.
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.mcp-full-btn')
+  if (!btn) return
+  const url = btn.dataset.url
+  if (!url) return
+  btn.disabled = true
+  btn.textContent = 'Loading…'
+  try {
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    const text = JSON.stringify(data.content, null, 2)
+    const blob = new Blob([text], { type: 'application/json' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = 'mcp-result.json'
+    a.click()
+    URL.revokeObjectURL(a.href)
+    btn.textContent = 'Downloaded'
+  } catch (err) {
+    btn.textContent = 'Failed'
+    toast(`Could not fetch full result: ${err.message}`)
+  }
+})
 
 document.getElementById('tools-refresh')?.addEventListener('click', refreshMCPTools)
 

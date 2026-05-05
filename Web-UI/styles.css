@@ -3203,6 +3203,38 @@ textarea:focus {
   color: var(--green);
 }
 
+/* Saturn-cbt.2.3: MCP error categories rendered inline in the chat bubble. */
+.tool-call-badge.mcp-timeout,
+.tool-call-badge.mcp-unreachable,
+.tool-call-badge.mcp-error {
+  border-color: var(--red, #ff6464);
+  color: var(--red, #ff6464);
+}
+.mcp-error-msg {
+  color: var(--red, #ff6464);
+  background: rgba(255, 80, 80, 0.06);
+  border-left: 2px solid rgba(255, 80, 80, 0.5);
+  padding: 6px 10px;
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+.mcp-truncated {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-top: 6px;
+  background: rgba(240, 192, 64, 0.06);
+  border-left: 2px solid var(--accent);
+  font-size: 12px;
+  color: var(--fg-muted);
+  flex-wrap: wrap;
+}
+.mcp-full-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
 /* ===== PULSING STATUS DOTS ===== */
 .status-dot {
   width: 8px; height: 8px;

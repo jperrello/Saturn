@@ -1,14 +1,37 @@
 import asyncio
 import json
 import logging
+import os
+import time
+import uuid
 from pathlib import Path
 from typing import Optional
 
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
-CALL_DEADLINE_S = 5.0
-LARGE_RESULT_BYTES = 1024 * 1024
+
+# Saturn-cbt.2.3: knobs are env-driven so deployments can tune without
+# editing code. Defaults match the bead spec: 30s tool deadline, 1 MB
+# inline-result ceiling above which the payload is truncated and offered
+# via a download URL instead.
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+CALL_DEADLINE_S = _env_float("SATURN_MCP_TOOL_TIMEOUT_SEC", 30.0)
+LARGE_RESULT_BYTES = _env_int("SATURN_MCP_MAX_RESULT_BYTES", 1024 * 1024)
+RESULT_CACHE_TTL_S = _env_float("SATURN_MCP_RESULT_TTL_SEC", 600.0)
 
 logger = logging.getLogger("saturn.mcp_client")
 
@@ -50,6 +73,22 @@ async def _with_session(url: str, auth_token: Optional[str], fn):
 class MCPClientManager:
     def __init__(self):
         self._tools_cache: dict[str, list[dict]] = {}
+        # Result cache for oversized MCP tool results. Keyed by random id;
+        # value is (epoch_expires, full_content). GC on every read/write.
+        self._results: dict[str, tuple[float, list[dict]]] = {}
+
+    def _gc_results(self):
+        now = time.monotonic()
+        stale = [rid for rid, (exp, _) in self._results.items() if exp <= now]
+        for rid in stale:
+            self._results.pop(rid, None)
+
+    def get_result(self, rid: str) -> Optional[list[dict]]:
+        self._gc_results()
+        entry = self._results.get(rid)
+        if not entry:
+            return None
+        return entry[1]
 
     def configured(self) -> list[dict]:
         return _load()
@@ -85,29 +124,73 @@ class MCPClientManager:
         servers = _load()
         entry = next((s for s in servers if s["name"] == server), None)
         if not entry:
-            return {"error": f"Server '{server}' not configured"}
+            return {"errorKind": "config", "error": f"MCP server unreachable: {server}",
+                    "tool": tool, "server": server}
         try:
             async def invoke(session):
                 result = await session.call_tool(tool, arguments)
                 content = [c.model_dump() for c in result.content]
                 total = sum(len(str(c.get("text", ""))) for c in content if isinstance(c, dict))
                 if total > LARGE_RESULT_BYTES:
-                    return {"error": f"MCP tool {tool!r} on {server!r} returned {total} bytes "
-                                     f"(>{LARGE_RESULT_BYTES} ceiling); refusing oversized payload"}
+                    rid = uuid.uuid4().hex
+                    self._gc_results()
+                    self._results[rid] = (time.monotonic() + RESULT_CACHE_TTL_S, content)
+                    truncated = self._truncate_content(content, LARGE_RESULT_BYTES)
+                    return {
+                        "content": truncated,
+                        "isError": result.isError,
+                        "truncated": {
+                            "full_bytes": total,
+                            "kept_bytes": LARGE_RESULT_BYTES,
+                            "result_id": rid,
+                            "download_url": f"/api/mcp/result/{rid}",
+                        },
+                    }
                 return {"content": content, "isError": result.isError}
             return await asyncio.wait_for(
                 _with_session(entry["url"], entry.get("auth_token"), invoke),
                 timeout=CALL_DEADLINE_S,
             )
         except asyncio.TimeoutError:
-            return {"error": f"MCP tool {tool!r} on {server!r} timed out after {CALL_DEADLINE_S}s deadline"}
+            return {"errorKind": "timeout", "tool": tool, "server": server,
+                    "deadline_s": CALL_DEADLINE_S,
+                    "error": f"Tool call timed out: {tool}"}
         except BaseException as e:
             inner = _unwrap(e)
             if isinstance(inner, asyncio.TimeoutError):
-                return {"error": f"MCP tool {tool!r} on {server!r} timed out after {CALL_DEADLINE_S}s deadline"}
+                return {"errorKind": "timeout", "tool": tool, "server": server,
+                        "deadline_s": CALL_DEADLINE_S,
+                        "error": f"Tool call timed out: {tool}"}
             if isinstance(inner, (ConnectionError, OSError)):
-                return {"error": f"MCP server '{server}' unreachable at {entry['url']}: {inner}"}
-            return {"error": f"MCP server '{server}' at {entry['url']} failed: {inner}"}
+                return {"errorKind": "unreachable", "tool": tool, "server": server,
+                        "url": entry["url"], "detail": str(inner),
+                        "error": f"MCP server unreachable: {server}"}
+            return {"errorKind": "internal", "tool": tool, "server": server,
+                    "url": entry["url"], "detail": str(inner),
+                    "error": f"MCP tool failed: {tool} ({inner})"}
+
+    @staticmethod
+    def _truncate_content(content: list[dict], cap: int) -> list[dict]:
+        out = []
+        remaining = cap
+        for c in content:
+            if not isinstance(c, dict):
+                out.append(c)
+                continue
+            text = c.get("text")
+            if not isinstance(text, str):
+                out.append(c)
+                continue
+            if remaining <= 0:
+                continue
+            if len(text) <= remaining:
+                out.append(c)
+                remaining -= len(text)
+                continue
+            kept = text[:remaining]
+            out.append({**c, "text": kept + "\n\n[... result truncated; download full via the badge link ...]"})
+            remaining = 0
+        return out
 
     def add(self, name: str, url: str, auth_token: Optional[str] = None):
         servers = _load()
