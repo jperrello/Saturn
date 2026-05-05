@@ -632,9 +632,10 @@ class SaturnAdvertiser:
                     truncated = True
                     continue
                 break
+        _txt.validate(props)
         if truncated:
             props['mtrunc'] = '1'
-        return props
+        return {k: _sanitize_txt_value(str(v)) for k, v in props.items()}
 
     def register(self) -> bool:
         from saturn.mdns.backend import AdvertiseSpec
