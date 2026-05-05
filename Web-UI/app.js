@@ -909,7 +909,14 @@ discoverBtn.addEventListener('click', async () => {
     Object.keys(_modelCache).forEach(k => delete _modelCache[k])
     const res = await fetch('/api/discover')
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    discoveredServices = await res.json()
+    const body = await res.json()
+    if (Array.isArray(body)) {
+      discoveredServices = body
+      window.saturnIsolation = null
+    } else {
+      discoveredServices = body.services || []
+      window.saturnIsolation = body.isolation || null
+    }
   } catch (e) {
     discoveredServices = []
     failed = true

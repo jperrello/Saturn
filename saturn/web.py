@@ -613,6 +613,8 @@ async def delete(name: str, _=Depends(require_admin)):
 
 @app.get("/api/discover")
 async def api_discover():
+    from saturn.mdns.isolation import probe as _isolation_probe
+    from dataclasses import asdict as _asdict
     loop = asyncio.get_event_loop()
     found = await loop.run_in_executor(None, lambda: discover(timeout=5.0, settle_time=1.0))
     result = []
@@ -630,7 +632,8 @@ async def api_discover():
         }
         result.append(entry)
         _discovered[s.name] = entry
-    return result
+    iso = await loop.run_in_executor(None, lambda: _isolation_probe(timeout=4.0))
+    return {"services": result, "isolation": _asdict(iso)}
 
 
 # --- Service resolution ---
