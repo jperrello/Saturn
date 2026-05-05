@@ -4281,10 +4281,18 @@ function beginEdit(userDiv) {
     actions.remove()
   })
 
-  save.addEventListener('click', () => {
+  save.addEventListener('click', async () => {
     const newText = ta.value.trim()
     if (!newText) return
     const idx = indexOfMsg(userDiv)
+    if (sending && activeController) {
+      activeController._userStopped = true
+      activeController.abort()
+      const start = Date.now()
+      while (sending && Date.now() - start < 2000) {
+        await new Promise(r => setTimeout(r, 20))
+      }
+    }
     let sib = userDiv.nextElementSibling
     while (sib) {
       const next = sib.nextElementSibling
