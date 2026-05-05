@@ -4561,11 +4561,14 @@ async function saveService() {
   const get = (id) => (document.getElementById(id)?.value || '').trim()
   const name = get('cfg-name')
   if (!name) return
+  const budgetVal = get('cfg-max-budget-usd')
   const body = {
     name,
     deployment: get('cfg-deployment') || 'local',
     api_type: get('cfg-api-type') || 'ollama',
     priority: parseInt(get('cfg-priority') || '50', 10) || 50,
+    max_budget: budgetVal ? parseFloat(budgetVal) : null,
+    max_budget_unit: get('cfg-max-budget-unit') || 'usd',
     upstream: {
       base_url: get('cfg-base-url'),
       api_key_env: get('cfg-api-key-env') || null,

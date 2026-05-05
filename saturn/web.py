@@ -278,6 +278,8 @@ class ServiceCreate(BaseModel):
     beacon_provider: Optional[str] = None
     rotation_interval: int = 300
     expiration_interval: int = 600
+    max_budget: Optional[float] = None
+    max_budget_unit: Optional[str] = None
 
 
 class ServiceStart(BaseModel):
@@ -305,6 +307,8 @@ def _config_to_dict(name: str, config: ServiceConfig, builtin: bool) -> dict:
         "deployment": config.deployment,
         "api_type": config.api_type,
         "priority": config.priority,
+        "max_budget": config.max_budget,
+        "max_budget_unit": config.max_budget_unit,
         "base_url": config.upstream.base_url,
         "api_key_env": config.upstream.api_key_env,
         "port": config.server.port,
@@ -755,6 +759,11 @@ async def create(body: ServiceCreate, _=Depends(require_admin)):
         f'deployment = "{body.deployment}"',
         f'api_type = "{body.api_type}"',
         f'priority = {body.priority}',
+    ]
+    if body.max_budget is not None:
+        lines.append(f"max_budget = {body.max_budget}")
+        lines.append(f'max_budget_unit = "{body.max_budget_unit or "usd"}"')
+    lines += [
         "",
         "[upstream]",
         f'base_url = "{base_url}"',
@@ -849,6 +858,11 @@ async def update_service(name: str, body: ServiceCreate, _=Depends(require_admin
         f'deployment = "{body.deployment}"',
         f'api_type = "{body.api_type}"',
         f'priority = {body.priority}',
+    ]
+    if body.max_budget is not None:
+        lines.append(f"max_budget = {body.max_budget}")
+        lines.append(f'max_budget_unit = "{body.max_budget_unit or "usd"}"')
+    lines += [
         "",
         "[upstream]",
         f'base_url = "{base_url}"',

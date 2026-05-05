@@ -55,6 +55,8 @@ class ServiceConfig:
     deployment: str = "cloud"
     api_type: str = "openai"
     priority: int = 50
+    max_budget: Optional[float] = None
+    max_budget_unit: Optional[str] = None
     upstream: UpstreamConfig = field(default_factory=lambda: UpstreamConfig(base_url=""))
     server: ServerConfig = field(default_factory=ServerConfig)
     beacon: BeaconConfig = field(default_factory=BeaconConfig)
@@ -90,6 +92,8 @@ class ServiceConfig:
             deployment=data.get("deployment", "cloud"),
             api_type=data.get("api_type", "openai"),
             priority=data.get("priority", 50),
+            max_budget=data.get("max_budget"),
+            max_budget_unit=data.get("max_budget_unit"),
             upstream=upstream,
             server=server,
             beacon=beacon,

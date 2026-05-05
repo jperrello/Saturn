@@ -201,7 +201,15 @@
             <label>Deployment <select id="cfg-deployment" name="deployment"><option value="local">local</option><option value="network">network</option><option value="cloud">cloud</option></select></label>
             <label>API type <select id="cfg-api-type" name="api_type"><option value="ollama">ollama</option><option value="openai">openai</option></select></label>
             <label>Priority <input id="cfg-priority" name="priority" type="text" inputmode="decimal" value="50"></label>
-            <label>Max budget USD <input id="cfg-max-budget-usd" name="max_budget_usd" type="text" inputmode="decimal" step="0.01"></label>
+            <label>Max budget
+              <span style="display:inline-flex; gap:6px; align-items:center">
+                <input id="cfg-max-budget-usd" name="max_budget" type="text" inputmode="decimal" style="flex:1">
+                <select id="cfg-max-budget-unit" name="max_budget_unit">
+                  <option value="usd">USD</option>
+                  <option value="tokens">tokens</option>
+                </select>
+              </span>
+            </label>
             <label>Require runner token <input id="cfg-require-runner-token" name="require_runner_token" type="checkbox"></label>
             <button id="per-service-save" class="btn">Save</button>
             <button id="per-service-cancel" class="btn btn-secondary">Cancel</button>
