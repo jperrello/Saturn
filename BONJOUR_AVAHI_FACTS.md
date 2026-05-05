@@ -27,7 +27,7 @@
 **Caveat:** Saturn TXT should aim for <400 bytes if `ephemeral_key` is included (Ed25519 pub key in base64 ~44 bytes leaves headroom); never exceed 1300.
 
 ### Gap #4 — Conflict-suffix format
-**Answer:** RFC 6762 §9 mandates conflict resolution but leaves the renaming algorithm to implementations ("a programmatically generated replacement name"). Apple's mDNSResponder convention: append ` (2)` then increment — `ollama` → `ollama (2)` → `ollama (3)`. Avahi uses a hyphen: `ollama` → `ollama #2` → `ollama #3` (configurable in `avahi-daemon.conf`). The instance name in the wire-format SRV/TXT changes accordingly; clients see the rewritten name verbatim.
+**Answer:** RFC 6762 §9 mandates conflict resolution but leaves the renaming algorithm to implementations ("a programmatically generated replacement name"). Apple's mDNSResponder convention for *service-instance* conflicts: append ` (2)` then increment — `ollama` → `ollama (2)` → `ollama (3)`. Avahi (both for hostname and service-instance conflicts) appends `-2`, `-3`, etc. — `ollama` → `ollama-2` → `ollama-3`. The instance name in the wire-format SRV/TXT changes accordingly; clients see the rewritten name verbatim.
 **Sources:**
 - https://datatracker.ietf.org/doc/html/rfc6762#section-9 — conflict resolution semantics
 - Apple `man mDNSResponder` and `dns-sd` source (mDNSCore/mDNS.c, `IncrementLabelSuffix`) — ` (N)` format
@@ -91,7 +91,7 @@
 ## Saturn-actionable summary
 - **Laptop-as-beacon (Gap #5):** Sleep Proxy freezes TXT. Either (a) keep beacon laptop awake (`pmset -a sleep 0` while beaconing), or (b) set `ephemeral_key` rotation cadence longer than the sleep window. Document this trade-off explicitly in the laptop-as-beacon section.
 - **TXT budget (Gap #3):** Stay under 400 bytes total TXT for safe single-packet UDP; hard limit 1300 bytes for single Ethernet frame. RFC 6763 §6.2 is canonical.
-- **Conflict resolution (Gap #4):** Don't tiebreak on instance-name equality — Bonjour rewrites to `ollama (2)`, Avahi to `ollama #2`. Match on TXT keys (`priority=`).
+- **Conflict resolution (Gap #4):** Don't tiebreak on instance-name equality — Bonjour rewrites to `ollama (2)`, Avahi to `ollama-2`. Match on TXT keys (`priority=`).
 - **AP isolation (Gap #8):** Unfixable from the Saturn side. Document fallback to manual endpoint entry; do not promise reflector-based workarounds.
 - **Cross-platform reach (Gaps #9, #10):** Windows needs Bonjour Print Services for CLI browsing; iOS needs `NSBonjourServices` + user permission; Android needs `NsdManager` (and a third-party browser app for users without Saturn). No platform offers a built-in mDNS service-type browser UI.
 
@@ -101,7 +101,10 @@
 - Stuart Cheshire, "Understanding Sleep Proxy Service" (stuartcheshire.org/sleepproxy) — SPS registration semantics
 - `draft-cheshire-edns0-owner-option` — SPS uses DNS Update format (one-shot, not streaming)
 - `man avahi-daemon.conf`, `man avahi-publish-service`, `man avahi-browse` — Avahi defaults and CLI shapes
-- Apple `man dns-sd`, mDNSResponder source — `_(N)` conflict suffix convention
+- Apple `man dns-sd`, mDNSResponder source — ` (N)` conflict suffix convention
+- https://serverfault.com/questions/1149526/how-to-prevent-avahi-from-resolving-mdns-name-conflicts — Avahi `-N` hyphenated conflict suffix
+- https://oneuptime.com/blog/post/2026-01-15-configure-mdns-avahi-ubuntu/view — `enable-reflector` config example
+- https://nilcoalescing.com/blog/GettingReadyForNewiOS14LocalNetworkPrivacyRestrictions — iOS 14 local network privacy restrictions detail
 - Apple Support 106380 — Bonjour Print Services v2.0.2 current
 - Apple developer docs — `NWBrowser`, iOS 14 local-network permission
 - Android developer docs — `NsdManager`
