@@ -95,6 +95,8 @@ class SaturnService:
     node_id: str = ""                                      # stable UUID from saturn/mdns/identity.py
     trust: str = "unknown"                                 # pinned|first_seen|rebind_rejected|allowlist|unknown
     last_seen: float = 0.0                                 # unix seconds; updated on every add/update event
+    addresses: List[str] = field(default_factory=list)     # all resolved A + AAAA addresses
+    ipv6: Optional[str] = None                             # first AAAA if any
 
     @property
     def is_beacon(self) -> bool:

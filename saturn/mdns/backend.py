@@ -10,6 +10,7 @@ class ServiceRecord:
     host: str
     port: int
     txt: dict[str, str]
+    addresses: list[str] = field(default_factory=list)
 
 
 @dataclass
