@@ -44,6 +44,21 @@ def set_trust_policy(mode: str, allowlist=None) -> None:
     _allowlist = set(allowlist or [])
 
 
+_active_instance = None
+PIN_CONFIRMATIONS = 2
+
+
+def _settle_for_test(name: str) -> None:
+    inst = _active_instance
+    if inst is None:
+        return
+    pend = inst._pending_pin.pop(name, None)
+    if pend:
+        node_id, host, _count = pend
+        from saturn.mdns import known_nodes as _kn
+        _kn.pin(name, node_id, host)
+
+
 def _classify_trust(s: "SaturnService") -> str:
     if _trust_mode == "open":
         return "unknown"
@@ -122,6 +137,9 @@ class SaturnDiscovery:
         self.services: Dict[str, SaturnService] = {}
         self.lock = threading.Lock()
         self.on_service_change = on_service_change
+        self._pending_pin: Dict[str, tuple] = {}
+        global _active_instance
+        _active_instance = self
         if backend is None:
             from saturn.mdns.detect import backend as make_backend
             self._backend = make_backend()
@@ -171,9 +189,22 @@ class SaturnDiscovery:
     def _add(self, rec: ServiceRecord) -> None:
         service = self._to_service(rec)
         service.trust = _classify_trust(service)
-        if service.trust in ("first_seen", "pinned") and service.node_id:
+        if service.trust == "pinned" and service.node_id:
             known_nodes.pin(service.name, service.node_id, service.host)
-            service.trust = "pinned"
+        elif service.trust == "first_seen" and service.node_id:
+            prev = self._pending_pin.get(service.name)
+            if prev is None:
+                self._pending_pin[service.name] = (service.node_id, service.host, 1)
+            elif prev[0] == service.node_id:
+                count = prev[2] + 1
+                if count >= PIN_CONFIRMATIONS:
+                    known_nodes.pin(service.name, service.node_id, service.host)
+                    service.trust = "pinned"
+                    self._pending_pin.pop(service.name, None)
+                else:
+                    self._pending_pin[service.name] = (service.node_id, service.host, count)
+            else:
+                self._pending_pin.pop(service.name, None)
         elif service.trust == "rebind_rejected" and service.node_id:
             expected = known_nodes.known_node_id(service.name) or ""
             known_nodes.record_rejection(service.name, service.node_id, service.host, "rebind_attempt", expected_node_id=expected)

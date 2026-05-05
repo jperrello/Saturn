@@ -35,6 +35,7 @@ def _rec(name, node_id, host="10.0.0.1", port=8080, priority=50):
 def test_tofu_first_contact_pin():
     d = _disc()
     d._add(_rec("ollama", "uuid-A"))
+    d._add(_rec("ollama", "uuid-A"))
     assert known_nodes.known_node_id("ollama") == "uuid-A"
     state = known_nodes.load()
     first = state["nodes"]["ollama"]["first_seen"]
@@ -48,6 +49,7 @@ def test_tofu_first_contact_pin():
 def test_silent_rebind_refused():
     d = _disc()
     d._add(_rec("ollama", "uuid-A", priority=50))
+    d._add(_rec("ollama", "uuid-A", priority=50))
     d._add(_rec("ollama", "uuid-B", priority=0, host="10.0.0.99"))
     best = d.get_best_service()
     assert best is not None
@@ -58,6 +60,7 @@ def test_silent_rebind_refused():
 
 def test_lower_priority_rebind_still_rejected():
     d = _disc()
+    d._add(_rec("ollama", "uuid-A", priority=50))
     d._add(_rec("ollama", "uuid-A", priority=50))
     d._add(_rec("ollama", "uuid-B", priority=60))
     all_svcs = d.get_all_services()
@@ -88,6 +91,7 @@ def test_attest_path():
 
 def test_mode_flip_live_update():
     d = _disc()
+    d._add(_rec("ollama", "uuid-A", priority=50))
     d._add(_rec("ollama", "uuid-A", priority=50))
     d._add(_rec("ollama", "uuid-B", priority=0))
     assert d.get_best_service().node_id == "uuid-A"
