@@ -17,6 +17,20 @@ assert completion.usage == openai.types.CompletionUsage(
 - Source: https://github.com/vllm-project/vllm/blob/main/tests/entrypoints/openai/completion/test_completion.py
 - Notes: vLLM exact-equality on `CompletionUsage` only works because the test prompt + max_tokens make finish-by-length deterministic. For Saturn, prefer `<=` on completion_tokens (allows EOS-before-cap) plus `or finish_reason == "length"` disjunction.
 
+```python
+# vllm tests/entrypoints/openai/chat_completion/test_chat.py — test_single_chat_session
+chat_completion = await client.chat.completions.create(
+    model=model_name, messages=messages,
+    max_completion_tokens=5,
+    logprobs=True, top_logprobs=5,
+)
+assert len(chat_completion.choices) == 1
+choice = chat_completion.choices[0]
+assert choice.finish_reason == "length"
+```
+- Source: https://github.com/vllm-project/vllm/blob/main/tests/entrypoints/openai/chat_completion/test_chat.py
+- Notes: chat-completions API uses `max_completion_tokens` (newer) — Saturn's TXT-record contract should accept both names and normalize.
+
 ### 2. temperature=0 determinism
 **Pattern:** Run N>=2 calls with identical prompt+seed, assert outputs equal (or assert single unique value across many runs).
 ```python
@@ -61,17 +75,23 @@ tests:
 - Notes: Some providers silently drop system messages on certain models (older Mistral, some Ollama templates). Saturn must use a marker the model would NEVER emit unprompted (random nonce, not "pirate"). Negative control: same prompt without system message must fail the contains check.
 
 ### 5. stop sequences
-**Pattern:** Assert output does NOT contain the stop string AND `finish_reason == "stop"`. Some APIs strip the stop token, some leave it; test both.
+**Pattern:** Assert output does NOT contain the stop string AND `finish_reason == "stop"`. Some APIs strip the stop token, some leave it; test both. vLLM's known-bug tracker (issue #27390) confirms `finish_reason` semantics for stop-string vs EOS differ between V0/V1 engines — Saturn must not rely on `finish_reason` alone.
 ```python
-# Pattern composed from vLLM completion test conventions
+# Pattern composed from vLLM finish_reason convention + promptfoo not-contains
 resp = client.completions.create(
     model=m, prompt="Count: 1, 2, 3,", max_tokens=50, stop=["5"]
 )
 assert "5" not in resp.choices[0].text
 assert resp.choices[0].finish_reason == "stop"
 ```
-- Source: https://github.com/vllm-project/vllm/blob/main/tests/entrypoints/openai/completion/test_completion.py (finish_reason convention)
-- Notes: Ollama's OpenAI-compat endpoint returns `finish_reason="stop"` for both EOS and stop-string hits — disambiguate by checking stop-string is the suffix of pre-trimmed text, OR by setting a *unique* stop sequence and asserting the output ends just before it.
+```yaml
+# promptfoo not-contains assertion (canonical for stop-sequence proof)
+assert:
+  - type: not-contains
+    value: "STOP_TOKEN_XYZ"
+```
+- Sources: https://github.com/vllm-project/vllm/blob/main/tests/entrypoints/openai/completion/test_completion.py | https://www.promptfoo.dev/docs/configuration/expected-outputs/ | https://github.com/vllm-project/vllm/issues/27390
+- Notes: Ollama's OpenAI-compat endpoint returns `finish_reason="stop"` for both EOS and stop-string hits. Disambiguate by setting a *unique* random stop sequence (e.g., `"ZZQ_STOP"`) that the model would never emit — then `not-contains` is sufficient and `finish_reason` is corroborating, not load-bearing.
 
 ### 6. top_p / top_k (statistical)
 **Pattern:** Single-shot is unobservable. Sample N>=50 with fixed seed-per-call disabled; compare token-distribution to baseline (chi-square) OR assert `len(set(outputs)) <= K` for top_k.
