@@ -2045,6 +2045,7 @@ async function send() {
   }
   if (!checkSpendLimit()) return
   input.value = ''
+  input.rows = 1
   input.style.height = 'auto'
 
   if (activeChat === null) newChat()
@@ -2405,6 +2406,18 @@ input.addEventListener('keydown', e => {
     e.preventDefault()
     send()
   }
+})
+
+// rAF-debounced auto-grow by row count. Cheap: counts newlines, sets rows.
+// Avoids field-sizing's per-keystroke intrinsic-size relayout (Saturn-cbt.2.1).
+let _growRaf = 0
+input.addEventListener('input', () => {
+  if (_growRaf) return
+  _growRaf = requestAnimationFrame(() => {
+    _growRaf = 0
+    const lines = (input.value.match(/\n/g) || []).length + 1
+    input.rows = Math.min(6, Math.max(1, lines))
+  })
 })
 
 document.querySelectorAll('.example').forEach(ex => {

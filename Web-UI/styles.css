@@ -1155,6 +1155,9 @@ body::after {
   position: relative;
   display: flex;
   flex-direction: column;
+  /* Saturn-cbt.2.1: contain layout/paint so a textarea relayout (field-sizing
+     on #chat-input) cannot cascade reflow/repaint into long message bubbles. */
+  contain: layout paint;
 }
 
 /* ===== WELCOME ===== */
@@ -1251,6 +1254,9 @@ body::after {
   align-self: center;
   font-size: 13px;
   animation: msgSlide var(--dur-normal) var(--ease-out);
+  /* Saturn-cbt.2.1: per-message containment so a long bubble's layout cost is
+     not paid every time something elsewhere on the page invalidates. */
+  contain: content;
 }
 @keyframes msgSlide {
   from { opacity: 0; transform: translateY(16px); }
@@ -1456,6 +1462,14 @@ body::after {
   overflow: visible;
   transition: border-color 0.3s, box-shadow 0.3s;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  /* Saturn-cbt.2.1: keystroke latency. field-sizing: content on the textarea
+     triggers an intrinsic-size recompute per char; without containment the
+     browser invalidates layout/paint up the tree, and with backdrop-filter
+     blur the messages layer behind gets re-sampled. Promote this area into
+     its own compositor layer and contain layout/paint so typing only repaints
+     the input. */
+  contain: layout;
+  will-change: transform;
 }
 
 .chat-input-area:focus-within {
@@ -1490,7 +1504,12 @@ body::after {
   overflow-y: auto;
   max-height: 150px;
   line-height: 1.5;
-  field-sizing: content;
+  /* Saturn-cbt.2.1: field-sizing: content forces an intrinsic-size layout of
+     the entire textarea contents on every keystroke. With a 4k-token prompt
+     in the buffer that adds ~270ms of synchronous main-thread work per char.
+     Auto-grow is now driven by JS via the `rows` attribute (newline count).
+     The textarea stays at its row count for plain text — long prompts scroll
+     internally up to max-height. */
 }
 
 .send-glow {
