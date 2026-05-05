@@ -4277,11 +4277,6 @@ function beginEdit(userDiv) {
   save.addEventListener('click', () => {
     const newText = ta.value.trim()
     if (!newText) return
-    const restored = document.createElement('div')
-    restored.className = 'bubble'
-    restored.textContent = newText
-    ta.replaceWith(restored)
-    actions.remove()
     const idx = indexOfMsg(userDiv)
     let sib = userDiv.nextElementSibling
     while (sib) {
@@ -4289,6 +4284,7 @@ function beginEdit(userDiv) {
       if (sib.classList.contains('msg')) sib.remove()
       sib = next
     }
+    userDiv.remove()
     if (typeof activeChat !== 'undefined' && activeChat !== null && chats[activeChat]) {
       const msgs = chats[activeChat].messages
       if (idx >= 0 && idx < msgs.length) {
