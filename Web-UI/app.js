@@ -1393,6 +1393,21 @@ function initConfigStars() {
 const messagesEl = document.getElementById('messages')
 const welcome = document.getElementById('welcome')
 const input = document.getElementById('chat-input')
+
+// Autoscroll: track whether user is pinned near bottom. If they scroll up
+// mid-stream, stop snapping them back so the chat remains scrollable while
+// long responses stream in (Saturn-cbt.2.1 contract 4).
+let autoScroll = true
+function pinnedToBottom() {
+  const slack = 64
+  return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < slack
+}
+function scrollPinned() {
+  if (autoScroll) messagesEl.scrollTop = messagesEl.scrollHeight
+}
+messagesEl.addEventListener('scroll', () => {
+  autoScroll = pinnedToBottom()
+}, { passive: true })
 const sendBtn = document.getElementById('send-btn')
 const historyList = document.getElementById('history-list')
 const serviceSelect = document.getElementById('service-select')
@@ -2055,6 +2070,7 @@ async function send() {
   userDiv.className = 'msg user'
   userDiv.innerHTML = `<div class="prefix">&gt; you</div><div class="bubble">${esc(text)}</div>`
   messagesEl.appendChild(userDiv)
+  autoScroll = true
   messagesEl.scrollTop = messagesEl.scrollHeight
 
   // build OpenAI-format messages array
@@ -2191,9 +2207,14 @@ async function send() {
       const decoder = new TextDecoder()
       let buffer = ''
       let stamp = 0
-      const THROTTLE = 80
+      let frameQueued = false
 
       resetKeepAlive()
+
+      // Adaptive throttle: as the response grows, re-rendering the entire
+      // bubble innerHTML each frame becomes O(N²). Back off frame cadence so
+      // the main thread stays responsive at 32k+ tokens (Saturn-cbt.2.1).
+      const throttleFor = n => n > 50000 ? 400 : n > 8000 ? 200 : 80
 
       while (true) {
         const { done, value } = await reader.read()
@@ -2216,22 +2237,28 @@ async function send() {
             if (delta?.content) {
               full += delta.content
               const now = Date.now()
-              if (now - stamp < THROTTLE) continue
+              if (now - stamp < throttleFor(full.length)) continue
+              if (frameQueued) continue
               stamp = now
+              frameQueued = true
               requestAnimationFrame(() => {
+                frameQueued = false
                 const parts = splitThinking(full)
                 if (parts.pending) {
                   bubble.innerHTML = renderThinkingHTML(parts.thinking) + '<span class="cursor">▊</span>'
                 } else {
                   bubble.innerHTML = renderThinkingHTML(parts.thinking) + renderMarkdown(parts.body) + '<span class="cursor">▊</span>'
                 }
-                // phosphor glow on newest content
-                const last = bubble.querySelector('p:last-of-type, li:last-of-type, code:last-of-type')
-                if (last && !last.classList.contains('token-new')) {
-                  last.classList.add('token-new')
-                  setTimeout(() => last.classList.remove('token-new'), 600)
+                // skip phosphor glow on huge streams — querySelector + class
+                // toggles add up at 32k tokens
+                if (full.length < 16000) {
+                  const last = bubble.querySelector('p:last-of-type, li:last-of-type, code:last-of-type')
+                  if (last && !last.classList.contains('token-new')) {
+                    last.classList.add('token-new')
+                    setTimeout(() => last.classList.remove('token-new'), 600)
+                  }
                 }
-                messagesEl.scrollTop = messagesEl.scrollHeight
+                scrollPinned()
               })
             }
             if (delta?.tool_calls) {
@@ -2249,7 +2276,7 @@ async function send() {
               const parts = splitThinking(full)
               const body = parts.pending ? '' : renderMarkdown(parts.body)
               bubble.innerHTML = live + renderThinkingHTML(parts.thinking) + body + '<span class="cursor">▊</span>'
-              messagesEl.scrollTop = messagesEl.scrollHeight
+              scrollPinned()
             }
           } catch {
             // skip malformed chunks
@@ -2266,7 +2293,7 @@ async function send() {
         // show pending badges while awaiting permission
         toolHTML = renderToolsInline(toolCalls)
         bubble.innerHTML = toolHTML + renderWithThinking(full)
-        messagesEl.scrollTop = messagesEl.scrollHeight
+        scrollPinned()
 
         toolResults = await executeToolCalls(toolCalls, bubble)
         toolHTML = `<div class="tool-calls-row">${renderPermissionBadges(toolCalls, toolResults)}</div>`
