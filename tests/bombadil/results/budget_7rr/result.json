@@ -1,0 +1,32 @@
+{
+  "results": {
+    "create_status": 200,
+    "b_initial_value": {
+      "max_budget": 5.0,
+      "max_budget_unit": "usd",
+      "ok": true
+    },
+    "b_value_retained_on_flip": {
+      "max_budget": 5.0,
+      "max_budget_unit": "tokens",
+      "ok": true
+    },
+    "c_toml_has_both": {
+      "path": "/var/folders/zs/6ms437qs2nd0sdk8knf1lgwr0000gp/T/budget7rr-xcqhxxkd/services/budget7rr.toml",
+      "text": "name = \"budget7rr\"\ndeployment = \"cloud\"\napi_type = \"openai\"\npriority = 50\nmax_budget = 5.0\nmax_budget_unit = \"tokens\"\n\n[upstream]\nbase_url = \"http://127.0.0.1:11434/v1\"\n\n[server]\nport = 0\n\n[beacon]\nenabled = false\n",
+      "ok": true
+    },
+    "a_persists_across_reload": {
+      "max_budget": 5.0,
+      "max_budget_unit": "tokens",
+      "ok": true
+    }
+  },
+  "oracle": {
+    "b_initial_value": true,
+    "b_value_retained_on_flip": true,
+    "c_toml_has_both": true,
+    "a_persists_across_reload": true
+  },
+  "pass": true
+}

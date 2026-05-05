@@ -1,0 +1,66 @@
+{
+  "results": {
+    "a_bad_service_test_fails": {
+      "json": {
+        "ok": false,
+        "error": "connection failed: All connection attempts failed"
+      },
+      "ok": true
+    },
+    "a_ui_no_silent_save": {
+      "services_count_before": 6,
+      "ok": true
+    },
+    "b_good_service_test_ok": {
+      "json": {
+        "ok": true,
+        "status": 200,
+        "models": 1
+      },
+      "ok": true
+    },
+    "b_save_persists": {
+      "post_status": 200,
+      "names": [
+        "ollama-2wc",
+        "claude",
+        "deepinfra",
+        "fallback",
+        "ollama",
+        "openrouter",
+        "orbeacon"
+      ],
+      "ok": true
+    },
+    "c_bad_admin_rejected": {
+      "validate_json": {
+        "ok": false,
+        "errors": [
+          "trusted_proxies entry invalid CIDR/IP: 'not-a-cidr'",
+          "trusted_node_ids entry invalid UUID: 'not-a-uuid'"
+        ]
+      },
+      "save_status": 422,
+      "ok": true
+    },
+    "d_good_admin_persists": {
+      "validate_json": {
+        "ok": true,
+        "errors": []
+      },
+      "save_status": 200,
+      "saved_rate_rpm": 600,
+      "saved_trust_mode": "tofu",
+      "ok": true
+    }
+  },
+  "oracle": {
+    "a_bad_service_test_fails": true,
+    "a_ui_no_silent_save": true,
+    "b_good_service_test_ok": true,
+    "b_save_persists": true,
+    "c_bad_admin_rejected": true,
+    "d_good_admin_persists": true
+  },
+  "pass": true
+}

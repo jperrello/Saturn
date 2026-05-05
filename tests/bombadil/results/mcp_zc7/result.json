@@ -1,0 +1,38 @@
+{
+  "results": {
+    "a_no_top_right_mcp": {
+      "found_ids": [],
+      "found_classes": [],
+      "stray": [],
+      "ok": true
+    },
+    "b_mcp_in_plus_menu": {
+      "text": "MCP tools / Connectors",
+      "visible": true,
+      "in_plus_menu": true,
+      "ok": true
+    },
+    "c_plus_mcp_opens_panel": {
+      "opened": true,
+      "ok": true
+    },
+    "d_x_button_visible": {
+      "in_panel": true,
+      "visible": true,
+      "label": "Close MCP tools",
+      "ok": true
+    },
+    "e_x_closes_panel": {
+      "closed": true,
+      "ok": true
+    }
+  },
+  "oracle": {
+    "a_no_top_right_mcp": true,
+    "b_mcp_in_plus_menu": true,
+    "c_plus_mcp_opens_panel": true,
+    "d_x_button_visible": true,
+    "e_x_closes_panel": true
+  },
+  "pass": true
+}

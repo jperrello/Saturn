@@ -1,0 +1,86 @@
+{
+  "results": {
+    "seed_determinism": {
+      "same_seed_match": true,
+      "diff_seed_differ": true,
+      "out_same_a": "Dogs are loyal, intelligent, and affectionate animals that make excellent compan",
+      "out_same_b": "Dogs are loyal, intelligent, and affectionate animals that make excellent compan",
+      "out_diff_x": "Dogs are loyal, intelligent, and affectionate animals that make excellent compan",
+      "out_diff_y": "Dogs are social animals that thrive on human companionship and love.",
+      "ok": true
+    },
+    "per_param": {
+      "tests": [
+        {
+          "label": "temperature",
+          "out_a": "Dogs are loyal companions who bring joy and happiness to their owners' lives through their wagging tails, playful antics, and unconditional love.",
+          "out_b": "Dogs have been loyal companions for thousands of years and are known as the symbol of companionship in homes all around the world.",
+          "differ": true
+        },
+        {
+          "label": "top_p",
+          "out_a": "Dogs are loyal companions who bring joy and happiness to their owners' lives through their wagging tails, playful antics, and unconditional love.",
+          "out_b": "Dogs are loyal companions who bring joy and companionship to millions of their owners around the world.",
+          "differ": true
+        },
+        {
+          "label": "top_k",
+          "out_a": "Dogs are loyal companions who bring joy and happiness to their owners' lives through their wagging tails, playful antics, and unconditional love.",
+          "out_b": "Dogs are loyal, intelligent, and affectionate animals that make excellent companions and partners in human families.",
+          "differ": true
+        },
+        {
+          "label": "max_tokens",
+          "out_a": "Dogs are loyal, intelligent, and",
+          "out_b": "Dogs are loyal, intelligent, and affectionate animals that make excellent companions and beloved family members in many cultures around the world.",
+          "differ": true
+        },
+        {
+          "label": "system_prompt",
+          "out_a": "Dogs are loyal and friendly companions.",
+          "out_b": "Les chats sont populaires pour leur apport de chaleur et leur amour g\u00e9n\u00e9reux. Il est important de respecter leurs habitudes et croyances, surtout les d\u00e9tenir da",
+          "differ": true
+        },
+        {
+          "label": "frequency_penalty",
+          "out_a": "Dogs are loyal, intelligent, and affectionate animals that make excellent companions and beloved family members in many cultures around the world.",
+          "out_b": "Dogs are loyal companions that bring joy and love to people's lives through their wagging tails, affectionate noses, and playful antics!",
+          "differ": true
+        },
+        {
+          "label": "presence_penalty",
+          "out_a": "Dogs are loyal, intelligent, and affectionate animals that make excellent companions and beloved family members in many cultures around the world.",
+          "out_b": "Dogs bring joy and companionship to people's lives, making them loyal friends who enjoy chasing their\u4e3b\u4eba\u7684\u7b11\u58f0\u3002",
+          "differ": true
+        },
+        {
+          "label": "repeat_penalty",
+          "out_a": "Dogs are intelligent, loyal, and beloved companions who are known for their wagging tails, playful behaviors, and excellent sense of smell, making them popular ",
+          "out_b": "Dogs play an essential role in our lives as they provide companionship and serve various purposes such health care; training tasks like obedience or agility exe",
+          "differ": true
+        },
+        {
+          "label": "min_p",
+          "out_a": "Dogs are loyal, intelligent, and affectionate animals that make excellent companions and beloved family members in many cultures around the world.",
+          "out_b": "Dogs are loyal companions who bring joy and happiness to their owners' lives through their wagging tails, playful antics, and unconditional love.",
+          "differ": true
+        },
+        {
+          "label": "stop",
+          "out_a": "Dogs are loyal, intelligent, and affectionate animals that make excellent companions and beloved family members in many cultures around the world.",
+          "out_b": "Dogs ",
+          "differ": true
+        }
+      ],
+      "differ_count": 10,
+      "total": 10,
+      "ok": true
+    },
+    "non_diff_params": []
+  },
+  "oracle": {
+    "seed_determinism": true,
+    "per_param_all_differ": true
+  },
+  "pass": true
+}

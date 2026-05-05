@@ -1,0 +1,56 @@
+{
+  "results": {
+    "a_no_number_inputs": {
+      "number_typed": [],
+      "decimal_count": 34,
+      "ok": true
+    },
+    "b_text_with_inputmode": {
+      "fields": [
+        {
+          "id": "ac-rate_rpm",
+          "type": "text",
+          "im": "decimal"
+        },
+        {
+          "id": "ac-rate_tpm",
+          "type": "text",
+          "im": "decimal"
+        },
+        {
+          "id": "ac-admin_session_ttl_s",
+          "type": "text",
+          "im": "decimal"
+        },
+        {
+          "id": "ac-rate_concurrent_per_ip",
+          "type": "text",
+          "im": "decimal"
+        },
+        {
+          "id": "ac-max_budget_usd",
+          "type": "text",
+          "im": "decimal"
+        }
+      ],
+      "ok": true
+    },
+    "c_info_bubble_reveals_desc": {
+      "expected": "IPv4/IPv6 CIDRs (e.g. 10.0.0.0/8, fd00::/8). Saturn will tru",
+      "got": "IPv4/IPv6 CIDRs (e.g. 10.0.0.0/8, fd00::/8). Saturn will tru",
+      "ok": true
+    },
+    "d_numeric_save_roundtrip": {
+      "saved_rate_rpm": 750,
+      "type": "int",
+      "ok": true
+    }
+  },
+  "oracle": {
+    "a_no_number_inputs": true,
+    "b_text_with_inputmode": true,
+    "c_info_bubble_reveals_desc": true,
+    "d_numeric_save_roundtrip": true
+  },
+  "pass": true
+}

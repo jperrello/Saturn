@@ -1,0 +1,74 @@
+{
+  "results": {
+    "a_unauth_redirect": {
+      "status": 303,
+      "location": "/login",
+      "ok": true
+    },
+    "e_first_run_status": {
+      "json": {
+        "authenticated": false,
+        "must_change": true
+      },
+      "ok": true
+    },
+    "b_wrong_pw_rejected": {
+      "status": 401,
+      "cookie_set": false,
+      "ok": true
+    },
+    "c_redirect_to_login": {
+      "url": "http://127.0.0.1:51351/login",
+      "ok": true
+    },
+    "e_change_form_shown": {
+      "ok": true
+    },
+    "c_cookie_set": {
+      "count": 1,
+      "ok": true
+    },
+    "e_change_lands_root": {
+      "url": "http://127.0.0.1:51351/",
+      "ok": true
+    },
+    "e_status_after_change": {
+      "json": {
+        "authenticated": true,
+        "must_change": false
+      },
+      "ok": true
+    },
+    "e_old_default_rejected": {
+      "status": 401,
+      "ok": true
+    },
+    "e_new_pw_unlocks": {
+      "status": 200,
+      "json": {
+        "ok": true,
+        "must_change": false
+      },
+      "ok": true
+    },
+    "d_logout_redirects": {
+      "status": 303,
+      "location": "/login",
+      "ok": true
+    }
+  },
+  "oracle": {
+    "a_unauth_redirect": true,
+    "e_first_run_status": true,
+    "b_wrong_pw_rejected": true,
+    "c_redirect_to_login": true,
+    "e_change_form_shown": true,
+    "c_cookie_set": true,
+    "e_change_lands_root": true,
+    "e_status_after_change": true,
+    "e_old_default_rejected": true,
+    "e_new_pw_unlocks": true,
+    "d_logout_redirects": true
+  },
+  "pass": true
+}
