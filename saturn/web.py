@@ -20,7 +20,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request, Header, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from .config import (
     list_service_configs,
@@ -1081,7 +1081,7 @@ async def chat(body: ChatRequest, request: Request):
 # --- Brutus API ---
 
 class BrutusChat(BaseModel):
-    messages: List[dict]
+    messages: List[dict] = Field(..., max_length=200)
     model: Optional[str] = None
     conversation_id: Optional[str] = None
     temperature: Optional[float] = None
