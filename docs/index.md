@@ -54,6 +54,28 @@ Saturn is a DNS-SD/mDNS protocol — service type `_saturn._tcp.local.` — for 
 [**Quickstart →**](getting-started/quickstart.md){ .md-button .md-button--primary }
 [**Protocol Spec →**](reference/protocol/wire-format.md){ .md-button }
 
+## Saturn on the wire
+
+Three DNS record types — PTR, SRV, TXT — carry every Saturn advertisement. There is no Saturn-specific transport, no Saturn handshake, and no Saturn registry. If you can send a UDP/5353 multicast and parse a DNS message, you can implement Saturn.
+
+```
+client                                      server (Saturn responder)
+  │                                                   │
+  │  PTR query: _saturn._tcp.local.    (224.0.0.251)  │
+  │ ───────────────────────────────────────────────► │
+  │  PTR answer: ollama._saturn._tcp.local.           │
+  │ ◄─────────────────────────────────────────────── │
+  │  SRV+TXT query: ollama._saturn._tcp.local.        │
+  │ ───────────────────────────────────────────────► │
+  │  SRV answer: macbook.local.  port 11434           │
+  │  TXT answer: version=1 api_type=openai ...        │
+  │ ◄─────────────────────────────────────────────── │
+  │  HTTP GET http://macbook.local:11434/v1/models    │
+  │ ───────────────────────────────────────────────► │
+```
+
+The first two messages are mDNS. The third is plain HTTP, not part of the Saturn protocol — Saturn ends once the client has a URL. Full byte-annotated TXT layout and a `tcpdump` capture: [Spec → Saturn on the Wire](concepts/protocol.md).
+
 ## Implementations
 
 | Language | Package | mDNS library |
@@ -79,4 +101,4 @@ Multicast DNS is a UDP/5353 protocol that lets devices on a LAN answer DNS queri
 
 ## Project status
 
-Saturn is the artifact of a master's thesis at UC Santa Cruz (Joey Perrello, advised by Adam Smith). The thesis is in submission. Citations in this documentation reference the source manuscript by line number where applicable.
+Saturn is the artifact of a master's thesis at UC Santa Cruz (Joey Perrello, advised by Adam Smith). Thesis: [*Saturn: Zero-Configuration AI Service Discovery*](https://escholarship.org/uc/item/74r4d4c5#main) (eScholarship, 2026). Citations in this documentation reference the source manuscript by line number where applicable.

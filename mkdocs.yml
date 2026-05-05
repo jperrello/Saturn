@@ -59,37 +59,29 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Quickstart: getting-started/quickstart.md
-  - Tutorial: tutorial/index.md
-  - How-To:
-    - Overview: how-to/index.md
+  - Tutorial:
+    - Overview: tutorial/index.md
+    - Quickstart: getting-started/quickstart.md
     - For ML Researchers: how-to/for-researchers.md
     - Troubleshooting: how-to/troubleshooting.md
     - FAQ: how-to/faq.md
-  - Concepts:
-    - Overview: concepts/index.md
-    - Saturn on the Wire: concepts/protocol.md
-    - mDNS Background: concepts/mdns-background.md
-  - Reference:
-    - Protocol:
-      - Wire Format: reference/protocol/wire-format.md
-      - TXT Keys: reference/protocol/txt-keys.md
-      - Discovery Flow: reference/protocol/discovery.md
-      - Beacons & Ephemeral Keys: reference/protocol/beacons.md
-      - Security Model: reference/protocol/security.md
-      - HTTP API: reference/protocol/http-api.md
-    - Clients:
-      - Go (saturnd): reference/clients/go/api.md
-      - Python (saturn-ai): reference/clients/python/api.md
-      - Rust (saturn-router): reference/clients/rust-router.md
-      - TypeScript (AI SDK): reference/clients/typescript-api.md
-      - CLI: reference/clients/cli/cli.md
-      - MCP Tools: reference/clients/mcp-tools.md
-  - Implementations: implementations/index.md
-  - Spec:
-    - Overview: spec/index.md
-    - v0.2 Proposal: spec/v0.2/proposal.md
-    - v0.2 Wire Format: spec/v0.2/wire-format.md
+    - Web UI:
+      - Overview: web-ui/overview.md
+      - Chat: web-ui/chat.md
+      - Models & Parameters: web-ui/models.md
+      - MCP Tools: web-ui/mcp-tools.md
+      - System & Monitoring: web-ui/system.md
+      - Remote Access: web-ui/remote.md
+      - Cost Tracking: web-ui/cost-tracking.md
+    - Admin:
+      - Security Runbook: admin/security.md
+    - Configuration:
+      - Service Configuration: configuration/service-config.md
+      - Config TOML Reference: configuration/config-toml.md
+      - Environment Variables: configuration/env-vars.md
+      - Priority & Failover: configuration/priority-routing.md
+      - Rate Limiting & Budgets: configuration/rate-limiting.md
+      - Cloudflare Tunnels: configuration/tunnels.md
   - Integrations:
     - Overview: integrations/index.md
     - OpenCode: integrations/opencode.md
@@ -98,20 +90,25 @@ nav:
     - VLC Extension: integrations/vlc.md
     - Open WebUI: integrations/open-webui.md
     - Jan AI: integrations/jan.md
-  - Web UI:
-    - Overview: web-ui/overview.md
-    - Chat: web-ui/chat.md
-    - Models & Parameters: web-ui/models.md
-    - MCP Tools: web-ui/mcp-tools.md
-    - System & Monitoring: web-ui/system.md
-    - Remote Access: web-ui/remote.md
-    - Cost Tracking: web-ui/cost-tracking.md
-  - Admin:
-    - Security Runbook: admin/security.md
-  - Configuration:
-    - Service Configuration: configuration/service-config.md
-    - Config TOML Reference: configuration/config-toml.md
-    - Environment Variables: configuration/env-vars.md
-    - Priority & Failover: configuration/priority-routing.md
-    - Rate Limiting & Budgets: configuration/rate-limiting.md
-    - Cloudflare Tunnels: configuration/tunnels.md
+    - Reference Clients: implementations/index.md
+  - Spec:
+    - Overview: spec/index.md
+    - Saturn on the Wire: concepts/protocol.md
+    - mDNS at the OS Level: concepts/mdns-background.md
+    - Protocol:
+      - Wire Format: reference/protocol/wire-format.md
+      - TXT Keys: reference/protocol/txt-keys.md
+      - Discovery Flow: reference/protocol/discovery.md
+      - Beacons & Ephemeral Keys: reference/protocol/beacons.md
+      - Security Model: reference/protocol/security.md
+      - HTTP API: reference/protocol/http-api.md
+    - v0.2:
+      - v0.2 Proposal: spec/v0.2/proposal.md
+      - v0.2 Wire Format: spec/v0.2/wire-format.md
+    - Client API:
+      - Go (saturnd): reference/clients/go/api.md
+      - Python (saturn-ai): reference/clients/python/api.md
+      - Rust (saturn-router): reference/clients/rust-router.md
+      - TypeScript (AI SDK): reference/clients/typescript-api.md
+      - CLI: reference/clients/cli/cli.md
+      - MCP Tools: reference/clients/mcp-tools.md

@@ -20,7 +20,7 @@ $ curl http://llama-3-8b.local:8080/v1/chat/completions \
 
 > **AI agents and LLMs:** read [AGENTS.md](AGENTS.md). **ML systems researchers:** read [docs/how-to/for-researchers.md](docs/how-to/for-researchers.md).
 
-This repository is the artifact of a master's thesis at UC Santa Cruz (Joey Perrello, advised by Adam Smith). The thesis is in submission.
+This repository is the artifact of a master's thesis at UC Santa Cruz (Joey Perrello, advised by Adam Smith). Thesis: [*Saturn: Zero-Configuration AI Service Discovery*](https://escholarship.org/uc/item/74r4d4c5#main) (eScholarship, 2026).
 
 ---
 
@@ -34,32 +34,32 @@ This repository is the artifact of a master's thesis at UC Santa Cruz (Joey Perr
 
 ## Same idea, other languages
 
-=== "Go"
+**Go**
 
-    ```bash
-    $ cd saturnd && go build -o saturnd ./cmd/saturnd
-    $ ./saturnd                                # browse + serve on :7827
-    $ curl http://localhost:7827/v1/agents     # discovered Saturn instances
-    ```
+```bash
+$ cd saturnd && go build -o saturnd ./cmd/saturnd
+$ ./saturnd                                # browse + serve on :7827
+$ curl http://localhost:7827/v1/agents     # discovered Saturn instances
+```
 
-=== "Python"
+**Python**
 
-    ```bash
-    $ pip install saturn-ai
-    $ saturn discover                          # print every advertised service
-    $ curl $(saturn endpoint)/v1/models        # call the highest-priority one
-    ```
+```bash
+$ pip install saturn-ai
+$ saturn discover                          # print every advertised service
+$ curl $(saturn endpoint)/v1/models        # call the highest-priority one
+```
 
-=== "TypeScript"
+**TypeScript**
 
-    ```ts
-    import { createSaturn } from "ai-sdk-provider-saturn";
-    const saturn = createSaturn();
-    const services = await saturn.discover({ timeout: 2000 });
-    console.log(services[0].endpoint);
-    ```
+```ts
+import { createSaturn } from "ai-sdk-provider-saturn";
+const saturn = createSaturn();
+const services = await saturn.discover({ timeout: 2000 });
+console.log(services[0].endpoint);
+```
 
-Full per-language details: [docs/implementations/](docs/implementations/index.md).
+Full per-language details: [docs/integrations/](docs/integrations/index.md).
 
 ---
 
@@ -164,6 +164,6 @@ That is the entire protocol surface. The full 30-minute walk-through, including 
 
 ## Docs · Contributing · License
 
-- Full documentation: **[docs/](docs/index.md)** (Diátaxis-shaped: Quickstart / Tutorial / How-To / Concepts / Reference / Implementations / Spec).
+- Full documentation: **[docs/](docs/index.md)** (four tabs: Home / Tutorial / Integrations / Spec).
 - Contributions merged after **2026-03-20** will not be reflected in the published thesis document.
 - License: see [LICENSE](LICENSE).

@@ -2,7 +2,7 @@
 
 A protocol-level approach to LAN-scoped AI service discovery, with a thesis behind it and a working artifact on a $20 router.
 
-> **Status.** Master's thesis (UC Santa Cruz, Joey Perrello / Adam Smith), in submission. Evaluation is analytical: cognitive walkthrough plus structured threat analysis, not user study or production telemetry. Citations below reference the source manuscript by line range.
+> **Status.** Master's thesis (UC Santa Cruz, Joey Perrello / Adam Smith). Published: [eScholarship 74r4d4c5](https://escholarship.org/uc/item/74r4d4c5#main) (2026). Evaluation is analytical: cognitive walkthrough plus structured threat analysis, not user study or production telemetry. Citations below reference the source manuscript by line range.
 
 ---
 
@@ -125,6 +125,6 @@ A fourth, smaller direction: the credential schema is currently JWT-shaped becau
 - Meli, M., McNiece, M. R., & Reaves, B. (2019). *How Bad Can It Git? Characterizing Secret Leakage in Public GitHub Repositories.* NDSS 2019.
 - Cheshire, S., & Krochmal, M. (2013). *Multicast DNS.* RFC 6762, IETF.
 - Cheshire, S., & Krochmal, M. (2013). *DNS-Based Service Discovery.* RFC 6763, IETF.
-- Perrello, J. (in submission). *Saturn: Zero-Configuration AI Service Discovery.* M.S. thesis, UC Santa Cruz. Cited inline as `Saturn.md:<lines>`.
+- Perrello, J. (2026). *Saturn: Zero-Configuration AI Service Discovery.* M.S. thesis, UC Santa Cruz. eScholarship: <https://escholarship.org/uc/item/74r4d4c5#main>. Cited inline as `Saturn.md:<lines>`.
 - Repository: <https://github.com/jperrello/Saturn>
 - Promo-push framing memo: [`SATURN_CONTEXT.md`](../SATURN_CONTEXT.md) (canonical claim list, used by the writer/demo lanes of this project).
