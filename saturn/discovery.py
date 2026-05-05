@@ -1,3 +1,4 @@
+import os
 import socket
 import subprocess
 import sys
@@ -275,6 +276,22 @@ class SaturnDiscovery:
     def stop(self):
         self._backend.stop_browse()
         self._backend.close()
+
+
+def connect_address(service: "SaturnService") -> str:
+    addrs = list(service.addresses or [])
+    if not addrs and service.host:
+        return service.host
+    v4 = [a for a in addrs if ":" not in a]
+    v6 = [a for a in addrs if ":" in a]
+    prefer_v6 = os.environ.get("SATURN_PREFER_V6", "").lower() in ("1", "true", "yes", "on")
+    if prefer_v6 and v6:
+        return v6[0]
+    if v4:
+        return v4[0]
+    if v6:
+        return v6[0]
+    return service.host
 
 
 def discover(timeout: float = 8.0, settle_time: float = 1.0, max_age: Optional[float] = None) -> List[SaturnService]:
