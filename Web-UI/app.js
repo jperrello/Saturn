@@ -4574,11 +4574,85 @@ function indexOfMsg(div) {
   return all.indexOf(div)
 }
 
+// Saturn-cbt.2.4: edit-and-regenerate flake hardening.
+//   C1: rapid save clicks coalesce to a single regen with the latest text.
+//   C2: an in-flight stream is aborted and awaited before the new send so
+//       streams can never interleave.
+//   C3: text-kind attachments (.txt/.md/.pdf-extracted/...) survive edits
+//       by re-synthesizing attachedFile from the stored wireText. Image
+//       attachments are NOT preserved — image data URLs are deliberately
+//       not persisted to chat.messages (would blow localStorage).
+//   C4: cancel does not touch chat.messages, so the original is intact.
+let _editProcessing = false
+let _pendingEdit = null
+
+function _recoverAttachmentFromWire(wireText) {
+  if (!wireText) return null
+  const m = wireText.match(/^--- File: ([^\n]+) ---\n([\s\S]*?)\n---(?:\n|$)/)
+  if (!m) return null
+  return { name: m[1], content: m[2], size: m[2].length, kind: 'text' }
+}
+
+async function _runEditProcessor() {
+  if (_editProcessing) return
+  _editProcessing = true
+  try {
+    while (_pendingEdit) {
+      const job = _pendingEdit
+      _pendingEdit = null
+
+      // Abort any active stream and wait for its finally{} to flip `sending`
+      // back to false so the new send doesn't race the old one's bookkeeping.
+      if (sending && activeController) {
+        activeController._userStopped = true
+        activeController.abort()
+        const deadline = Date.now() + 3000
+        while (sending && Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 20))
+        }
+      }
+
+      // Truncate chat.messages and DOM to the edited message's index.
+      if (activeChat !== null && chats[activeChat]) {
+        const msgs = chats[activeChat].messages
+        if (job.msgIdx >= 0 && job.msgIdx < msgs.length) {
+          msgs.length = job.msgIdx
+          saveChats()
+        }
+      }
+      let sib = job.userDiv.nextElementSibling
+      while (sib) {
+        const next = sib.nextElementSibling
+        if (sib.classList && sib.classList.contains('msg')) sib.remove()
+        sib = next
+      }
+      job.userDiv.remove()
+
+      // Restore the text attachment, if any, before send() reads attachedFile.
+      const recovered = _recoverAttachmentFromWire(job.originalWire)
+      if (recovered) {
+        attachedFile = recovered
+        presentBadge({ name: recovered.name, size: recovered.size, kind: 'text' })
+      }
+      input.value = job.text
+      await send()
+
+      // If another edit was queued while send() was running, loop continues
+      // and processes the latest text — no orphan in-flight requests.
+    }
+  } finally {
+    _editProcessing = false
+  }
+}
+
 function beginEdit(userDiv) {
   if (userDiv.querySelector('.edit-textarea')) return
   const bubble = userDiv.querySelector('.bubble')
   if (!bubble) return
   const original = bubble.textContent
+  const msgIdx = indexOfMsg(userDiv)
+  const stored = (activeChat !== null && chats[activeChat] && chats[activeChat].messages[msgIdx]) || {}
+  const originalWire = stored.wireText || null
   const ta = document.createElement('textarea')
   ta.className = 'edit-textarea'
   ta.value = original
@@ -4606,36 +4680,21 @@ function beginEdit(userDiv) {
     actions.remove()
   })
 
-  save.addEventListener('click', async () => {
+  save.addEventListener('click', () => {
     const newText = ta.value.trim()
     if (!newText) return
-    const idx = indexOfMsg(userDiv)
+    save.disabled = true
+    save.textContent = 'Regenerating…'
+    // Coalesce rapid clicks: replace the queued job with the latest text.
+    // Whatever runs latest wins; intermediate texts never reach send().
+    _pendingEdit = { text: newText, msgIdx, userDiv, originalWire }
+    // Abort any in-flight stream so the processor loop picks up the latest
+    // text immediately rather than streaming the previous edit to completion.
     if (sending && activeController) {
       activeController._userStopped = true
       activeController.abort()
-      const start = Date.now()
-      while (sending && Date.now() - start < 2000) {
-        await new Promise(r => setTimeout(r, 20))
-      }
     }
-    let sib = userDiv.nextElementSibling
-    while (sib) {
-      const next = sib.nextElementSibling
-      if (sib.classList.contains('msg')) sib.remove()
-      sib = next
-    }
-    userDiv.remove()
-    if (typeof activeChat !== 'undefined' && activeChat !== null && chats[activeChat]) {
-      const msgs = chats[activeChat].messages
-      if (idx >= 0 && idx < msgs.length) {
-        msgs.length = idx
-        saveChats()
-      }
-    }
-    if (typeof input !== 'undefined' && typeof send === 'function') {
-      input.value = newText
-      send()
-    }
+    _runEditProcessor()
   })
 }
 
