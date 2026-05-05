@@ -81,6 +81,25 @@ def main():
         except urllib.error.HTTPError as e:
             print(f"\nGET /api/admin/config: {e.code}")
 
+        # qj5.13.7 regression guard — admin_configure_route MUST require bearer.
+        # Bypass the page's Authorization header and hit the route raw.
+        import urllib.request as ur
+        print("\nno-bearer probes (must all be 401):")
+        for path in ("/admin/configure", "/configure", "/api/admin/config"):
+            try:
+                r = ur.urlopen(srv["origin"] + path, timeout=5)
+                code = r.status
+                blob = r.read().decode("utf-8", "replace")
+                leaks = [k for k in (
+                    "trusted_proxies", "cors_origins", "rate_rpm",
+                    "rate_tpm", "trusted_node_ids", "admin_token_env",
+                    "runner_token_env", "admin_password_env",
+                ) if k in blob]
+                tag = "LEAK" if leaks else "no-leak"
+                print(f"  {path:32s} {code:3d}  {tag}  fields={leaks}")
+            except urllib.error.HTTPError as e:
+                print(f"  {path:32s} {e.code:3d}  (gated)")
+
         br.close()
 
 

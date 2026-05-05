@@ -3,7 +3,7 @@
 *2026-05-05T00:43:58Z by Showboat 0.6.1*
 <!-- showboat-id: ecc96813-6752-4005-a134-7888d2ef1e2e -->
 
-**Status: shipped (commit 70f7beb, Saturn-hft v2).** Server-side AdminConfig schema lift + validators + apply hook were already in place (qj5.13 commit-1 8b1e54d; qj5.14 boot validators 26d20e1). v2 lands a server-rendered `/admin/configure` (and `/configure`) route that reads `AdminConfig.model_fields` from the live config and inlines current values into the eight `fieldset.config-section` groups. The route requires the `require_admin` bearer dependency — same gate as /api/admin/*.
+**Status: shipped (commit 70f7beb, Saturn-hft v2). Open regression: qj5.13.7 P1.** Server-side AdminConfig schema lift + validators + apply hook were in place (qj5.13 commit-1 8b1e54d; qj5.14 boot validators 26d20e1). v2 lands a server-rendered `/admin/configure` (and `/configure`) route that reads `AdminConfig.model_fields` from the live config and inlines current values into the eight `fieldset.config-section` groups. **The route was supposed to require the `require_admin` bearer dependency; geoff caught at b38b4af that Saturn-6sb dropped that `Depends(require_admin)`. The route now SSR-leaks admin posture (trusted_proxies, CIDRs, cors_origins, env-var names, rate_*) to any LAN peer with no authentication.** Hardener pivoting to qj5.13.7 to restore the gate. The probe below now carries a no-bearer regression guard so the same leak never resurfaces.
 
 ## The user-trust angle
 
@@ -92,3 +92,32 @@ GET /api/admin/config (post-seed): rate_rpm=137
 - Probe wiring: `page.context.set_extra_http_headers({Authorization: Bearer <token>})` is required for top-level navigations to /admin/configure (the route checks the bearer; no SPA fallback). `add_init_script` continues to wire window.fetch for any client-side calls. See demo/recordings/_capture_admin_lib.py.
 
 - Test surface: `saturn/tests/test_configure_page_ui.py` (5 v2 HTTP+HTML tests, 5/5 GREEN per hardener transcript).
+
+## Regression guard — qj5.13.7 (no-bearer SSR leak)
+
+After geoff's review, the probe also fires three raw `urllib` requests with NO Authorization header against `/admin/configure`, `/configure`, and `/api/admin/config`. All three must return **401**. Today `/admin/configure` and `/configure` return 200 with the full admin posture inlined — that is exactly the qj5.13.7 leak.
+
+```bash
+bash demo/recordings/qj5.hft_probe.sh 2>&1 | tail -6
+```
+
+```output
+GET /api/admin/config (post-seed): rate_rpm=137
+
+no-bearer probes (must all be 401):
+  /admin/configure                 200  LEAK  fields=['trusted_proxies', 'cors_origins', 'rate_rpm', 'rate_tpm', 'trusted_node_ids', 'admin_token_env', 'runner_token_env', 'admin_password_env']
+  /configure                       200  LEAK  fields=['trusted_proxies', 'cors_origins', 'rate_rpm', 'rate_tpm', 'trusted_node_ids', 'admin_token_env', 'runner_token_env', 'admin_password_env']
+  /api/admin/config                401  (gated)
+```
+
+## What the post-fix matrix should look like
+
+    no-bearer probes (must all be 401):
+
+      /admin/configure                 401  (gated)
+
+      /configure                       401  (gated)
+
+      /api/admin/config                401  (gated)
+
+Once qj5.13.7 restores `Depends(require_admin)` on `admin_configure_route` (`saturn/web.py:1525`), rerun the probe — all three lines should read 401, and `uvx showboat verify` against this snapshot will surface any future drop of the gate as a non-zero verify exit.
