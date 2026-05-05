@@ -9,7 +9,7 @@ import logging
 import socket
 import sqlite3
 import json
-from collections import deque
+from collections import deque, OrderedDict
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional, List
@@ -146,9 +146,57 @@ def _config_to_dict(name: str, config: ServiceConfig, builtin: bool) -> dict:
 # --- Brutus state ---
 
 _breakers: dict[str, dict] = {}  # name -> {failures, opened_at, health_fails}
-_failover_state: dict[str, str] = {}  # conversation_id -> peer_name (sticky)
 _failover_hysteresis: dict = {"name": None, "at": 0.0}  # last peer used when no convo_id
 HYSTERESIS_S = 30.0
+MAX_STICKY = 10000
+STICKY_TTL_S = 3600.0
+
+
+class _StickyMap(OrderedDict):
+    def _ttl(self):
+        return globals().get("STICKY_TTL_S", 3600.0)
+
+    def _purge_expired(self):
+        cutoff = time.time() - self._ttl()
+        for k in list(OrderedDict.keys(self)):
+            ts, _ = OrderedDict.__getitem__(self, k)
+            if ts < cutoff:
+                OrderedDict.__delitem__(self, k)
+            else:
+                break
+
+    def __setitem__(self, key, value):
+        self._purge_expired()
+        OrderedDict.__setitem__(self, key, (time.time(), value))
+        OrderedDict.move_to_end(self, key)
+        cap = globals().get("MAX_STICKY", 10000)
+        while len(self) > cap:
+            OrderedDict.popitem(self, last=False)
+
+    def __contains__(self, key):
+        if not OrderedDict.__contains__(self, key):
+            return False
+        ts, _ = OrderedDict.__getitem__(self, key)
+        return time.time() - ts <= self._ttl()
+
+    def get(self, key, default=None):
+        if not OrderedDict.__contains__(self, key):
+            return default
+        ts, value = OrderedDict.__getitem__(self, key)
+        if time.time() - ts > self._ttl():
+            return default
+        return value
+
+    def __getitem__(self, key):
+        if not OrderedDict.__contains__(self, key):
+            raise KeyError(key)
+        ts, value = OrderedDict.__getitem__(self, key)
+        if time.time() - ts > self._ttl():
+            raise KeyError(key)
+        return value
+
+
+_failover_state = _StickyMap()  # conversation_id -> peer_name (sticky), bounded
 _health: dict[str, bool] = {}
 _tunnel_proc: Optional[asyncio.subprocess.Process] = None
 _tunnel_url: Optional[str] = None
