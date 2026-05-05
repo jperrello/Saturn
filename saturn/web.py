@@ -1553,7 +1553,7 @@ async def forget_known_node(body: ForgetBody, _=Depends(require_admin)):
 @app.get("/admin/configure")
 @app.get("/configure")
 @app.get("/admin/services")
-async def admin_configure_route():
+async def admin_configure_route(_=Depends(require_admin)):
     import html as _html
     import re as _re
     from fastapi.responses import HTMLResponse
