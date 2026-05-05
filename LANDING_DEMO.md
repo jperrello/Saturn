@@ -91,6 +91,19 @@ add_init_script + page.route auth wrapper).
 | cbt.2.a.ui | Saturn-3t8 | [`cbt.2.a.ui-longstream.md`](demo/recordings/cbt.2.a.ui-longstream.md) | Bombadil/Playwright proof that the chat tab stays interactive across a 70 s long-stream turn: `ttfb=2.94 s`, `timer.p99=7.3 ms`, monotonic bubble + scroll, send button recovers, zero console errors. Final-frame screenshot embedded. |
 | cbt.2.b | Saturn-6g1 | [`cbt.2.b-attachments.md`](demo/recordings/cbt.2.b-attachments.md) | Bombadil/Playwright proof for the `+`-menu attachment flow: allowed/disallowed file types, exact 100 KB boundary (=100 KB accepted, +1 byte rejected), `+` → attach hides menu, badge → remove clears input. All 7 oracle bullets green. |
 
+### Wave 2 — integrate beads (12/12 tests green)
+
+| Bead | Commit | Artifact | Headline |
+|------|--------|----------|----------|
+| cbt.3.d.sweep | `c53760c` (Saturn-an5) | [`cbt.3.d.sweep-stale.md`](demo/recordings/cbt.3.d.sweep-stale.md) | `SaturnDiscovery.sweep_stale(max_age)` — in-memory eviction half of DISCOVERY_AUDIT (d). Pops every `last_seen < now - max_age` entry under `self.lock`; returns evicted `node_id` list. Health-driven sweep still tracks under cbt.3.d.sweep.health. |
+| cbt.5.1 | `b6b184f` (Saturn-5yh) | [`cbt.5.1-api-discover-isolation.md`](demo/recordings/cbt.5.1-api-discover-isolation.md) | `GET /api/discover` now returns `{services, isolation}` per §17.G.1.3; `isolation` is `IsolationProbe.asdict()` from a once-per-request `run_in_executor` probe. Web-UI/app.js bumps to read `body.services` and caches `window.saturnIsolation` for the cbt.5.1.ui render bead. |
+| cbt.6.userspace | `78b0a64` (Saturn-pcj) | [`cbt.6.userspace-multi-addr.md`](demo/recordings/cbt.6.userspace-multi-addr.md) | `UserspaceBackend.advertise()` now binds every `routable_addrs()` result instead of a single `get_lan_ip()`; falls back to `[get_lan_ip()]` when nothing routable. Multi-NIC hosts publish one A per routable address — clients on the other interface finally see the service. |
+| cbt.7.resolve | `0ccab52` (Saturn-1xh) | [`cbt.7.resolve-userspace.md`](demo/recordings/cbt.7.resolve-userspace.md) | Userspace `_resolve()` walks `addresses_by_version(IPVersion.All)` and dispatches per family (`inet_ntoa` / `inet_ntop(AF_INET6)`). `ServiceRecord.addresses` carries the full v4+v6 list; `host` stays first entry for back-compat. Bonjour/Avahi resolve plumbing tracks separately. |
+| cbt.7.advertise | `e7b6adf` (Saturn-9rv) | [`cbt.7.advertise-dual-stack.md`](demo/recordings/cbt.7.advertise-dual-stack.md) | `routable_addrs(family='v4'\|'v6'\|'both')` extends the cbt.6 helper; `UserspaceBackend.advertise()` packs A + AAAA into one Zeroconf `ServiceInfo`. Publish-side counterpart to cbt.7.resolve. |
+| cbt.7.dedup | `189a86d` (Saturn-7sg) | [`cbt.7.dedup-merge.md`](demo/recordings/cbt.7.dedup-merge.md) | `_to_service()` populates `addresses` + `ipv6` from `ServiceRecord.addresses`; `_add()` merges into existing entries by `node_id` instead of overwriting. Dual-stack peers no longer appear twice in `discover()` — kills the duplicate-priority / phantom-failover-slot bug. |
+| cbt.7.prefer | `3a2cc30` (Saturn-76f) | [`cbt.7.prefer-v6.md`](demo/recordings/cbt.7.prefer-v6.md) | `saturn.discovery.connect_address(service)` returns the dial address; default = first IPv4, `SATURN_PREFER_V6=1` flips to v6 when both families present, falls back to v4 when only v4 advertised. 3/3 prongs. |
+| cbt.8.integrate | `6df7367` (Saturn-bfx) | [`cbt.8.integrate-mtrunc.md`](demo/recordings/cbt.8.integrate-mtrunc.md) | `SaturnAdvertiser._properties()` joins models + capabilities raw, then prunes (model → capability → features) until `txt.validate()` passes; records dropped count under `mtrunc=`. Unprunable bloat raises `TxtTooLarge` at register time. Wires the cbt.8 ceiling into the advertiser path. |
+
 ## How to use this on re-entry
 
 1. **`bash tests/harness/run.sh`** — smoke the harness against the
