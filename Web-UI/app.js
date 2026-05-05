@@ -1,3 +1,24 @@
+// Saturn-n5h: attach admin bearer to /api/admin/* and /api/usage/* fetches
+;(function () {
+  const ADMIN_PATHS = /\/api\/(admin|usage)(\/|$)/
+  const _origFetch = window.fetch.bind(window)
+  window.fetch = function (url, opts) {
+    try {
+      const u = typeof url === 'string' ? url : (url && url.url) || ''
+      if (ADMIN_PATHS.test(u)) {
+        const tok = sessionStorage.getItem('saturn-admin-token')
+        if (tok) {
+          opts = opts || {}
+          const h = new Headers(opts.headers || {})
+          if (!h.has('Authorization')) h.set('Authorization', 'Bearer ' + tok)
+          opts.headers = h
+        }
+      }
+    } catch { /* ignore */ }
+    return _origFetch(url, opts)
+  }
+})()
+
 import * as THREE from 'three'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
@@ -1043,6 +1064,10 @@ async function tryAdminAuth() {
     if (res.ok) {
       adminUnlocked = true
       sessionStorage.setItem('saturn-admin', '1')
+      try {
+        const body = await res.json()
+        if (body && body.token) sessionStorage.setItem('saturn-admin-token', body.token)
+      } catch { /* ignore */ }
       showAdminState()
     } else {
       toast('Wrong password')

@@ -97,13 +97,22 @@ def _check_tls_pair() -> List[str]:
 
 def _check_trusted_proxies_cidrs(cfg: dict) -> List[str]:
     import ipaddress
-    errs: List[str] = []
-    for p in cfg.get("trusted_proxies") or []:
+    import sys as _sys
+    entries = cfg.get("trusted_proxies") or []
+    if not entries:
+        return []
+    bad, good = [], 0
+    for p in entries:
         try:
             ipaddress.ip_network(p, strict=False)
+            good += 1
         except Exception:
-            errs.append(f"trusted_proxies entry invalid CIDR: {p!r}")
-    return errs
+            bad.append(p)
+    for p in bad:
+        print(f"saturn: warning: trusted_proxies skipping invalid CIDR {p!r}", file=_sys.stderr)
+    if bad and good == 0:
+        return [f"trusted_proxies all entries invalid (CIDR parse failed): {bad!r}"]
+    return []
 
 
 def _check_cors_no_wildcard(cfg: dict) -> List[str]:

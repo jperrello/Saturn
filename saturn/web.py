@@ -252,8 +252,39 @@ def _ip_sem(ip: str) -> asyncio.Semaphore:
     return _ip_semaphores[ip]
 
 
+_trusted_nets: list = []
+
+
+def _set_trusted_proxies(cidrs):
+    import ipaddress
+    global _trusted_nets
+    nets = []
+    for c in cidrs or []:
+        try:
+            nets.append(ipaddress.ip_network(c, strict=False))
+        except Exception:
+            logger.warning(f"trusted_proxies: skipping invalid CIDR {c!r}")
+    _trusted_nets = nets
+
+
 def _client_ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+    import ipaddress
+    peer = request.client.host if request.client else "unknown"
+    if not _trusted_nets:
+        return peer
+    try:
+        peer_ip = ipaddress.ip_address(peer)
+    except Exception:
+        return peer
+    if not any(peer_ip in n for n in _trusted_nets):
+        return peer
+    xff = request.headers.get("x-forwarded-for")
+    if not xff:
+        return peer
+    parts = [p.strip() for p in xff.split(",") if p.strip()]
+    if not parts:
+        return peer
+    return parts[-1]
 
 
 def _check_rate(ip: str) -> Optional[JSONResponse]:
@@ -426,7 +457,8 @@ class AdminAuth(BaseModel):
 async def admin_auth(body: AdminAuth):
     if body.password != ADMIN_PASSWORD:
         raise HTTPException(401, "Invalid password")
-    return {"ok": True}
+    token = os.environ.get(ADMIN_TOKEN_ENV, "")
+    return {"ok": True, "token": token}
 
 
 # --- API Routes ---
@@ -1513,6 +1545,7 @@ def apply_admin_config(cfg: dict) -> None:
         RATE_CONCURRENT_PER_IP = cfg["rate_concurrent_per_ip"]
         _ip_semaphores.clear()
     _apply_trust_policy(cfg)
+    _set_trusted_proxies(cfg.get("trusted_proxies") or [])
     _reclassify_discovered()
 
 
@@ -1728,13 +1761,21 @@ def _check_tls_pair() -> List[str]:
 
 def _check_trusted_proxies_cidrs(cfg: dict) -> List[str]:
     import ipaddress
-    errs: List[str] = []
-    for p in cfg.get("trusted_proxies") or []:
+    entries = cfg.get("trusted_proxies") or []
+    if not entries:
+        return []
+    bad, good = [], 0
+    for p in entries:
         try:
             ipaddress.ip_network(p, strict=False)
+            good += 1
         except Exception:
-            errs.append(f"trusted_proxies entry invalid CIDR: {p!r}")
-    return errs
+            bad.append(p)
+    for p in bad:
+        logger.warning(f"trusted_proxies skipping invalid CIDR {p!r}")
+    if bad and good == 0:
+        return [f"trusted_proxies all entries invalid (CIDR parse failed): {bad!r}"]
+    return []
 
 
 def _check_cors_no_wildcard(cfg: dict) -> List[str]:
@@ -1770,4 +1811,4 @@ def main(host: str = "0.0.0.0", port: int = 3000):
         if os.environ.get("SATURN_DEV_MODE") != "1":
             sys.exit(1)
     print(f"Saturn Web UI -> http://localhost:{port}")
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(app, host=host, port=port, forwarded_allow_ips=[])
