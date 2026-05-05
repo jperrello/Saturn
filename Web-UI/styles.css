@@ -3462,3 +3462,38 @@ input[type="range"]::-webkit-slider-runnable-track {
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* Saturn-c7z: kill native number-spinner UI everywhere */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+
+/* Saturn-c7z: info bubble — short description on click */
+.info-bubble {
+  display: inline-block;
+  margin-left: 4px;
+  width: 14px; height: 14px;
+  line-height: 14px;
+  text-align: center;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.08);
+  color: #aab;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  vertical-align: 1px;
+}
+.info-bubble:hover { background: rgba(255,255,255,0.15); color: #fff; }
+.info-pop {
+  position: absolute;
+  z-index: 10000;
+  background: #1a1a26;
+  border: 1px solid #2a2a36;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #ddd;
+  max-width: 280px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+}

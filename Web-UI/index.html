@@ -125,12 +125,12 @@
         <fieldset class="config-section admin-section" data-admin-group="A1">
           <legend>General — Model filter &amp; Budget</legend>
           <label>Model filter <input id="ac-model_filter" type="text"></label>
-          <label>Max budget <input id="ac-max_budget" type="number" step="0.01"></label>
+          <label>Max budget <input id="ac-max_budget" type="text" inputmode="decimal" step="0.01"></label>
           <label>Budget duration <input id="ac-budget_duration" type="text"></label>
         </fieldset>
         <fieldset class="config-section admin-section" data-admin-group="A2">
           <legend>Authentication — Tokens &amp; Session</legend>
-          <label>Admin session TTL (seconds) <input id="ac-admin_session_ttl_s" type="number"></label>
+          <label>Admin session TTL (seconds) <input id="ac-admin_session_ttl_s" type="text" inputmode="decimal"></label>
           <label>Admin token env <input id="ac-admin_token_env" type="text"></label>
           <label>Runner token env <input id="ac-runner_token_env" type="text"></label>
           <label>Admin password env <input id="ac-admin_password_env" type="text"></label>
@@ -139,22 +139,22 @@
           <legend>Network posture — Bind, TLS, CORS</legend>
           <label>Bind host <input id="ac-bind_host" type="text"></label>
           <label>Runner bind host <input id="ac-runner_bind_host" type="text"></label>
-          <label>Trusted proxies (CIDRs, comma-separated) <input id="ac-trusted_proxies" type="text"></label>
-          <label>CORS origins (comma-separated) <input id="ac-cors_origins" type="text"></label>
+          <label data-info="IPv4/IPv6 CIDRs (e.g. 10.0.0.0/8, fd00::/8). Saturn will trust X-Forwarded-For only from these networks.">Trusted proxies (CIDRs, comma-separated) <input id="ac-trusted_proxies" type="text"></label>
+          <label data-info="Comma-separated origin URLs allowed to call the API (CORS). Wildcard '*' is rejected unless SATURN_DEV_MODE=1.">CORS origins (comma-separated) <input id="ac-cors_origins" type="text"></label>
         </fieldset>
         <fieldset class="config-section admin-section" data-admin-group="A4">
           <legend>Rate limits &amp; Throughput</legend>
-          <label>Rate rpm (requests per minute) <input id="ac-rate_rpm" type="number"></label>
-          <label>Rate tpm (tokens per minute) <input id="ac-rate_tpm" type="number"></label>
-          <label>Rate concurrent per IP <input id="ac-rate_concurrent_per_ip" type="number"></label>
-          <label>Max budget USD <input id="ac-max_budget_usd" type="number" step="0.01"></label>
+          <label>Rate rpm (requests per minute) <input id="ac-rate_rpm" type="text" inputmode="decimal"></label>
+          <label>Rate tpm (tokens per minute) <input id="ac-rate_tpm" type="text" inputmode="decimal"></label>
+          <label>Rate concurrent per IP <input id="ac-rate_concurrent_per_ip" type="text" inputmode="decimal"></label>
+          <label>Max budget USD <input id="ac-max_budget_usd" type="text" inputmode="decimal" step="0.01"></label>
           <label>Budget period <input id="ac-budget_period" type="text"></label>
-          <label>Per-IP max budget USD <input id="ac-per_ip_max_budget_usd" type="number" step="0.01"></label>
-          <label>Beacon max budget USD (default for new beacon services) <input id="ac-beacon_max_budget_usd" type="number" step="0.01"></label>
+          <label>Per-IP max budget USD <input id="ac-per_ip_max_budget_usd" type="text" inputmode="decimal" step="0.01"></label>
+          <label>Beacon max budget USD (default for new beacon services) <input id="ac-beacon_max_budget_usd" type="text" inputmode="decimal" step="0.01"></label>
         </fieldset>
         <fieldset class="config-section admin-section" data-admin-group="A5">
           <legend>Endpoint policy — Public routes</legend>
-          <label>Public routes (comma-separated) <input id="ac-public_routes" type="text"></label>
+          <label data-info="HTTP paths reachable without admin auth. Defaults are /v1/health and /v1/models. Be careful adding more — public routes bypass the bearer/session gate.">Public routes (comma-separated) <input id="ac-public_routes" type="text"></label>
           <label>Require auth on /v1 <input id="ac-require_auth_on_v1" type="checkbox"></label>
         </fieldset>
         <fieldset class="config-section admin-section" data-admin-group="A6">
@@ -164,8 +164,8 @@
         </fieldset>
         <fieldset class="config-section admin-section" data-admin-group="A7">
           <legend>MCP — allowed URLs &amp; auth env</legend>
-          <label>MCP allowed URLs (comma-separated) <input id="ac-mcp_allowed_urls" type="text"></label>
-          <label>MCP auth token envs (JSON) <input id="ac-mcp_auth_token_envs" type="text"></label>
+          <label data-info="Allowlist of MCP server URLs. Only these hosts can be added via the chat UI's MCP popup. Empty list = block all.">MCP allowed URLs (comma-separated) <input id="ac-mcp_allowed_urls" type="text"></label>
+          <label data-info='JSON map of env var names that supply tokens for outbound MCP servers, e.g. {"github":"GH_TOKEN"}.'>MCP auth token envs (JSON) <input id="ac-mcp_auth_token_envs" type="text"></label>
         </fieldset>
         <fieldset class="config-section admin-section" data-admin-group="A8">
           <legend>Service identity — Trust mode &amp; Node IDs</legend>
@@ -176,7 +176,7 @@
               <option value="open">open</option>
             </select>
           </label>
-          <label>Trusted node IDs (UUIDs, comma-separated) <input id="ac-trusted_node_ids" type="text"></label>
+          <label data-info="Per-service UUIDs that Saturn will accept under allowlist trust mode. Format: name=UUID, separated by commas.">Trusted node IDs (UUIDs, comma-separated) <input id="ac-trusted_node_ids" type="text"></label>
         </fieldset>
         <fieldset class="config-section admin-section known-nodes-editor" data-admin-group="known-nodes">
           <legend>Known nodes — pinned &amp; pending rejections</legend>
@@ -200,8 +200,8 @@
             <label>API key — env var NAME (never the key value) <input id="cfg-api-key-env" name="api_key_env" type="text" placeholder="OPENROUTER_API_KEY"></label>
             <label>Deployment <select id="cfg-deployment" name="deployment"><option value="local">local</option><option value="network">network</option><option value="cloud">cloud</option></select></label>
             <label>API type <select id="cfg-api-type" name="api_type"><option value="ollama">ollama</option><option value="openai">openai</option></select></label>
-            <label>Priority <input id="cfg-priority" name="priority" type="number" value="50"></label>
-            <label>Max budget USD <input id="cfg-max-budget-usd" name="max_budget_usd" type="number" step="0.01"></label>
+            <label>Priority <input id="cfg-priority" name="priority" type="text" inputmode="decimal" value="50"></label>
+            <label>Max budget USD <input id="cfg-max-budget-usd" name="max_budget_usd" type="text" inputmode="decimal" step="0.01"></label>
             <label>Require runner token <input id="cfg-require-runner-token" name="require_runner_token" type="checkbox"></label>
             <button id="per-service-save" class="btn">Save</button>
             <button id="per-service-cancel" class="btn btn-secondary">Cancel</button>
@@ -261,7 +261,7 @@
                   </label>
                   <label>
                     Port <span class="required">*</span>
-                    <input type="number" id="cfg-net-port" min="1" max="65535" placeholder="8080">
+                    <input type="text" inputmode="decimal" id="cfg-net-port" min="1" max="65535" placeholder="8080">
                   </label>
                 </div>
               </fieldset>
@@ -272,12 +272,12 @@
                 <div id="advanced-fields">
                   <label>
                     Priority
-                    <input type="number" id="cfg-priority" min="0" max="100" value="10" placeholder="10">
+                    <input type="text" inputmode="decimal" id="cfg-priority" min="0" max="100" value="10" placeholder="10">
                   </label>
                   <div id="cloud-advanced-fields">
                     <label>
                       Advertise Port
-                      <input type="number" id="cfg-adv-port" min="1" max="65535" placeholder="8400">
+                      <input type="text" inputmode="decimal" id="cfg-adv-port" min="1" max="65535" placeholder="8400">
                     </label>
                     <label>
                       Ephemeral Keys
@@ -290,15 +290,15 @@
                       </label>
                       <label>
                         Spending Limit
-                        <input type="number" id="cfg-spend-limit" min="0" value="0" placeholder="0">
+                        <input type="text" inputmode="decimal" id="cfg-spend-limit" min="0" value="0" placeholder="0">
                       </label>
                       <label>
                         Rotation Interval
-                        <input type="number" id="cfg-rotation" min="0" value="300" placeholder="300">
+                        <input type="text" inputmode="decimal" id="cfg-rotation" min="0" value="300" placeholder="300">
                       </label>
                       <label>
                         Expiration Interval
-                        <input type="number" id="cfg-expiration" min="0" value="600" placeholder="600">
+                        <input type="text" inputmode="decimal" id="cfg-expiration" min="0" value="600" placeholder="600">
                       </label>
                     </div>
                   </div>
@@ -780,7 +780,7 @@
             </div>
             <button class="param-toggle" data-default="true">Default</button>
             <div class="param-controls hidden">
-              <input type="number" min="0" max="1000" step="0.01" value="0">
+              <input type="text" inputmode="decimal" min="0" max="1000" step="0.01" value="0">
             </div>
           </div>
           <div class="budget-summary" id="budget-summary"></div>
@@ -812,7 +812,7 @@
             <button class="param-toggle" data-default="true">Default</button>
             <div class="param-controls hidden">
               <input type="range" min="0" max="2" step="0.05" value="0.8">
-              <input type="number" min="0" max="2" step="0.05" value="0.8">
+              <input type="text" inputmode="decimal" min="0" max="2" step="0.05" value="0.8">
             </div>
           </div>
           <div class="param-row" data-param="max_tokens">
@@ -823,7 +823,7 @@
             <button class="param-toggle" data-default="true">Default</button>
             <div class="param-controls hidden">
               <input type="range" min="1" max="32768" step="1" value="4096">
-              <input type="number" min="1" max="32768" step="1" value="4096">
+              <input type="text" inputmode="decimal" min="1" max="32768" step="1" value="4096">
             </div>
           </div>
           <div class="param-row" data-param="top_p">
@@ -834,7 +834,7 @@
             <button class="param-toggle" data-default="true">Default</button>
             <div class="param-controls hidden">
               <input type="range" min="0" max="1" step="0.01" value="0.9">
-              <input type="number" min="0" max="1" step="0.01" value="0.9">
+              <input type="text" inputmode="decimal" min="0" max="1" step="0.01" value="0.9">
             </div>
           </div>
           <div class="param-row" data-param="top_k">
@@ -845,7 +845,7 @@
             <button class="param-toggle" data-default="true">Default</button>
             <div class="param-controls hidden">
               <input type="range" min="0" max="1000" step="1" value="40">
-              <input type="number" min="0" max="1000" step="1" value="40">
+              <input type="text" inputmode="decimal" min="0" max="1000" step="1" value="40">
             </div>
           </div>
           <div class="param-row" data-param="frequency_penalty">
@@ -856,7 +856,7 @@
             <button class="param-toggle" data-default="true">Default</button>
             <div class="param-controls hidden">
               <input type="range" min="-2" max="2" step="0.05" value="0">
-              <input type="number" min="-2" max="2" step="0.05" value="0">
+              <input type="text" inputmode="decimal" min="-2" max="2" step="0.05" value="0">
             </div>
           </div>
           <div class="param-row" data-param="presence_penalty">
@@ -867,7 +867,7 @@
             <button class="param-toggle" data-default="true">Default</button>
             <div class="param-controls hidden">
               <input type="range" min="-2" max="2" step="0.05" value="0">
-              <input type="number" min="-2" max="2" step="0.05" value="0">
+              <input type="text" inputmode="decimal" min="-2" max="2" step="0.05" value="0">
             </div>
           </div>
         </div>
@@ -884,7 +884,7 @@
               <button class="param-toggle" data-default="true">Default</button>
               <div class="param-controls hidden">
                 <input type="range" min="-2" max="2" step="0.05" value="1.1">
-                <input type="number" min="-2" max="2" step="0.05" value="1.1">
+                <input type="text" inputmode="decimal" min="-2" max="2" step="0.05" value="1.1">
               </div>
             </div>
             <div class="param-row" data-param="repeat_last_n">
@@ -895,7 +895,7 @@
               <button class="param-toggle" data-default="true">Default</button>
               <div class="param-controls hidden">
                 <input type="range" min="-1" max="128" step="1" value="64">
-                <input type="number" min="-1" max="128" step="1" value="64">
+                <input type="text" inputmode="decimal" min="-1" max="128" step="1" value="64">
               </div>
             </div>
             <div class="param-row" data-param="min_p">
@@ -906,7 +906,7 @@
               <button class="param-toggle" data-default="true">Default</button>
               <div class="param-controls hidden">
                 <input type="range" min="0" max="1" step="0.01" value="0">
-                <input type="number" min="0" max="1" step="0.01" value="0">
+                <input type="text" inputmode="decimal" min="0" max="1" step="0.01" value="0">
               </div>
             </div>
             <div class="param-row" data-param="seed">
@@ -916,7 +916,7 @@
               </div>
               <button class="param-toggle" data-default="true">Default</button>
               <div class="param-controls hidden">
-                <input type="number" min="-1" max="2147483647" step="1" value="-1" style="width:100%">
+                <input type="text" inputmode="decimal" min="-1" max="2147483647" step="1" value="-1" style="width:100%">
               </div>
             </div>
             <div class="param-row" data-param="stop">
@@ -937,7 +937,7 @@
               <button class="param-toggle" data-default="true">Default</button>
               <div class="param-controls hidden">
                 <input type="range" min="0" max="2" step="1" value="0">
-                <input type="number" min="0" max="2" step="1" value="0">
+                <input type="text" inputmode="decimal" min="0" max="2" step="1" value="0">
               </div>
             </div>
             <div class="param-row" data-param="mirostat_tau">
@@ -948,7 +948,7 @@
               <button class="param-toggle" data-default="true">Default</button>
               <div class="param-controls hidden">
                 <input type="range" min="0" max="10" step="0.1" value="5.0">
-                <input type="number" min="0" max="10" step="0.1" value="5.0">
+                <input type="text" inputmode="decimal" min="0" max="10" step="0.1" value="5.0">
               </div>
             </div>
             <div class="param-row" data-param="mirostat_eta">
@@ -959,7 +959,7 @@
               <button class="param-toggle" data-default="true">Default</button>
               <div class="param-controls hidden">
                 <input type="range" min="0" max="1" step="0.01" value="0.1">
-                <input type="number" min="0" max="1" step="0.01" value="0.1">
+                <input type="text" inputmode="decimal" min="0" max="1" step="0.01" value="0.1">
               </div>
             </div>
             <div class="param-row" data-param="tfs_z">
@@ -970,7 +970,7 @@
               <button class="param-toggle" data-default="true">Default</button>
               <div class="param-controls hidden">
                 <input type="range" min="0" max="1" step="0.01" value="1.0">
-                <input type="number" min="0" max="1" step="0.01" value="1.0">
+                <input type="text" inputmode="decimal" min="0" max="1" step="0.01" value="1.0">
               </div>
             </div>
             <div class="param-row" data-param="typical_p">
@@ -981,7 +981,7 @@
               <button class="param-toggle" data-default="true">Default</button>
               <div class="param-controls hidden">
                 <input type="range" min="0" max="1" step="0.01" value="1.0">
-                <input type="number" min="0" max="1" step="0.01" value="1.0">
+                <input type="text" inputmode="decimal" min="0" max="1" step="0.01" value="1.0">
               </div>
             </div>
           </div>
@@ -999,7 +999,7 @@
               <button class="param-toggle" data-default="true">Default</button>
               <div class="param-controls hidden">
                 <input type="range" min="256" max="131072" step="256" value="2048">
-                <input type="number" min="256" max="131072" step="256" value="2048">
+                <input type="text" inputmode="decimal" min="256" max="131072" step="256" value="2048">
               </div>
             </div>
             <div class="param-row" data-param="num_batch">
@@ -1010,7 +1010,7 @@
               <button class="param-toggle" data-default="true">Default</button>
               <div class="param-controls hidden">
                 <input type="range" min="256" max="8192" step="256" value="512">
-                <input type="number" min="256" max="8192" step="256" value="512">
+                <input type="text" inputmode="decimal" min="256" max="8192" step="256" value="512">
               </div>
             </div>
             <div class="param-row" data-param="keep_alive">

@@ -4702,3 +4702,43 @@ document.getElementById('kn-refresh')?.addEventListener('click', loadKnownNodes)
 if (document.getElementById('kn-pinned-list') || document.getElementById('kn-rejections-list')) {
   loadKnownNodes()
 }
+
+// Saturn-c7z: render (i) info bubble next to any [data-info] label.
+;(function () {
+  function renderBubbles() {
+    document.querySelectorAll('label[data-info]').forEach(lab => {
+      if (lab.querySelector('.info-bubble')) return
+      const text = lab.getAttribute('data-info') || ''
+      const b = document.createElement('span')
+      b.className = 'info-bubble'
+      b.setAttribute('role', 'button')
+      b.setAttribute('aria-label', 'More info')
+      b.textContent = 'i'
+      b.addEventListener('click', e => {
+        e.preventDefault()
+        e.stopPropagation()
+        document.querySelectorAll('.info-pop').forEach(p => p.remove())
+        const pop = document.createElement('div')
+        pop.className = 'info-pop'
+        pop.textContent = text
+        document.body.appendChild(pop)
+        const r = b.getBoundingClientRect()
+        pop.style.top = (r.bottom + window.scrollY + 4) + 'px'
+        pop.style.left = Math.max(8, r.left + window.scrollX - 120) + 'px'
+        const close = ev => {
+          if (!pop.contains(ev.target) && ev.target !== b) {
+            pop.remove()
+            document.removeEventListener('click', close, true)
+          }
+        }
+        setTimeout(() => document.addEventListener('click', close, true), 0)
+      })
+      lab.appendChild(b)
+    })
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', renderBubbles)
+  } else {
+    renderBubbles()
+  }
+})()
