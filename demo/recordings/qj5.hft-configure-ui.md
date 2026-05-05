@@ -3,7 +3,7 @@
 *2026-05-05T00:43:58Z by Showboat 0.6.1*
 <!-- showboat-id: ecc96813-6752-4005-a134-7888d2ef1e2e -->
 
-**Status: shipped (commit 70f7beb, Saturn-hft v2). Open regression: qj5.13.7 P1.** Server-side AdminConfig schema lift + validators + apply hook were in place (qj5.13 commit-1 8b1e54d; qj5.14 boot validators 26d20e1). v2 lands a server-rendered `/admin/configure` (and `/configure`) route that reads `AdminConfig.model_fields` from the live config and inlines current values into the eight `fieldset.config-section` groups. **The route was supposed to require the `require_admin` bearer dependency; geoff caught at b38b4af that Saturn-6sb dropped that `Depends(require_admin)`. The route now SSR-leaks admin posture (trusted_proxies, CIDRs, cors_origins, env-var names, rate_*) to any LAN peer with no authentication.** Hardener pivoting to qj5.13.7 to restore the gate. The probe below now carries a no-bearer regression guard so the same leak never resurfaces.
+**Status: shipped (commit 70f7beb, Saturn-hft v2). Regression caught + fixed at qj5.13.7 (commit 3a27eeb).** Server-side AdminConfig schema lift + validators + apply hook were in place (qj5.13 commit-1 8b1e54d; qj5.14 boot validators 26d20e1). v2 lands a server-rendered `/admin/configure` (and `/configure`) route that reads `AdminConfig.model_fields` from the live config and inlines current values into the eight `fieldset.config-section` groups. The route requires the `require_admin` bearer dependency. **Saturn-6sb (b38b4af) accidentally dropped the dependency; geoff caught the SSR leak at review; qj5.13.7 (3a27eeb) restored it.** The probe carries a permanent no-bearer regression guard so the same leak never resurfaces.
 
 ## The user-trust angle
 
@@ -95,7 +95,7 @@ GET /api/admin/config (post-seed): rate_rpm=137
 
 ## Regression guard — qj5.13.7 (no-bearer SSR leak)
 
-After geoff's review, the probe also fires three raw `urllib` requests with NO Authorization header against `/admin/configure`, `/configure`, and `/api/admin/config`. All three must return **401**. Today `/admin/configure` and `/configure` return 200 with the full admin posture inlined — that is exactly the qj5.13.7 leak.
+After geoff's review, the probe fires three raw `urllib` requests with NO Authorization header against `/admin/configure`, `/configure`, and `/api/admin/config`. All three must return **401** and must not leak any of the eight admin-config field names into the response body. qj5.13.7 (3a27eeb) restored the gate; the live matrix below is the post-fix capture.
 
 ```bash
 bash demo/recordings/qj5.hft_probe.sh 2>&1 | tail -6
@@ -105,19 +105,17 @@ bash demo/recordings/qj5.hft_probe.sh 2>&1 | tail -6
 GET /api/admin/config (post-seed): rate_rpm=137
 
 no-bearer probes (must all be 401):
-  /admin/configure                 200  LEAK  fields=['trusted_proxies', 'cors_origins', 'rate_rpm', 'rate_tpm', 'trusted_node_ids', 'admin_token_env', 'runner_token_env', 'admin_password_env']
-  /configure                       200  LEAK  fields=['trusted_proxies', 'cors_origins', 'rate_rpm', 'rate_tpm', 'trusted_node_ids', 'admin_token_env', 'runner_token_env', 'admin_password_env']
+  /admin/configure                 401  (gated)
+  /configure                       401  (gated)
   /api/admin/config                401  (gated)
 ```
 
-## What the post-fix matrix should look like
+`uvx showboat verify` against this snapshot is the permanent drift gate — any future drop of `require_admin` on the configure route surfaces as a non-zero verify exit.
 
-    no-bearer probes (must all be 401):
+For reference, the **pre-fix leak** that triggered qj5.13.7 read:
 
-      /admin/configure                 401  (gated)
-
-      /configure                       401  (gated)
-
-      /api/admin/config                401  (gated)
-
-Once qj5.13.7 restores `Depends(require_admin)` on `admin_configure_route` (`saturn/web.py:1525`), rerun the probe — all three lines should read 401, and `uvx showboat verify` against this snapshot will surface any future drop of the gate as a non-zero verify exit.
+    /admin/configure   200  LEAK  fields=[trusted_proxies, cors_origins, rate_rpm,
+                                  rate_tpm, trusted_node_ids, admin_token_env,
+                                  runner_token_env, admin_password_env]
+    /configure         200  LEAK  (same eight fields)
+    /api/admin/config  401  (gated)
