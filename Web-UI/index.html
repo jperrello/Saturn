@@ -99,7 +99,6 @@
       <button class="tab active" data-tab="discover">Network Scan</button>
       <button class="tab" data-tab="system">System</button>
       <button class="tab" data-tab="chat">Chat</button>
-      <button id="admin-configure-nav-btn" class="tab" style="margin-left:auto">Admin Configure</button>
     </nav>
 
     <!-- DISCOVER -->
@@ -112,16 +111,10 @@
             <div id="scan-status" class="scan-status" role="status" aria-live="polite"></div>
             <div id="services-list" class="checklist"></div>
             <div class="discover-divider"></div>
-            <div id="admin-gate" class="admin-gate">
-              <div class="admin-gate-label">Admin</div>
-              <input type="password" id="admin-pw" placeholder="password" class="admin-pw-inline">
-              <button id="admin-pw-submit" class="btn btn-secondary">Unlock</button>
-            </div>
-            <div id="admin-section" class="hidden">
+            <div id="admin-section">
               <div class="discover-section-title">Services</div>
               <div id="server-list" class="checklist"></div>
               <button id="config-btn" class="btn" style="margin:16px 0">Configure New Service</button>
-              <button id="admin-configure-btn" class="btn btn-secondary" style="margin:0 0 16px 0">Admin Configure</button>
             </div>
           </div>
         </div>

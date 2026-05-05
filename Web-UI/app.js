@@ -1046,49 +1046,8 @@ function renderServers() {
 
 loadServices()
 
-// admin password gate for service configuration
-let adminUnlocked = sessionStorage.getItem('saturn-admin') === '1'
-
-function showAdminState() {
-  document.getElementById('admin-gate').classList.toggle('hidden', adminUnlocked)
-  document.getElementById('admin-section').classList.toggle('hidden', !adminUnlocked)
-}
-showAdminState()
-
-async function tryAdminAuth() {
-  const pw = document.getElementById('admin-pw').value
-  if (!pw) {
-    toast('Enter the admin password')
-    document.getElementById('admin-pw').focus()
-    return
-  }
-  try {
-    const res = await fetch('/api/admin/auth', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: pw }),
-    })
-    if (res.ok) {
-      adminUnlocked = true
-      sessionStorage.setItem('saturn-admin', '1')
-      try {
-        const body = await res.json()
-        if (body && body.token) sessionStorage.setItem('saturn-admin-token', body.token)
-      } catch { /* ignore */ }
-      showAdminState()
-    } else {
-      toast('Wrong password')
-      document.getElementById('admin-pw').value = ''
-    }
-  } catch {
-    toast('Auth failed')
-  }
-}
-
-document.getElementById('admin-pw-submit').addEventListener('click', tryAdminAuth)
-document.getElementById('admin-pw').addEventListener('keydown', e => {
-  if (e.key === 'Enter') tryAdminAuth()
-})
+// Saturn-k28: site is gated at server level; admin section is always visible.
+let adminUnlocked = true
 
 document.getElementById('config-btn').addEventListener('click', () => {
   document.getElementById('discover-main').classList.add('hidden')
