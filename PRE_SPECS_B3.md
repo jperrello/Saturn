@@ -1376,3 +1376,330 @@ remain dependency-clean.
 *End of B3 + qj5.16.14 pre-spec set.* §17.A through §17.E together
 cover qj5.13, qj5.14, qj5.15, qj5.16.13, and qj5.16.14 — the entire
 implementer queue downstream of the structural audit.
+
+---
+
+## §17.F — Saturn-qj5.15.2: lift `saturn_meta` to the other three chat surfaces
+
+Pre-spec for the qj5.15 follow-up bead. qj5.15 (commit `3de812c`) wired
+the `saturn_meta` envelope on `/api/chat` only. §17.C.6 step 2 listed
+three additional surfaces; this section gives the implementer drop-in
+shapes for each. The `saturn/receipt.py` module already exists with
+`build_meta`, `update_applied_from_chunk`, `emit_meta_line` — these notes
+are pure integration.
+
+### 17.F.1 Surface inventory
+
+| # | Surface | File:Line | Client | Streaming | Notes |
+|---|---|---|---|---|---|
+| 1 | `/api/proxy/chat` | `saturn/web.py:848-885` | `httpx.AsyncClient` | always (post-F-5/F-6 cleanup) | Manual-endpoint flow; `ManualChatRequest` schema |
+| 2 | `/api/system/chat` | `saturn/web.py:1089-1104` | `httpx.AsyncClient` (`c2`) | always | Brutus auto-route inside a closure with circuit breakers |
+| 3 | `ServiceRunner /v1/chat/completions` | `saturn/runner.py:393-433` | **`requests`** (sync) | conditional on `request.stream` | Per-service runner; auth-gated via `Depends(auth)` from F-1 |
+| 4 | `saturn/servers/ollama.py /v1/chat/completions` | `saturn/servers/ollama.py:51-146` | `requests` (sync) | conditional | Ollama-specific; custom Ollama→OpenAI translation already exists |
+
+`saturn/servers/__init__.py:65` defines `proxy_sse(response)` — used by
+ServiceRunner. To get the receipt onto the runner without rewriting the
+helper, modify `proxy_sse` to accept an optional `on_done` callback that
+yields a string-bytes `data: ...` chunk before the `[DONE]` sentinel.
+
+### 17.F.2 Drop-in shape for each surface
+
+#### 17.F.2.1 `/api/proxy/chat` — closest analog to `/api/chat`
+
+```python
+# saturn/web.py:872, inside `generate()` of proxy_chat
+from saturn import receipt as _receipt
+configured = {"model": body.model, **raw_params}
+system_prompt = next(
+    (m.get("content") for m in body.messages
+     if isinstance(m, dict) and m.get("role") == "system"
+     and isinstance(m.get("content"), str)),
+    None,
+)
+applied = {"max_tokens": body.max_tokens}
+
+async def generate():
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
+        async with client.stream("POST", f"{base}/chat/completions",
+                                 json=payload, headers=headers) as r:
+            if r.status_code != 200:
+                await r.aread()
+                yield f'data: {{"error": "upstream {r.status_code}"}}\n\n'
+                return
+            async for line in r.aiter_lines():
+                if line.startswith("data:") and "[DONE]" in line:
+                    yield _receipt.emit_meta_line(configured, applied,
+                                                  system_prompt, body.model)
+                    yield line + "\n"
+                    continue
+                _receipt.update_applied_from_chunk(applied, line)
+                if line:
+                    yield line + "\n"
+                else:
+                    yield "\n"
+```
+
+Direct lift from `/api/chat` streaming branch. ~10 lines added.
+
+#### 17.F.2.2 `/api/system/chat` — Brutus auto-route
+
+```python
+# saturn/web.py:1089, inside the inner `generate()` closure
+from saturn import receipt as _receipt
+configured = {"model": model, **raw_params}
+system_prompt = next(
+    (m.get("content") for m in body.messages
+     if isinstance(m, dict) and m.get("role") == "system"
+     and isinstance(m.get("content"), str)),
+    None,
+)
+
+async def generate(base_url=base, pay=payload, hdrs={},
+                   svc_name=c["name"], mdl=model,
+                   _cfg=configured, _sp=system_prompt):
+    applied = {"max_tokens": body.max_tokens}
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as c2:
+        async with c2.stream("POST", f"{base_url}/chat/completions",
+                             json=pay, headers=hdrs) as r:
+            if r.status_code != 200:
+                _record_failure(svc_name)
+                err = await r.aread()
+                yield f"data: {err.decode()}\n\n"
+                return
+            _record_success(svc_name)
+            yield f"data: {{}}\n\n"   # existing "first metadata event" line
+            async for line in r.aiter_lines():
+                if line.startswith("data:") and "[DONE]" in line:
+                    yield _receipt.emit_meta_line(_cfg, applied, _sp, mdl)
+                    yield line + "\n"
+                    continue
+                _receipt.update_applied_from_chunk(applied, line)
+                if line:
+                    yield line + "\n"
+                else:
+                    yield "\n"
+```
+
+Watch out: the closure captures `body`, `model`, etc. through default
+arguments because the outer scope's vars change between iterations.
+Add `_cfg` and `_sp` as defaults too. Otherwise the same lift.
+
+The existing `f"data: {{}}\n\n"` first-event line is the current
+"metadata event" — gullivan's spec contemplated this slot for an
+opening `saturn_meta` with provisional values. For now keep it as-is;
+a future Pattern 3 upgrade can promote it to a structured envelope
+without breaking the receipt that lands at `[DONE]`.
+
+#### 17.F.2.3 `ServiceRunner /v1/chat/completions` — `requests` (sync)
+
+This one needs the most care because `proxy_sse` (in
+`saturn/servers/__init__.py:65`) is shared between ServiceRunner and the
+Ollama server module. Two paths:
+
+**Option A — extend `proxy_sse` with an `on_done` callback.** Cleaner;
+both ServiceRunner and `saturn/servers/ollama.py` benefit.
+
+```python
+# saturn/servers/__init__.py — modify proxy_sse signature
+def proxy_sse(response, on_done=None):
+    def generate():
+        try:
+            for line in response.iter_lines():
+                if not line:
+                    continue
+                decoded = line.decode("utf-8") if isinstance(line, bytes) else line
+                if decoded.startswith("data: "):
+                    data = decoded[6:]
+                    if data == "[DONE]":
+                        if on_done is not None:
+                            extra = on_done()
+                            if extra:
+                                yield extra
+                        yield b"data: [DONE]\n\n"
+                        break
+                    try:
+                        parsed = json.loads(data)
+                        yield f"data: {json.dumps(parsed)}\n\n".encode("utf-8")
+                    except json.JSONDecodeError:
+                        continue
+        finally:
+            response.close()
+    return sse(generate())
+```
+
+Then in `ServiceRunner.chat_completions` (saturn/runner.py:393):
+
+```python
+from saturn import receipt as _receipt
+
+async def chat_completions(request: ChatRequest, _=Depends(auth)):
+    ...
+    configured = {"model": request.model}
+    if request.temperature is not None: configured["temperature"] = request.temperature
+    if request.max_tokens   is not None: configured["max_tokens"]   = request.max_tokens
+    system_prompt = next(
+        (m.content for m in request.messages
+         if getattr(m, "role", None) == "system" and isinstance(m.content, str)),
+        None,
+    )
+    applied = {"max_tokens": request.max_tokens}
+
+    response = requests.post(completions_url, headers=headers, json=payload,
+                              timeout=120, stream=request.stream)
+    if not response.ok:
+        ...
+
+    if request.stream:
+        # Need to peek lines as they fly to populate `applied`. Wrap
+        # response.iter_lines via a tee-style helper, OR restructure the
+        # proxy_sse internals to call update_applied_from_chunk on each
+        # parsed chunk before yielding.
+        def on_done():
+            return _receipt.emit_meta_line(configured, applied,
+                                            system_prompt,
+                                            request.model).encode("utf-8")
+        return proxy_sse(response, on_done=on_done)
+    else:
+        data = response.json()
+        if data.get("model"):  applied["model"]  = data["model"]
+        if data.get("usage"):  applied["usage"]  = data["usage"]
+        for c in data.get("choices") or []:
+            if isinstance(c, dict) and c.get("finish_reason"):
+                applied["finish_reason"] = c["finish_reason"]
+        data["saturn_meta"] = _receipt.build_meta(
+            configured, applied, system_prompt,
+            requested_model=request.model,
+        )
+        return data
+```
+
+There's a real subtlety: `proxy_sse` doesn't currently call
+`update_applied_from_chunk` per line. Two ways to plumb that:
+
+- **A1.** Extend `proxy_sse` to also accept an `on_chunk(parsed)`
+  callback called for each parsed JSON. Cleanest.
+- **A2.** Drop `proxy_sse` for this path and inline the streaming loop
+  the way `/api/chat` does. More code duplication but no shared-helper
+  contract change.
+
+Recommend A1. Single change to `saturn/servers/__init__.py`, both the
+runner and the Ollama server adopt the new shape together.
+
+**Option B — bypass `proxy_sse` entirely** for ServiceRunner; inline the
+loop. Roughly 25 lines. Worse for maintenance; no benefit if the same
+receipt logic ends up in two places.
+
+#### 17.F.2.4 `saturn/servers/ollama.py /v1/chat/completions`
+
+Ollama's handler already has a custom translation loop
+(`saturn/servers/ollama.py:78-123`). It iterates Ollama's
+line-delimited JSON, converts each to an OpenAI SSE chunk, and yields
+`data: [DONE]\n\n` when Ollama emits `done: true`.
+
+The receipt-emit slot is right before the `data: [DONE]\n\n` yield
+(around `saturn/servers/ollama.py:97-98`):
+
+```python
+if ollama_chunk.get("done"):
+    reason = "tool_calls" if has_tool_calls else "stop"
+    done_chunk = chunk(chunk_id, request.model, {}, finish=True)
+    done_chunk["choices"][0]["finish_reason"] = reason
+    yield f"data: {json.dumps(done_chunk)}\n\n".encode('utf-8')
+    # NEW — emit saturn_meta before [DONE]:
+    yield _receipt.emit_meta_line(configured, applied,
+                                   system_prompt, request.model).encode("utf-8")
+    yield b"data: [DONE]\n\n"
+```
+
+`applied` is built up alongside the loop:
+
+```python
+applied = {"max_tokens": request.max_tokens}
+# Ollama returns tokens in the final non-streaming form; for the
+# streaming case, the last `done: true` chunk has prompt_eval_count +
+# eval_count fields. Capture those:
+if ollama_chunk.get("done"):
+    applied["usage"] = {
+        "prompt_tokens": ollama_chunk.get("prompt_eval_count", 0),
+        "completion_tokens": ollama_chunk.get("eval_count", 0),
+    }
+    applied["finish_reason"] = reason
+    applied["model"] = request.model   # Ollama doesn't echo model in stream chunks; trust the request value
+    ...
+```
+
+The non-streaming path (saturn/servers/ollama.py:125-146) is simpler:
+build `applied` from the same fields, attach `saturn_meta` to the
+`completion()` return value (or to a wrapper).
+
+Note: `completion()` (saturn/servers/__init__.py:52) is a helper that
+builds the OpenAI-shape response. May need to extend it to accept
+`meta=...` kwarg, or wrap its output:
+
+```python
+out = completion(request.model, message, usage_dict, finish_reason=reason)
+out["saturn_meta"] = _receipt.build_meta(configured, applied,
+                                          system_prompt,
+                                          requested_model=request.model)
+return out
+```
+
+### 17.F.3 Tests to add
+
+Mirror the shape of `saturn/tests/test_receipt_meta.py`'s existing
+six tests onto the three new surfaces. Minimum viable coverage:
+
+- `test_receipt_emitted_on_proxy_chat` — `POST /api/proxy/chat` with
+  `max_tokens=10` against an Ollama base_url; `saturn_meta` lands; same
+  shape as existing test against `/api/chat`.
+- `test_receipt_emitted_on_system_chat` — `POST /api/system/chat`;
+  asserts the `saturn_meta` chunk arrives between the existing first
+  `{}` metadata event and the `[DONE]` sentinel.
+- `test_receipt_emitted_on_runner_v1_chat` — spawn a ServiceRunner via
+  `tests.harness.web.serve()` against Ollama; `POST /v1/chat/completions`
+  with `Authorization: Bearer <runner_token>`; assert the response (or
+  final SSE chunk for `stream=true`) carries `saturn_meta`.
+- `test_receipt_emitted_on_servers_ollama` — direct hit on
+  `saturn/servers/ollama.py`'s app via TestClient.
+
+Each test is ~25 lines; total ≤ 100 LOC. Reuses the existing
+`ollama_available` fixture in `saturn/tests/conftest_b3.py`.
+
+### 17.F.4 Hand-off order
+
+1. **Refactor first.** Extend `saturn/servers/__init__.py:proxy_sse` to
+   accept `on_done` (and optionally `on_chunk`). No call-site changes
+   yet; just adding optional kwargs. Adds a unit test for the new hooks
+   firing in the right order.
+2. **Wire the four surfaces** in this order, smallest to largest:
+   - `/api/proxy/chat` (≈10 lines)
+   - `/api/system/chat` (≈12 lines, watch the closure default-arg trap)
+   - `saturn/servers/ollama.py` (≈8 lines, plus `applied` accumulator
+     in the existing loop)
+   - `ServiceRunner` (≈15 lines via the new `proxy_sse` hooks)
+3. **Add tests** from §17.F.3.
+4. **Smoke test** `saturn-mcp` and any other downstream consumer that
+   parses `/v1/chat/completions` responses; they should ignore unknown
+   `saturn_meta` keys per OpenAI client conventions, but verify.
+
+Step 1 is the only step that touches shared infrastructure; steps 2–4
+are independently revertible per surface if a regression appears.
+
+### 17.F.5 Code references
+
+- `saturn/receipt.py` — module shipped in qj5.15; reused as-is.
+- `saturn/web.py:912-967` — reference implementation (`/api/chat`).
+- `saturn/web.py:848-885` — `/api/proxy/chat` lift target.
+- `saturn/web.py:1089-1104` — `/api/system/chat` lift target.
+- `saturn/runner.py:393-433` — `ServiceRunner` lift target.
+- `saturn/servers/ollama.py:78-146` — Ollama custom-loop lift target.
+- `saturn/servers/__init__.py:34-77` — `sse`, `chunk`, `completion`,
+  `proxy_sse` shared helpers (extend in step 1).
+- SECURITY_AUDIT.md §11–12 — F-5 / F-6 cleanups already landed on
+  `/api/proxy/chat`; this lift composes cleanly.
+
+### 17.F.6 Estimated effort
+
+≈ **45 lines code change** (all four surfaces) + **≈100 lines tests**.
+Single PR. No new dependencies. Schema-stable: `schema_version=1`
+already-shipped envelope works on every surface.
