@@ -120,106 +120,6 @@
         </div>
       </div>
 
-      <section id="admin-configure-page" class="hidden admin-configure-page">
-        <h2 class="config-heading">Admin Configure</h2>
-        <fieldset class="config-section admin-section" data-admin-group="A1">
-          <legend>General — Model filter &amp; Budget</legend>
-          <label>Model filter <input id="ac-model_filter" type="text"></label>
-          <label>Max budget <input id="ac-max_budget" type="text" inputmode="decimal" step="0.01"></label>
-          <label>Budget duration <input id="ac-budget_duration" type="text"></label>
-        </fieldset>
-        <fieldset class="config-section admin-section" data-admin-group="A2">
-          <legend>Authentication — Tokens &amp; Session</legend>
-          <label>Admin session TTL (seconds) <input id="ac-admin_session_ttl_s" type="text" inputmode="decimal"></label>
-          <label>Admin token env <input id="ac-admin_token_env" type="text"></label>
-          <label>Runner token env <input id="ac-runner_token_env" type="text"></label>
-          <label>Admin password env <input id="ac-admin_password_env" type="text"></label>
-        </fieldset>
-        <fieldset class="config-section admin-section" data-admin-group="A3">
-          <legend>Network posture — Bind, TLS, CORS</legend>
-          <label>Bind host <input id="ac-bind_host" type="text"></label>
-          <label>Runner bind host <input id="ac-runner_bind_host" type="text"></label>
-          <label data-info="IPv4/IPv6 CIDRs (e.g. 10.0.0.0/8, fd00::/8). Saturn will trust X-Forwarded-For only from these networks.">Trusted proxies (CIDRs, comma-separated) <input id="ac-trusted_proxies" type="text"></label>
-          <label data-info="Comma-separated origin URLs allowed to call the API (CORS). Wildcard '*' is rejected unless SATURN_DEV_MODE=1.">CORS origins (comma-separated) <input id="ac-cors_origins" type="text"></label>
-        </fieldset>
-        <fieldset class="config-section admin-section" data-admin-group="A4">
-          <legend>Rate limits &amp; Throughput</legend>
-          <label>Rate rpm (requests per minute) <input id="ac-rate_rpm" type="text" inputmode="decimal"></label>
-          <label>Rate tpm (tokens per minute) <input id="ac-rate_tpm" type="text" inputmode="decimal"></label>
-          <label>Rate concurrent per IP <input id="ac-rate_concurrent_per_ip" type="text" inputmode="decimal"></label>
-          <label>Max budget USD <input id="ac-max_budget_usd" type="text" inputmode="decimal" step="0.01"></label>
-          <label>Budget period <input id="ac-budget_period" type="text"></label>
-          <label>Per-IP max budget USD <input id="ac-per_ip_max_budget_usd" type="text" inputmode="decimal" step="0.01"></label>
-          <label>Beacon max budget USD (default for new beacon services) <input id="ac-beacon_max_budget_usd" type="text" inputmode="decimal" step="0.01"></label>
-        </fieldset>
-        <fieldset class="config-section admin-section" data-admin-group="A5">
-          <legend>Endpoint policy — Public routes</legend>
-          <label data-info="HTTP paths reachable without admin auth. Defaults are /v1/health and /v1/models. Be careful adding more — public routes bypass the bearer/session gate.">Public routes (comma-separated) <input id="ac-public_routes" type="text"></label>
-          <label>Require auth on /v1 <input id="ac-require_auth_on_v1" type="checkbox"></label>
-        </fieldset>
-        <fieldset class="config-section admin-section" data-admin-group="A6">
-          <legend>Proxy hygiene &amp; Redact</legend>
-          <label>Proxy models method <input id="ac-proxy_models_method" type="text"></label>
-          <label>Redact proxy keys in logs <input id="ac-redact_proxy_keys_in_logs" type="checkbox"></label>
-        </fieldset>
-        <fieldset class="config-section admin-section" data-admin-group="A7">
-          <legend>MCP — allowed URLs &amp; auth env</legend>
-          <label data-info="Allowlist of MCP server URLs. Only these hosts can be added via the chat UI's MCP popup. Empty list = block all.">MCP allowed URLs (comma-separated) <input id="ac-mcp_allowed_urls" type="text"></label>
-          <label data-info='JSON map of env var names that supply tokens for outbound MCP servers, e.g. {"github":"GH_TOKEN"}.'>MCP auth token envs (JSON) <input id="ac-mcp_auth_token_envs" type="text"></label>
-        </fieldset>
-        <fieldset class="config-section admin-section" data-admin-group="A8">
-          <legend>Service identity — Trust mode &amp; Node IDs</legend>
-          <label>Trust mode
-            <select id="ac-trust_mode">
-              <option value="tofu">tofu</option>
-              <option value="allowlist">allowlist</option>
-              <option value="open">open</option>
-            </select>
-          </label>
-          <label data-info="Per-service UUIDs that Saturn will accept under allowlist trust mode. Format: name=UUID, separated by commas.">Trusted node IDs (UUIDs, comma-separated) <input id="ac-trusted_node_ids" type="text"></label>
-        </fieldset>
-        <fieldset class="config-section admin-section known-nodes-editor" data-admin-group="known-nodes">
-          <legend>Known nodes — pinned &amp; pending rejections</legend>
-          <div class="kn-block">
-            <h4>Pinned nodes (click to add to allowlist)</h4>
-            <div id="kn-pinned-list"></div>
-            <button id="kn-refresh" class="btn btn-secondary" type="button">Refresh</button>
-          </div>
-          <div class="kn-block">
-            <h4>Pending rejections</h4>
-            <div id="kn-rejections-list"></div>
-          </div>
-        </fieldset>
-        <fieldset class="config-section admin-section per-service-editor" data-admin-group="services">
-          <legend>Per-service editor — Services</legend>
-          <div id="per-service-list" class="checklist"></div>
-          <button id="per-service-add" class="btn">+ Add Service</button>
-          <div id="per-service-form" class="hidden">
-            <label>Name <input id="cfg-name" name="name" type="text" placeholder="my-service"></label>
-            <label>Base URL <input id="cfg-base-url" name="upstream.base_url" type="text" placeholder="http://localhost:11434/v1"></label>
-            <label>API key — env var NAME (never the key value) <input id="cfg-api-key-env" name="api_key_env" type="text" placeholder="OPENROUTER_API_KEY"></label>
-            <label>Deployment <select id="cfg-deployment" name="deployment"><option value="local">local</option><option value="network">network</option><option value="cloud">cloud</option></select></label>
-            <label>API type <select id="cfg-api-type" name="api_type"><option value="ollama">ollama</option><option value="openai">openai</option></select></label>
-            <label>Priority <input id="cfg-priority" name="priority" type="text" inputmode="decimal" value="50"></label>
-            <label>Max budget
-              <span style="display:inline-flex; gap:6px; align-items:center">
-                <input id="cfg-max-budget-usd" name="max_budget" type="text" inputmode="decimal" style="flex:1">
-                <select id="cfg-max-budget-unit" name="max_budget_unit">
-                  <option value="usd">USD</option>
-                  <option value="tokens">tokens</option>
-                </select>
-              </span>
-            </label>
-            <label>Require runner token <input id="cfg-require-runner-token" name="require_runner_token" type="checkbox"></label>
-            <button id="per-service-save" class="btn">Save</button>
-            <button id="per-service-cancel" class="btn btn-secondary">Cancel</button>
-          </div>
-        </fieldset>
-        <div class="ac-actions">
-          <button id="ac-save" class="btn">Save</button>
-          <button id="ac-close" class="btn btn-secondary">Close</button>
-        </div>
-      </section>
 
       <div id="config-page" class="hidden">
         <div class="config-full">
@@ -327,6 +227,106 @@
       </div>
     </section>
 
+    <section id="admin-configure-page" class="hidden admin-configure-page">
+      <h2 class="config-heading">Admin Configure</h2>
+      <fieldset class="config-section admin-section" data-admin-group="A1">
+        <legend>General — Model filter &amp; Budget</legend>
+        <label>Model filter <input id="ac-model_filter" type="text"></label>
+        <label>Max budget <input id="ac-max_budget" type="text" inputmode="decimal" step="0.01"></label>
+        <label>Budget duration <input id="ac-budget_duration" type="text"></label>
+      </fieldset>
+      <fieldset class="config-section admin-section" data-admin-group="A2">
+        <legend>Authentication — Tokens &amp; Session</legend>
+        <label>Admin session TTL (seconds) <input id="ac-admin_session_ttl_s" type="text" inputmode="decimal"></label>
+        <label>Admin token env <input id="ac-admin_token_env" type="text"></label>
+        <label>Runner token env <input id="ac-runner_token_env" type="text"></label>
+        <label>Admin password env <input id="ac-admin_password_env" type="text"></label>
+      </fieldset>
+      <fieldset class="config-section admin-section" data-admin-group="A3">
+        <legend>Network posture — Bind, TLS, CORS</legend>
+        <label>Bind host <input id="ac-bind_host" type="text"></label>
+        <label>Runner bind host <input id="ac-runner_bind_host" type="text"></label>
+        <label data-info="IPv4/IPv6 CIDRs (e.g. 10.0.0.0/8, fd00::/8). Saturn will trust X-Forwarded-For only from these networks.">Trusted proxies (CIDRs, comma-separated) <input id="ac-trusted_proxies" type="text"></label>
+        <label data-info="Comma-separated origin URLs allowed to call the API (CORS). Wildcard '*' is rejected unless SATURN_DEV_MODE=1.">CORS origins (comma-separated) <input id="ac-cors_origins" type="text"></label>
+      </fieldset>
+      <fieldset class="config-section admin-section" data-admin-group="A4">
+        <legend>Rate limits &amp; Throughput</legend>
+        <label>Rate rpm (requests per minute) <input id="ac-rate_rpm" type="text" inputmode="decimal"></label>
+        <label>Rate tpm (tokens per minute) <input id="ac-rate_tpm" type="text" inputmode="decimal"></label>
+        <label>Rate concurrent per IP <input id="ac-rate_concurrent_per_ip" type="text" inputmode="decimal"></label>
+        <label>Max budget USD <input id="ac-max_budget_usd" type="text" inputmode="decimal" step="0.01"></label>
+        <label>Budget period <input id="ac-budget_period" type="text"></label>
+        <label>Per-IP max budget USD <input id="ac-per_ip_max_budget_usd" type="text" inputmode="decimal" step="0.01"></label>
+        <label>Beacon max budget USD (default for new beacon services) <input id="ac-beacon_max_budget_usd" type="text" inputmode="decimal" step="0.01"></label>
+      </fieldset>
+      <fieldset class="config-section admin-section" data-admin-group="A5">
+        <legend>Endpoint policy — Public routes</legend>
+        <label data-info="HTTP paths reachable without admin auth. Defaults are /v1/health and /v1/models. Be careful adding more — public routes bypass the bearer/session gate.">Public routes (comma-separated) <input id="ac-public_routes" type="text"></label>
+        <label>Require auth on /v1 <input id="ac-require_auth_on_v1" type="checkbox"></label>
+      </fieldset>
+      <fieldset class="config-section admin-section" data-admin-group="A6">
+        <legend>Proxy hygiene &amp; Redact</legend>
+        <label>Proxy models method <input id="ac-proxy_models_method" type="text"></label>
+        <label>Redact proxy keys in logs <input id="ac-redact_proxy_keys_in_logs" type="checkbox"></label>
+      </fieldset>
+      <fieldset class="config-section admin-section" data-admin-group="A7">
+        <legend>MCP — allowed URLs &amp; auth env</legend>
+        <label data-info="Allowlist of MCP server URLs. Only these hosts can be added via the chat UI's MCP popup. Empty list = block all.">MCP allowed URLs (comma-separated) <input id="ac-mcp_allowed_urls" type="text"></label>
+        <label data-info='JSON map of env var names that supply tokens for outbound MCP servers, e.g. {"github":"GH_TOKEN"}.'>MCP auth token envs (JSON) <input id="ac-mcp_auth_token_envs" type="text"></label>
+      </fieldset>
+      <fieldset class="config-section admin-section" data-admin-group="A8">
+        <legend>Service identity — Trust mode &amp; Node IDs</legend>
+        <label>Trust mode
+          <select id="ac-trust_mode">
+            <option value="tofu">tofu</option>
+            <option value="allowlist">allowlist</option>
+            <option value="open">open</option>
+          </select>
+        </label>
+        <label data-info="Per-service UUIDs that Saturn will accept under allowlist trust mode. Format: name=UUID, separated by commas.">Trusted node IDs (UUIDs, comma-separated) <input id="ac-trusted_node_ids" type="text"></label>
+      </fieldset>
+      <fieldset class="config-section admin-section known-nodes-editor" data-admin-group="known-nodes">
+        <legend>Known nodes — pinned &amp; pending rejections</legend>
+        <div class="kn-block">
+          <h4>Pinned nodes (click to add to allowlist)</h4>
+          <div id="kn-pinned-list"></div>
+          <button id="kn-refresh" class="btn btn-secondary" type="button">Refresh</button>
+        </div>
+        <div class="kn-block">
+          <h4>Pending rejections</h4>
+          <div id="kn-rejections-list"></div>
+        </div>
+      </fieldset>
+      <fieldset class="config-section admin-section per-service-editor" data-admin-group="services">
+        <legend>Per-service editor — Services</legend>
+        <div id="per-service-list" class="checklist"></div>
+        <button id="per-service-add" class="btn">+ Add Service</button>
+        <div id="per-service-form" class="hidden">
+          <label>Name <input id="cfg-name" name="name" type="text" placeholder="my-service"></label>
+          <label>Base URL <input id="cfg-base-url" name="upstream.base_url" type="text" placeholder="http://localhost:11434/v1"></label>
+          <label>API key — env var NAME (never the key value) <input id="cfg-api-key-env" name="api_key_env" type="text" placeholder="OPENROUTER_API_KEY"></label>
+          <label>Deployment <select id="cfg-deployment" name="deployment"><option value="local">local</option><option value="network">network</option><option value="cloud">cloud</option></select></label>
+          <label>API type <select id="cfg-api-type" name="api_type"><option value="ollama">ollama</option><option value="openai">openai</option></select></label>
+          <label>Priority <input id="cfg-priority" name="priority" type="text" inputmode="decimal" value="50"></label>
+          <label>Max budget
+            <span style="display:inline-flex; gap:6px; align-items:center">
+              <input id="cfg-max-budget-usd" name="max_budget" type="text" inputmode="decimal" style="flex:1">
+              <select id="cfg-max-budget-unit" name="max_budget_unit">
+                <option value="usd">USD</option>
+                <option value="tokens">tokens</option>
+              </select>
+            </span>
+          </label>
+          <label>Require runner token <input id="cfg-require-runner-token" name="require_runner_token" type="checkbox"></label>
+          <button id="per-service-save" class="btn">Save</button>
+          <button id="per-service-cancel" class="btn btn-secondary">Cancel</button>
+        </div>
+      </fieldset>
+      <div class="ac-actions">
+        <button id="ac-save" class="btn">Save</button>
+        <button id="ac-close" class="btn btn-secondary">Close</button>
+      </div>
+    </section>
     <!-- CHAT -->
     <section id="chat" class="page">
       <div id="chat-gate" class="gate">
