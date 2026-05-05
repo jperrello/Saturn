@@ -1,0 +1,43 @@
+{
+  "c1_picker_opens": {
+    "accepted": true,
+    "pass": true
+  },
+  "c2_supported_preview": {
+    "per_type": {
+      "text": true,
+      "image": true,
+      "pdf": true
+    },
+    "pass": true
+  },
+  "c3_unsupported_blocked": {
+    "error_text": "Unsupported file type \".exe\". Allowed: .txt, .md, .py, .js, .ts, .tsx, .jsx, .json, .toml, .yaml, .yml, .csv, .html, .css, .sh, .c, .cpp, .h, .hpp, .go, .rs, .java, .rb, .xml, .log, .sql, .ini, .conf, .env, .png, .jpg, .jpeg, .gif, .webp, .pdf.",
+    "messages_added": 0,
+    "pass": true
+  },
+  "c4_oversize_blocked": {
+    "error_text": "File too large: 6.0 MB exceeds the 5.0 MB limit.",
+    "size_context_mentioned": true,
+    "messages_added": 0,
+    "pass": true
+  },
+  "c5_attachment_plus_text": {
+    "bubble_text": "caption",
+    "wire_has_image_url": true,
+    "wire_has_text_caption": true,
+    "console_errors": [
+      {
+        "type": "error",
+        "text": "Failed to load services: TypeError: Failed to fetch\n    at window.fetch (http://localhost:57692/app.js:18:12)\n    at loadServices (http://localhost:57692/app.js:980:23)\n    at http://localhost:57692/app.js:1047:1"
+      }
+    ],
+    "pass": true
+  },
+  "c6_attachment_only": {
+    "bubble_text": "[image: pixel.png]",
+    "marker_present": true,
+    "pass": true
+  },
+  "pass": true
+}
