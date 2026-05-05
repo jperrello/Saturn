@@ -20,6 +20,9 @@ class IsolationProbe:
     diagnosis: str = ""
 
 
+TUNNEL_PREFIXES = ("tun", "utun", "wg", "tap", "docker", "veth", "ipsec", "gif", "stf")
+
+
 def _link_ifaces() -> List[str]:
     try:
         import psutil
@@ -28,8 +31,13 @@ def _link_ifaces() -> List[str]:
     out = []
     stats = psutil.net_if_stats()
     for name, st in stats.items():
-        if st.isup and name != "lo0" and not name.startswith("lo"):
-            out.append(name)
+        if not st.isup:
+            continue
+        if name == "lo0" or name.startswith("lo"):
+            continue
+        if any(name.startswith(p) for p in TUNNEL_PREFIXES):
+            continue
+        out.append(name)
     return out
 
 
