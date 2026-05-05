@@ -1110,15 +1110,19 @@ testBtn.addEventListener('click', async () => {
   }
   testBtn.disabled = true
   setTestStatus('Testing…', 'busy')
+  const apiKeyEnv = document.getElementById('cfg-api-key-env-legacy')?.value.trim() || null
+  const apiType = document.getElementById('cfg-api-type').value
   try {
-    const res = await fetch(baseUrl.replace(/\/+$/, '') + '/models', { signal: AbortSignal.timeout(5000) })
-    if (res.ok) setTestStatus('Connection OK — endpoint responded.', 'ok')
-    else setTestStatus(`HTTP ${res.status} — ${hintForStatus(res.status)}`, 'error')
+    const res = await fetch('/api/services/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base_url: baseUrl, api_key_env: apiKeyEnv, api_type: apiType }),
+    })
+    const j = await res.json().catch(() => ({}))
+    if (j && j.ok) setTestStatus(`Connection OK — ${j.models || 0} models advertised.`, 'ok')
+    else setTestStatus(j.error || `HTTP ${j.status || res.status}`, 'error')
   } catch (e) {
-    const msg = e.name === 'TimeoutError' || /timeout/i.test(e.message)
-      ? 'Timed out after 5s — host unreachable or wrong URL.'
-      : `Network error: ${e.message}. Check URL, CORS, and that the host is reachable.`
-    setTestStatus(msg, 'error')
+    setTestStatus(`Network error: ${e.message}`, 'error')
   }
   testBtn.disabled = false
 })
@@ -1189,10 +1193,42 @@ function syncSaveEnabled() {
   el.addEventListener('change', () => { setSaveError(null); syncSaveEnabled() })
 })
 
+async function testServiceConfig() {
+  const baseUrl = document.getElementById('cfg-base-url').value.trim()
+  const apiKeyEnv = document.getElementById('cfg-api-key-env-legacy').value.trim() || null
+  const apiType = document.getElementById('cfg-api-type').value
+  if (!baseUrl) return { ok: false, error: 'base_url empty' }
+  try {
+    const r = await fetch('/api/services/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base_url: baseUrl, api_key_env: apiKeyEnv, api_type: apiType }),
+    })
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}))
+      return { ok: false, error: j.detail || `HTTP ${r.status}` }
+    }
+    return await r.json()
+  } catch (e) {
+    return { ok: false, error: `network error: ${e.message}` }
+  }
+}
+
 async function submitConfig() {
   const v = validateConfig()
   if (!v.ok) { setSaveError(v.msg, v.field); return false }
   setSaveError(null)
+
+  if (document.getElementById('cfg-deployment').value === 'cloud') {
+    setSaveError(null)
+    saveBtn.textContent = 'Testing…'
+    const t = await testServiceConfig()
+    saveBtn.textContent = 'Save'
+    if (!t.ok) {
+      setSaveError(`Connection test failed: ${t.error || 'unknown'}. Fix and retry.`, 'cfg-base-url')
+      return false
+    }
+  }
 
   const baseUrl = document.getElementById('cfg-base-url').value.trim()
   const body = {

@@ -1955,6 +1955,58 @@ async def set_admin_config(body: AdminConfig, _=Depends(require_admin)):
     return cfg
 
 
+@app.post("/api/admin/config/validate")
+async def validate_admin_config_route(body: AdminConfig, _=Depends(require_admin)):
+    incoming = body.model_dump(exclude_unset=True)
+    cfg = _load_admin_config()
+    merged = {**cfg, **incoming}
+    errs = validate_admin_config(merged)
+    return {"ok": not errs, "errors": errs}
+
+
+class _ServiceTest(BaseModel):
+    base_url: str
+    api_key_env: Optional[str] = None
+    api_type: Optional[str] = "openai"
+
+
+@app.post("/api/services/test")
+async def test_service(body: _ServiceTest, _=Depends(require_admin)):
+    base = (body.base_url or "").strip().rstrip("/")
+    if not base:
+        raise HTTPException(422, "base_url required")
+    if not (base.startswith("http://") or base.startswith("https://")):
+        raise HTTPException(422, "base_url must start with http:// or https://")
+    headers = {}
+    if body.api_key_env:
+        key = os.environ.get(body.api_key_env, "")
+        if not key:
+            return {"ok": False, "error": f"env var {body.api_key_env!r} is empty or unset"}
+        headers["Authorization"] = f"Bearer {key}"
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(8, connect=4)) as c:
+            r = await c.get(f"{base}/models", headers=headers)
+    except httpx.ConnectError as e:
+        return {"ok": False, "error": f"connection failed: {e}"}
+    except httpx.HTTPError as e:
+        return {"ok": False, "error": f"request failed: {e}"}
+    if r.status_code == 401 or r.status_code == 403:
+        return {"ok": False, "status": r.status_code, "error": "auth rejected — check api_key_env"}
+    if r.status_code != 200:
+        return {"ok": False, "status": r.status_code, "error": f"upstream returned {r.status_code}"}
+    try:
+        data = r.json()
+    except Exception:
+        return {"ok": False, "error": "upstream did not return JSON"}
+    if isinstance(data, dict) and isinstance(data.get("data"), list):
+        count = len(data["data"])
+    elif isinstance(data, list):
+        count = len(data)
+    else:
+        count = 0
+    return {"ok": True, "status": 200, "models": count}
+
+
 # --- Service identity (TOFU + allowlist) admin API ---
 
 from saturn.mdns import known_nodes as _known_nodes
