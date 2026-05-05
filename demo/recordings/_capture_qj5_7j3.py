@@ -88,9 +88,21 @@ def main():
         br = p.chromium.launch()
         ctx = br.new_context(viewport={"width": 1400, "height": 1100},
                              device_scale_factor=2)
-        page = admin_page(ctx, srv["token"])
-        url = try_open_admin(page, srv["origin"], PATHS, "Configure")
-        page.wait_for_timeout(800)
+        page = admin_page(ctx, srv["token"], origin=srv["origin"])
+        # SPA boot first — full app.js context. Then client-side nav to admin.
+        page.goto(srv["origin"])
+        page.wait_for_load_state("networkidle")
+        page.evaluate("window.location.pathname = '/admin/configure'")
+        page.wait_for_load_state("networkidle")
+        try:
+            page.wait_for_function(
+                "() => { const el = document.getElementById('kn-pinned-list');"
+                " return el && el.children.length > 0; }",
+                timeout=5000)
+        except Exception:
+            pass
+        page.wait_for_timeout(400)
+        url = page.url
 
         page.screenshot(path=str(OUT / f"qj5.7j3-{LABEL}-fullpage.png"),
                         full_page=True)
