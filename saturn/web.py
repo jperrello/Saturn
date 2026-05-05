@@ -17,7 +17,7 @@ from dataclasses import asdict
 
 import httpx
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query, Request, Header, Depends
+from fastapi import FastAPI, HTTPException, Query, Request, Header, Depends, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -1300,6 +1300,51 @@ async def proxy_chat(body: ManualChatRequest, request: Request):
                         yield "\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# Saturn-cbt.2.2: PDF text extraction endpoint. Client uploads multipart;
+# server extracts text via pypdf and returns it as a JSON content blob the
+# client folds into the user message like a regular text attachment.
+PDF_MAX_BYTES = 5 * 1024 * 1024
+
+
+@app.post("/api/upload/pdf")
+async def upload_pdf(request: Request, file: UploadFile = File(...)):
+    ip = _client_ip(request)
+    blocked = _check_rate(ip)
+    if blocked:
+        return blocked
+    name = file.filename or "upload.pdf"
+    if not name.lower().endswith(".pdf"):
+        return JSONResponse({"error": "Only .pdf files are accepted on this endpoint."}, status_code=400)
+    raw = await file.read()
+    if len(raw) > PDF_MAX_BYTES:
+        return JSONResponse(
+            {"error": f"PDF too large: {len(raw)} bytes exceeds {PDF_MAX_BYTES} byte limit."},
+            status_code=413,
+        )
+    try:
+        import io
+        from pypdf import PdfReader
+    except ImportError:
+        return JSONResponse(
+            {"error": "PDF support not installed on this Saturn instance (pypdf missing)."},
+            status_code=501,
+        )
+    try:
+        reader = PdfReader(io.BytesIO(raw))
+        pages = []
+        for i, page in enumerate(reader.pages):
+            pages.append(page.extract_text() or "")
+        content = "\n\n".join(pages).strip()
+    except Exception as e:
+        return JSONResponse({"error": f"Failed to extract PDF text: {e}"}, status_code=400)
+    if not content:
+        return JSONResponse(
+            {"error": "PDF contains no extractable text (likely a scanned image)."},
+            status_code=400,
+        )
+    return {"name": name, "size": len(raw), "pages": len(reader.pages), "content": content}
 
 
 @app.post("/api/chat")

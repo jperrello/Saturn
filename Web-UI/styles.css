@@ -1408,6 +1408,33 @@ body::after {
   border-radius: 3px;
 }
 .file-badge-x:hover { color: var(--red); }
+.file-badge-thumb {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+.file-badge-icon {
+  font-size: 14px;
+}
+.file-badge-meta {
+  color: var(--fg-muted);
+  font-size: 11px;
+  margin-left: auto;
+  padding-right: 8px;
+}
+.file-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(255, 80, 80, 0.08);
+  border-top: 1px solid rgba(255, 80, 80, 0.4);
+  color: var(--red, #ff6464);
+  font-family: var(--font);
+  font-size: 12px;
+}
 
 /* ===== CONTEXT INDICATOR ===== */
 .context-indicator {

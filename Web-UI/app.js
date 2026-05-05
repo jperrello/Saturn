@@ -1670,8 +1670,13 @@ let _pendingAliasModel = null
 
 function syncSendBtn() {
   const valid = modelSelect.value && !modelSelect.selectedOptions[0]?.disabled
-  sendBtn.disabled = sending ? false : !valid
-  sendBtn.title = valid ? '' : 'Select a valid model first'
+  const errEl = document.getElementById('file-error')
+  const errored = !!(errEl && !errEl.classList.contains('hidden'))
+  const uploading = !!window.__saturnAttachUploading
+  sendBtn.disabled = sending ? false : (!valid || errored || uploading)
+  sendBtn.title = !valid ? 'Select a valid model first' :
+                  errored ? 'Resolve attachment error before sending' :
+                  uploading ? 'Attachment still loading' : ''
 }
 
 const selDot = document.querySelector('.sel-dot')
@@ -2035,7 +2040,12 @@ function newChat() {
 // stream chat completions from saturn service — mirrors omlx saturn proxy pattern
 async function send() {
   const text = input.value.trim()
-  if (!text || sending) return
+  if (sending) return
+  // Saturn-cbt.2.2 C6: attachment-only sends are allowed (no text required
+  // when an attachment is present). Empty text + no attachment is rejected.
+  if (!text && !attachedFile) return
+  if (attachUploading) return
+  if (!fileError.classList.contains('hidden')) return
 
   const service = serviceSelect.value
   const model = modelSelect.value
@@ -2051,36 +2061,63 @@ async function send() {
   if (activeChat === null) newChat()
   const chat = chats[activeChat]
 
-  if (chat.messages.length === 0) {
-    chat.name = text.slice(0, 20) + (text.length > 20 ? '...' : '')
-    renderHistory()
-  }
-
-  // prepend file context if attached
-  let fullText = text
-  if (attachedFile) {
-    fullText = `--- File: ${attachedFile.name} ---\n${attachedFile.content}\n---\n${text}`
+  // Build the user message. Text-kind attachments fold into the text body;
+  // image attachments become an OpenAI multimodal content array on the wire
+  // (kept out of the displayed bubble — we show the image preview separately).
+  const att = attachedFile
+  let displayText = text
+  let wireText = text
+  let wireImage = null
+  if (att) {
+    if (att.kind === 'image') {
+      wireImage = att.dataUrl
+      displayText = text || `[image: ${att.name}]`
+      wireText = text || `Attached image: ${att.name}`
+    } else {
+      const body = `--- File: ${att.name} ---\n${att.content}\n---`
+      wireText = text ? `${body}\n${text}` : body
+      displayText = text ? `[file: ${att.name}] ${text}` : `[file: ${att.name}]`
+    }
     clearAttachment()
   }
 
-  chat.messages.push({ role: 'user', text: fullText })
+  if (chat.messages.length === 0) {
+    chat.name = displayText.slice(0, 20) + (displayText.length > 20 ? '...' : '')
+    renderHistory()
+  }
+
+  // Don't persist image data URLs in chat history — a single 5MB attachment
+  // would exhaust localStorage. Image content is one-shot per turn.
+  chat.messages.push({ role: 'user', text: displayText, wireText })
   saveChats()
   welcome.classList.add('hidden')
 
   const userDiv = document.createElement('div')
   userDiv.className = 'msg user'
-  userDiv.innerHTML = `<div class="prefix">&gt; you</div><div class="bubble">${esc(text)}</div>`
+  userDiv.innerHTML = `<div class="prefix">&gt; you</div><div class="bubble">${esc(displayText)}</div>`
   messagesEl.appendChild(userDiv)
   autoScroll = true
   messagesEl.scrollTop = messagesEl.scrollHeight
 
-  // build OpenAI-format messages array
+  // Build OpenAI-format messages array. Prior turns are text-only; only the
+  // just-pushed user turn may include an image attachment, sent as a
+  // multimodal content array (text + image_url).
   const sysPrompt = getSystemPrompt()
+  const lastIdx = chat.messages.length - 1
   const apiMessages = [
     ...(sysPrompt ? [{ role: 'system', content: sysPrompt }] : []),
     ...chat.messages
       .filter(m => m.role === 'user' || m.role === 'assistant')
-      .map(m => ({ role: m.role, content: m.text }))
+      .map((m, i) => {
+        const realIdx = chat.messages.indexOf(m)
+        if (m.role === 'user' && wireImage && realIdx === lastIdx) {
+          return { role: 'user', content: [
+            { type: 'text', text: wireText || m.text || '' },
+            { type: 'image_url', image_url: { url: wireImage } },
+          ] }
+        }
+        return { role: m.role, content: m.role === 'user' ? (m.wireText || m.text) : m.text }
+      })
   ]
   const compacted = compact(apiMessages)
 
@@ -2448,15 +2485,39 @@ document.getElementById('drawer-close')?.addEventListener('click', closeDrawer)
 drawerBackdrop?.addEventListener('click', closeDrawer)
 
 // ===== FILE CONTEXT INJECTION =====
-const ALLOWED_EXTS = ['.txt', '.md', '.py', '.js', '.ts', '.json', '.toml', '.yaml', '.yml', '.csv']
-const MAX_FILE_SIZE = 100 * 1024
+// Saturn-cbt.2.2: supported attachment types.
+//  - text/code: read locally as text, prepended into the user message.
+//  - image: read locally as data URL, sent in OpenAI multimodal content
+//    array (text + image_url). Backends without vision support will reject
+//    upstream — that's a backend concern, not a UI concern.
+//  - pdf: uploaded to /api/upload/pdf where pypdf extracts text server-side;
+//    extracted text is then prepended like a text file.
+const TEXT_EXTS = ['.txt', '.md', '.py', '.js', '.ts', '.tsx', '.jsx', '.json', '.toml',
+  '.yaml', '.yml', '.csv', '.html', '.css', '.sh', '.c', '.cpp', '.h', '.hpp',
+  '.go', '.rs', '.java', '.rb', '.xml', '.log', '.sql', '.ini', '.conf', '.env']
+const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp']
+const PDF_EXTS = ['.pdf']
+const ALLOWED_EXTS = [...TEXT_EXTS, ...IMAGE_EXTS, ...PDF_EXTS]
+const MAX_FILE_SIZE = 5 * 1024 * 1024
+
+function fmtSize(n) {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
 
 let attachedFile = null
+let attachUploading = false; window.__saturnAttachUploading = false
+window.__saturnAttachUploading = false
 const fileInput = document.getElementById('file-input')
 const fileBtn = document.getElementById('file-upload-btn')
 const fileBadge = document.getElementById('file-badge')
 const fileBadgeName = document.getElementById('file-badge-name')
 const fileBadgeRemove = document.getElementById('file-badge-remove')
+const fileBadgeThumb = document.getElementById('file-badge-thumb')
+const fileBadgeIcon = document.getElementById('file-badge-icon')
+const fileBadgeMeta = document.getElementById('file-badge-meta')
+const fileError = document.getElementById('file-error')
 const chatMain = document.querySelector('.chat-main')
 const chatGate = document.getElementById('chat-gate')
 const chatShell = document.getElementById('chat-shell')
@@ -2475,28 +2536,104 @@ chatAccept.addEventListener('click', () => {
 
 function clearAttachment() {
   attachedFile = null
+  attachUploading = false; window.__saturnAttachUploading = false
   fileInput.value = ''
   fileBadge.classList.add('hidden')
+  fileBadgeThumb.classList.add('hidden')
+  fileBadgeThumb.src = ''
+  fileBadgeIcon.textContent = ''
+  fileBadgeMeta.textContent = ''
+  clearAttachmentError()
+  syncSendBtn()
 }
 
-function attachFile(file) {
-  const ext = '.' + file.name.split('.').pop().toLowerCase()
+function showAttachmentError(msg) {
+  fileError.textContent = msg
+  fileError.classList.remove('hidden')
+  syncSendBtn()
+}
+function clearAttachmentError() {
+  fileError.textContent = ''
+  fileError.classList.add('hidden')
+}
+
+function presentBadge({ name, size, kind, dataUrl }) {
+  fileBadgeName.textContent = name
+  fileBadgeMeta.textContent = fmtSize(size)
+  if (kind === 'image' && dataUrl) {
+    fileBadgeThumb.src = dataUrl
+    fileBadgeThumb.classList.remove('hidden')
+    fileBadgeIcon.textContent = ''
+  } else {
+    fileBadgeThumb.classList.add('hidden')
+    fileBadgeThumb.src = ''
+    fileBadgeIcon.textContent = kind === 'pdf' ? '📄' : '📎'
+  }
+  fileBadge.classList.remove('hidden')
+  clearAttachmentError()
+  syncSendBtn()
+}
+
+function readFile(file, mode) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(r.result)
+    r.onerror = () => reject(new Error('Failed to read file'))
+    if (mode === 'dataurl') r.readAsDataURL(file)
+    else r.readAsText(file)
+  })
+}
+
+async function attachFile(file) {
+  clearAttachmentError()
+  const ext = '.' + (file.name.split('.').pop() || '').toLowerCase()
   if (!ALLOWED_EXTS.includes(ext)) {
-    toast('Unsupported file type. Use: ' + ALLOWED_EXTS.join(', '))
+    showAttachmentError(`Unsupported file type "${ext}". Allowed: ${ALLOWED_EXTS.join(', ')}.`)
     return
   }
   if (file.size > MAX_FILE_SIZE) {
-    toast('File too large (max 100KB)')
+    showAttachmentError(`File too large: ${fmtSize(file.size)} exceeds the ${fmtSize(MAX_FILE_SIZE)} limit.`)
     return
   }
-  const reader = new FileReader()
-  reader.onload = () => {
-    attachedFile = { name: file.name, content: reader.result }
-    fileBadgeName.textContent = '📎 ' + file.name
-    fileBadge.classList.remove('hidden')
+  try {
+    if (IMAGE_EXTS.includes(ext)) {
+      const dataUrl = await readFile(file, 'dataurl')
+      attachedFile = { name: file.name, size: file.size, kind: 'image', dataUrl }
+      presentBadge({ name: file.name, size: file.size, kind: 'image', dataUrl })
+      return
+    }
+    if (PDF_EXTS.includes(ext)) {
+      attachUploading = true; window.__saturnAttachUploading = true
+      presentBadge({ name: file.name, size: file.size, kind: 'pdf' })
+      fileBadgeMeta.textContent = `${fmtSize(file.size)} · extracting…`
+      syncSendBtn()
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/upload/pdf', { method: 'POST', body: fd })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+        attachUploading = false; window.__saturnAttachUploading = false
+        attachedFile = null
+        fileBadge.classList.add('hidden')
+        showAttachmentError(err.error || 'PDF extraction failed.')
+        return
+      }
+      const data = await res.json()
+      attachUploading = false; window.__saturnAttachUploading = false
+      attachedFile = { name: file.name, size: file.size, kind: 'text', content: data.content }
+      fileBadgeMeta.textContent = fmtSize(file.size)
+      syncSendBtn()
+      return
+    }
+    const content = await readFile(file, 'text')
+    attachedFile = { name: file.name, size: file.size, kind: 'text', content }
+    presentBadge({ name: file.name, size: file.size, kind: 'text' })
+  } catch (e) {
+    attachUploading = false; window.__saturnAttachUploading = false
+    attachedFile = null
+    fileBadge.classList.add('hidden')
+    showAttachmentError(e.message || 'Failed to attach file.')
   }
-  reader.onerror = () => toast('Failed to read file')
-  reader.readAsText(file)
 }
 
 fileBtn?.addEventListener('click', () => fileInput.click())

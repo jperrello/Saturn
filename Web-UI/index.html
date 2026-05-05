@@ -492,9 +492,13 @@
             </div>
           </div>
           <div id="file-badge" class="file-badge hidden">
+            <img id="file-badge-thumb" class="file-badge-thumb hidden" alt="">
+            <span id="file-badge-icon" class="file-badge-icon" aria-hidden="true"></span>
             <span id="file-badge-name"></span>
+            <span id="file-badge-meta" class="file-badge-meta"></span>
             <button id="file-badge-remove" class="file-badge-x" aria-label="Remove attached file">&times;</button>
           </div>
+          <div id="file-error" class="file-error hidden" role="alert"></div>
           <!-- Rate limit usage bar (SAT-2n8.1) -->
           <div id="rate-limit-bar" class="rate-limit-bar hidden">
             <div class="rate-limit-fill" id="rate-limit-fill"></div>
@@ -513,7 +517,7 @@
             <span class="context-label" id="context-label"></span>
           </div>
           <div class="chat-input-float">
-            <input type="file" id="file-input" class="hidden" accept=".txt,.md,.py,.js,.ts,.json,.toml,.yaml,.yml,.csv">
+            <input type="file" id="file-input" class="hidden" accept=".txt,.md,.py,.js,.ts,.tsx,.jsx,.json,.toml,.yaml,.yml,.csv,.html,.css,.sh,.c,.cpp,.h,.hpp,.go,.rs,.java,.rb,.xml,.log,.sql,.ini,.conf,.env,.png,.jpg,.jpeg,.gif,.webp,.pdf">
             <div class="chat-input-area">
               <button id="plus-menu-btn" class="chat-input-plus" title="Add menu" aria-label="Add menu" type="button">
                 <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
