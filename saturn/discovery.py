@@ -286,6 +286,18 @@ class SaturnDiscovery:
                 return None
             return min(candidates, key=lambda s: s.priority)
 
+    def sweep_stale(self, max_age: float) -> None:
+        cutoff = time.time() - max_age
+        with self.lock:
+            stale = [k for k, s in self.services.items() if (s.last_seen or 0) < cutoff]
+            for k in stale:
+                removed = self.services.pop(k)
+                if self.on_service_change:
+                    try:
+                        self.on_service_change("removed", removed)
+                    except Exception:
+                        logger.exception("on_service_change failed during sweep_stale")
+
     def reclassify_all(self) -> None:
         with self.lock:
             for s in self.services.values():
