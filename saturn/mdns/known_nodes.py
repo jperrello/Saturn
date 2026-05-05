@@ -1,3 +1,5 @@
+import contextlib
+import fcntl
 import json
 import os
 import stat
@@ -15,6 +17,21 @@ SCHEMA_VERSION = 1
 MAX_REJECTED = 50
 
 _lock = threading.Lock()
+
+
+@contextlib.contextmanager
+def _flock():
+    lock_path = PATH.with_suffix(".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    f = open(lock_path, "a+")
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(f, fcntl.LOCK_UN)
+        finally:
+            f.close()
 _warned_mode = False
 
 
@@ -66,7 +83,7 @@ def known_node_id(name: str) -> Optional[str]:
 
 
 def pin(name: str, node_id: str, host: str) -> None:
-    with _lock:
+    with _lock, _flock():
         state = load()
         existing = state["nodes"].get(name)
         if existing and existing["node_id"] == node_id:
@@ -86,7 +103,7 @@ def pin(name: str, node_id: str, host: str) -> None:
 
 
 def record_rejection(name: str, node_id: str, host: str, reason: str, expected_node_id: str = "") -> None:
-    with _lock:
+    with _lock, _flock():
         state = load()
         for r in state["rejected"]:
             if r["service_name"] == name and r["node_id"] == node_id:
@@ -119,7 +136,7 @@ def latest_rejection(name: str) -> Optional[dict]:
 
 
 def attest(name: str, node_id: str, host: str) -> None:
-    with _lock:
+    with _lock, _flock():
         state = load()
         state["nodes"][name] = {
             "node_id": node_id,
@@ -133,7 +150,7 @@ def attest(name: str, node_id: str, host: str) -> None:
 
 
 def forget(name: str) -> None:
-    with _lock:
+    with _lock, _flock():
         state = load()
         state["nodes"].pop(name, None)
         save(state)
