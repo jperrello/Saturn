@@ -1,6 +1,7 @@
 from __future__ import annotations
 import socket
 import logging
+import queue
 import threading
 from typing import Callable
 
@@ -47,25 +48,66 @@ def _resolve(zc: Zeroconf, type_: str, name: str) -> ServiceRecord | None:
     )
 
 
+_RESOLVE_WORKERS = 8
+_STOP = object()
+
+
 class _Listener(ServiceListener):
     def __init__(self, zc: Zeroconf, callback: Callable[[ServiceEvent], None]):
         self._zc = zc
         self._cb = callback
+        self._q: queue.Queue = queue.Queue()
+        self._inflight: set[str] = set()
+        self._lock = threading.Lock()
+        self._workers = [
+            threading.Thread(target=self._run, name=f"saturn-resolve-{i}", daemon=True)
+            for i in range(_RESOLVE_WORKERS)
+        ]
+        for w in self._workers:
+            w.start()
+
+    def _run(self) -> None:
+        while True:
+            item = self._q.get()
+            if item is _STOP:
+                self._q.task_done()
+                return
+            action, type_, name = item
+            try:
+                if action == "removed":
+                    sname = name.replace(f".{type_}", "")
+                    rec = ServiceRecord(name=sname, node_id="", host="", port=0, txt={})
+                else:
+                    rec = _resolve(self._zc, type_, name)
+                if rec:
+                    self._cb((action, rec))
+            except Exception:
+                logger.exception("resolve dispatch failed for %s %s", action, name)
+            finally:
+                with self._lock:
+                    self._inflight.discard(f"{action}:{name}")
+                self._q.task_done()
+
+    def _dispatch(self, action: str, type_: str, name: str) -> None:
+        key = f"{action}:{name}"
+        with self._lock:
+            if key in self._inflight:
+                return
+            self._inflight.add(key)
+        self._q.put((action, type_, name))
 
     def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        rec = _resolve(zc, type_, name)
-        if rec:
-            self._cb(("added", rec))
+        self._dispatch("added", type_, name)
 
     def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        rec = _resolve(zc, type_, name)
-        if rec:
-            self._cb(("updated", rec))
+        self._dispatch("updated", type_, name)
 
     def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        sname = name.replace(f".{type_}", "")
-        rec = ServiceRecord(name=sname, node_id="", host="", port=0, txt={})
-        self._cb(("removed", rec))
+        self._dispatch("removed", type_, name)
+
+    def shutdown(self) -> None:
+        for _ in self._workers:
+            self._q.put(_STOP)
 
 
 class UserspaceBackend:
@@ -136,6 +178,8 @@ class UserspaceBackend:
         if self._browser:
             self._browser.cancel()
             self._browser = None
+        if self._listener:
+            self._listener.shutdown()
             self._listener = None
 
     def close(self) -> None:
