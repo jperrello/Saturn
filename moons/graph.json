@@ -32,10 +32,13 @@
     {
       "id": "saturn-discovery",
       "type": "code",
-      "desc": "Core mDNS/DNS-SD discovery engine using zeroconf to find and advertise Saturn services.",
+      "desc": "Discovery coordinator that imports the saturn.mdns subpackage backends and exposes SaturnService records to the rest of Saturn.",
       "file": "code/saturn-discovery.md",
       "edges": [
-        { "to": "saturn-config", "rel": "uses" }
+        { "to": "saturn-config", "rel": "uses" },
+        { "to": "mdns-identity", "rel": "imports" },
+        { "to": "mdns-backend", "rel": "imports" },
+        { "to": "mdns-detect", "rel": "uses" }
       ],
       "gravity": 1.0
     },
@@ -597,11 +600,12 @@
     {
       "id": "readme",
       "type": "note",
-      "desc": "Project README with overview, installation instructions, and usage examples for Saturn.",
+      "desc": "Project README rewritten for an ML-systems-research audience: protocol claims, evaluation scope, and citations into the thesis manuscript.",
       "file": "note/readme.md",
       "edges": [
         { "to": "saturn-init", "rel": "references" },
-        { "to": "pyproject", "rel": "references" }
+        { "to": "pyproject", "rel": "references" },
+        { "to": "docs-ml-researchers", "rel": "relates" }
       ],
       "gravity": 0.5
     },
@@ -807,13 +811,15 @@
     {
       "id": "saturn-web",
       "type": "code",
-      "desc": "Saturn web server and UI backend providing REST endpoints for the Web UI.",
+      "desc": "Saturn web admin backend (saturn/web.py): FastAPI app exposing service discovery, config CRUD, and chat proxy endpoints consumed by the Web-UI front-end.",
       "file": "code/saturn-web.md",
       "edges": [
         { "to": "saturn-discovery", "rel": "imports" },
-        { "to": "saturn-config", "rel": "imports" }
+        { "to": "saturn-config", "rel": "imports" },
+        { "to": "saturn-runner", "rel": "uses" },
+        { "to": "web-ui-server", "rel": "relates" }
       ],
-      "gravity": 0.1
+      "gravity": 0.3
     },
     {
       "id": "saturnd-main",
@@ -957,27 +963,30 @@
     {
       "id": "web-ui-app",
       "type": "code",
-      "desc": "Express.js web application server for the Saturn Web UI.",
+      "desc": "Saturn admin Web-UI front-end (Web-UI/app.js): ~4000-line Three.js + vanilla JS application driving the Network Scan, Chat, Config, and System tabs against the saturn-web backend.",
       "file": "code/web-ui-app.md",
       "edges": [
-        { "to": "web-ui-index", "rel": "references" }
+        { "to": "web-ui-index", "rel": "references" },
+        { "to": "web-ui-styles", "rel": "uses" },
+        { "to": "saturn-web", "rel": "relates" }
       ],
-      "gravity": 0.1
+      "gravity": 0.2
     },
     {
       "id": "web-ui-server",
       "type": "code",
-      "desc": "Web server TypeScript implementation for the Saturn Web UI.",
+      "desc": "Bun/TypeScript dev server (Web-UI/server.ts) advertising via multicast-dns, serving the static UI, and proxying /v1 chat to discovered Saturn services with health checks and circuit breakers.",
       "file": "code/web-ui-server.md",
       "edges": [
-        { "to": "web-ui-app", "rel": "imports" }
+        { "to": "web-ui-app", "rel": "imports" },
+        { "to": "saturn-web", "rel": "relates" }
       ],
-      "gravity": 0.1
+      "gravity": 0.15
     },
     {
       "id": "web-ui-index",
       "type": "code",
-      "desc": "Web UI HTML entry point.",
+      "desc": "Web UI HTML entry point (Web-UI/index.html) with SVG filters, tab structure, and Three.js canvas mount points.",
       "file": "code/web-ui-index.md",
       "edges": [],
       "gravity": 0.1
@@ -985,7 +994,7 @@
     {
       "id": "web-ui-styles",
       "type": "style",
-      "desc": "Main stylesheet for the Saturn Web UI.",
+      "desc": "Main stylesheet (Web-UI/styles.css) defining the dark Saturn admin theme, monospace typography, and tab layout.",
       "file": "style/web-ui-styles.md",
       "edges": [],
       "gravity": 0.1
@@ -1136,6 +1145,253 @@
       "file": "test/tests-bombadil-autoroute.md",
       "edges": [],
       "gravity": 0.1
+    },
+    {
+      "id": "mdns-identity",
+      "type": "code",
+      "desc": "Generates and persists a stable per-node UUID under ~/.saturn/node_id used as the mDNS instance identity across restarts.",
+      "file": "code/mdns-identity.md",
+      "edges": [
+        { "to": "saturn-discovery", "rel": "supports" }
+      ],
+      "gravity": 0.2
+    },
+    {
+      "id": "mdns-settle",
+      "type": "code",
+      "desc": "Threading-based SettleDetector that waits for an mDNS browse to quiesce before returning results.",
+      "file": "code/mdns-settle.md",
+      "edges": [
+        { "to": "mdns-userspace", "rel": "supports" },
+        { "to": "mdns-bonjour", "rel": "supports" }
+      ],
+      "gravity": 0.2
+    },
+    {
+      "id": "mdns-backend",
+      "type": "code",
+      "desc": "Defines the MdnsBackend Protocol plus ServiceRecord and AdvertiseSpec dataclasses shared by every backend implementation.",
+      "file": "code/mdns-backend.md",
+      "edges": [
+        { "to": "mdns-userspace", "rel": "supports" },
+        { "to": "mdns-bonjour", "rel": "supports" },
+        { "to": "mdns-avahi", "rel": "supports" },
+        { "to": "saturn-discovery", "rel": "supports" }
+      ],
+      "gravity": 0.4
+    },
+    {
+      "id": "mdns-userspace",
+      "type": "code",
+      "desc": "Cross-platform fallback backend built on the python-zeroconf library implementing advertise/browse via ServiceInfo and ServiceBrowser.",
+      "file": "code/mdns-userspace.md",
+      "edges": [
+        { "to": "mdns-backend", "rel": "imports" },
+        { "to": "mdns-conflict", "rel": "uses" },
+        { "to": "mdns-settle", "rel": "uses" }
+      ],
+      "gravity": 0.3
+    },
+    {
+      "id": "mdns-detect",
+      "type": "code",
+      "desc": "Platform detection that picks bonjour on macOS, avahi on Linux with a running daemon, and userspace zeroconf otherwise.",
+      "file": "code/mdns-detect.md",
+      "edges": [
+        { "to": "mdns-bonjour", "rel": "uses" },
+        { "to": "mdns-avahi", "rel": "uses" },
+        { "to": "mdns-userspace", "rel": "uses" }
+      ],
+      "gravity": 0.3
+    },
+    {
+      "id": "mdns-bonjour",
+      "type": "code",
+      "desc": "macOS backend that calls Apple's libSystem DNS-SD C API directly via ctypes for native Bonjour advertise and browse.",
+      "file": "code/mdns-bonjour.md",
+      "edges": [
+        { "to": "mdns-backend", "rel": "imports" },
+        { "to": "mdns-conflict", "rel": "uses" },
+        { "to": "mdns-settle", "rel": "uses" }
+      ],
+      "gravity": 0.3
+    },
+    {
+      "id": "mdns-avahi",
+      "type": "code",
+      "desc": "Linux backend speaking to the Avahi system daemon over D-Bus for native mDNS advertise and browse.",
+      "file": "code/mdns-avahi.md",
+      "edges": [
+        { "to": "mdns-backend", "rel": "imports" },
+        { "to": "mdns-conflict", "rel": "uses" }
+      ],
+      "gravity": 0.3
+    },
+    {
+      "id": "mdns-conflict",
+      "type": "code",
+      "desc": "Persists and increments instance names (e.g. 'saturn (2)') under ~/.saturn/instance_name when the local network reports a name conflict.",
+      "file": "code/mdns-conflict.md",
+      "edges": [
+        { "to": "mdns-userspace", "rel": "supports" },
+        { "to": "mdns-bonjour", "rel": "supports" },
+        { "to": "mdns-avahi", "rel": "supports" }
+      ],
+      "gravity": 0.3
+    },
+    {
+      "id": "mdns-subtypes",
+      "type": "code",
+      "desc": "Maps Saturn roles (coordinator, worker, cloud, beacon) to DNS-SD subtype strings for selective browsing.",
+      "file": "code/mdns-subtypes.md",
+      "edges": [
+        { "to": "mdns-backend", "rel": "supports" }
+      ],
+      "gravity": 0.15
+    },
+    {
+      "id": "demo-readme",
+      "type": "note",
+      "desc": "Top-level README for the demo/ package describing the goal of a sub-five-minute clone-to-chat-completion demo.",
+      "file": "note/demo-readme.md",
+      "edges": [
+        { "to": "demo-run", "rel": "references" },
+        { "to": "demo-quickstart", "rel": "relates" }
+      ],
+      "gravity": 0.2
+    },
+    {
+      "id": "demo-quickstart",
+      "type": "note",
+      "desc": "Five-minute Saturn quickstart aimed at a fresh user with Ollama installed on a multicast-friendly LAN.",
+      "file": "note/demo-quickstart.md",
+      "edges": [
+        { "to": "demo-run", "rel": "references" },
+        { "to": "saturn-runner", "rel": "relates" }
+      ],
+      "gravity": 0.2
+    },
+    {
+      "id": "demo-architecture",
+      "type": "note",
+      "desc": "Code-tour walkthrough mapping a /v1/chat/completions request through discovery, the runner, and the Web UI server.",
+      "file": "note/demo-architecture.md",
+      "edges": [
+        { "to": "saturn-discovery", "rel": "references" },
+        { "to": "saturn-runner", "rel": "references" },
+        { "to": "saturn-web", "rel": "references" }
+      ],
+      "gravity": 0.2
+    },
+    {
+      "id": "demo-walkthrough",
+      "type": "note",
+      "desc": "Showboat-generated step-by-step transcript of demo/run.sh going from clean install to a working chat completion in six commands.",
+      "file": "note/demo-walkthrough.md",
+      "edges": [
+        { "to": "demo-run", "rel": "references" }
+      ],
+      "gravity": 0.15
+    },
+    {
+      "id": "demo-run",
+      "type": "script",
+      "desc": "Reproducible bash demo script: launches an mDNS-advertised Ollama proxy, discovers it, and runs an OpenAI-compatible chat completion against it.",
+      "file": "script/demo-run.md",
+      "edges": [
+        { "to": "saturn-runner", "rel": "uses" },
+        { "to": "saturn-discovery", "rel": "uses" },
+        { "to": "server-ollama", "rel": "uses" }
+      ],
+      "gravity": 0.3
+    },
+    {
+      "id": "demo-screenshots",
+      "type": "note",
+      "desc": "Index of Web-UI screenshots captured against saturn web on a local Ollama proxy for the promo-push artifact set.",
+      "file": "note/demo-screenshots.md",
+      "edges": [
+        { "to": "saturn-web", "rel": "references" },
+        { "to": "web-ui-app", "rel": "references" }
+      ],
+      "gravity": 0.15
+    },
+    {
+      "id": "demo-recordings",
+      "type": "note",
+      "desc": "Index of asciinema recordings of demo/run.sh end-to-end on macOS.",
+      "file": "note/demo-recordings.md",
+      "edges": [
+        { "to": "demo-run", "rel": "references" }
+      ],
+      "gravity": 0.1
+    },
+    {
+      "id": "docs-ml-researchers",
+      "type": "note",
+      "desc": "Saturn for ML Systems Researchers: protocol-level positioning, thesis-cited claims, and analytical evaluation summary.",
+      "file": "note/docs-ml-researchers.md",
+      "edges": [
+        { "to": "readme", "rel": "relates" },
+        { "to": "docs-v2-spec", "rel": "relates" }
+      ],
+      "gravity": 0.3
+    },
+    {
+      "id": "docs-landing",
+      "type": "note",
+      "desc": "Landing copy collection: GitHub About blurb, hero text, and social variants for the promo-push branch.",
+      "file": "note/docs-landing.md",
+      "edges": [
+        { "to": "readme", "rel": "relates" }
+      ],
+      "gravity": 0.15
+    },
+    {
+      "id": "docs-v2-proposal",
+      "type": "note",
+      "desc": "Saturn v2 mDNS proposal enumerating known bugs and prioritized improvements to the discovery subsystem.",
+      "file": "note/docs-v2-proposal.md",
+      "edges": [
+        { "to": "docs-v2-spec", "rel": "relates" },
+        { "to": "saturn-discovery", "rel": "relates" }
+      ],
+      "gravity": 0.25
+    },
+    {
+      "id": "docs-v2-spec",
+      "type": "note",
+      "desc": "Saturn v2 mDNS technical specification: backend abstraction, conflict handling, and per-platform native paths that the saturn.mdns subpackage implements.",
+      "file": "note/docs-v2-spec.md",
+      "edges": [
+        { "to": "mdns-backend", "rel": "references" },
+        { "to": "mdns-detect", "rel": "references" },
+        { "to": "docs-mdns-research", "rel": "relates" }
+      ],
+      "gravity": 0.3
+    },
+    {
+      "id": "docs-mdns-research",
+      "type": "note",
+      "desc": "Research notes on OS-level mDNS (RFC 6762/6763, Bonjour, Avahi, kernel networking) that grounded the v2 spec.",
+      "file": "note/docs-mdns-research.md",
+      "edges": [
+        { "to": "docs-v2-spec", "rel": "relates" },
+        { "to": "mdns-bonjour", "rel": "references" },
+        { "to": "mdns-avahi", "rel": "references" }
+      ],
+      "gravity": 0.25
+    },
+    {
+      "id": "docs-index-md",
+      "type": "note",
+      "desc": "Saturn documentation site landing page (docs/index.md) for the mkdocs-built site.",
+      "file": "note/docs-index-md.md",
+      "edges": [
+        { "to": "readme", "rel": "relates" },
+        { "to": "docs-ml-researchers", "rel": "relates" }
+      ],
+      "gravity": 0.2
     }
   ]
 }
