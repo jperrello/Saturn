@@ -120,9 +120,12 @@ class UserspaceBackend:
 
     def advertise(self, spec: AdvertiseSpec) -> None:
         from saturn.discovery import get_lan_ip
-        host_ip = get_lan_ip()
+        from saturn.mdns import interfaces as _ifaces
+        ips = _ifaces.routable_addrs()
+        if not ips:
+            ips = [get_lan_ip()]
         name = get_instance_name(spec.name)
-        addr = [socket.inet_aton(host_ip)]
+        addr = [socket.inet_aton(ip) for ip in ips]
         server = f"{socket.gethostname()}.local."
         for _ in range(5):
             kwargs = dict(
