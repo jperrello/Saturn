@@ -27,6 +27,7 @@ INJECT = """
 
 
 def admin_page(ctx, token):
+    ctx.set_extra_http_headers({"Authorization": f"Bearer {token}"})
     page = ctx.new_page()
     page.add_init_script(INJECT.replace("__SATURN_ADMIN_TOKEN__", token))
     return page
