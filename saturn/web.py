@@ -145,7 +145,10 @@ def _config_to_dict(name: str, config: ServiceConfig, builtin: bool) -> dict:
 
 # --- Brutus state ---
 
-_breakers: dict[str, dict] = {}  # name -> {failures, opened_at}
+_breakers: dict[str, dict] = {}  # name -> {failures, opened_at, health_fails}
+_failover_state: dict[str, str] = {}  # conversation_id -> peer_name (sticky)
+_failover_hysteresis: dict = {"name": None, "at": 0.0}  # last peer used when no convo_id
+HYSTERESIS_S = 30.0
 _health: dict[str, bool] = {}
 _tunnel_proc: Optional[asyncio.subprocess.Process] = None
 _tunnel_url: Optional[str] = None
@@ -1028,6 +1031,8 @@ async def chat(body: ChatRequest, request: Request):
 
 class BrutusChat(BaseModel):
     messages: List[dict]
+    model: Optional[str] = None
+    conversation_id: Optional[str] = None
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
     top_p: Optional[float] = None
@@ -1060,14 +1065,17 @@ async def brutus_chat(body: BrutusChat, request: Request):
     t0 = time.time()
     skipped = []
 
-    # gather candidates from discovered + running configured services
+    convo_id = request.headers.get("X-Saturn-Conversation-Id") or body.conversation_id
+
     candidates = []
     for name, d in _discovered.items():
         b = _breaker(name)
         if _breaker_open(b):
             skipped.append({"name": name, "reason": "circuit_breaker"})
             continue
-        candidates.append({"name": name, "host": d["host"], "port": d["port"], "priority": d.get("priority", 100), "models": d.get("models", [])})
+        candidates.append({"name": name, "host": d["host"], "port": d["port"],
+                           "priority": d.get("priority", 100),
+                           "models": d.get("models", []) or []})
     disc_ports = {d["port"] for d in _discovered.values()}
     disc_bases = {n.split("-")[0] for n in _discovered}
     for sname, cfg, _ in list_service_configs():
@@ -1080,92 +1088,183 @@ async def brutus_chat(body: BrutusChat, request: Request):
                 continue
             b = _breaker(sname)
             if port and not _breaker_open(b):
-                candidates.append({"name": sname, "host": "127.0.0.1", "port": port, "priority": cfg.priority, "models": []})
+                candidates.append({"name": sname, "host": "127.0.0.1", "port": port,
+                                   "priority": cfg.priority, "models": []})
             elif port:
                 skipped.append({"name": sname, "reason": "circuit_breaker"})
 
+    requested_model = body.model
+    if requested_model:
+        has_known = any(c["models"] for c in candidates)
+        affine = [c for c in candidates if (not c["models"]) or (requested_model in c["models"])]
+        any_match = any(c["models"] and requested_model in c["models"] for c in candidates)
+        if has_known and not any_match:
+            raise HTTPException(502, f"No peer advertises requested model {requested_model!r}; refusing to silently route.")
+        candidates = affine
+
     candidates.sort(key=lambda c: c["priority"])
+
+    if convo_id and convo_id in _failover_state:
+        sticky = _failover_state[convo_id]
+        candidates.sort(key=lambda c: 0 if c["name"] == sticky else 1)
+    elif not convo_id and _failover_hysteresis["name"] and (time.time() - _failover_hysteresis["at"]) < HYSTERESIS_S:
+        h = _failover_hysteresis["name"]
+        candidates.sort(key=lambda c: 0 if c["name"] == h else 1)
 
     if not candidates:
         raise HTTPException(502, "No healthy backends available. Run discovery first.")
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
-        for c in candidates:
-            base = f"http://{c['host']}:{c['port']}/v1"
-            model = c["models"][0] if c["models"] else None
-            if not model:
-                try:
-                    r = await client.get(f"{base}/models", timeout=5)
-                    data = r.json()
-                    if isinstance(data, dict) and "data" in data:
-                        model = data["data"][0]["id"] if data["data"] else None
+    raw_params = {}
+    for key in ("temperature", "max_tokens", "top_p", "top_k", "frequency_penalty",
+                "presence_penalty", "repeat_penalty", "repeat_last_n", "min_p",
+                "seed", "stop", "mirostat", "mirostat_tau", "mirostat_eta",
+                "num_ctx", "num_batch", "keep_alive"):
+        val = getattr(body, key, None)
+        if val is not None:
+            raw_params[key] = val
+
+    events = []
+    prev_name = None
+    prev_reason = None
+
+    chosen = None
+    chosen_response = None
+    chosen_client = None
+    chosen_model = None
+
+    for c in candidates:
+        if prev_name:
+            events.append({"from": prev_name, "to": c["name"], "reason": prev_reason, "at": time.time()})
+            prev_name = None
+            prev_reason = None
+
+        b = _breaker(c["name"])
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(2.0, connect=0.5)) as hc:
+                hr = await hc.get(f"http://{c['host']}:{c['port']}/v1/health")
+                health_ok = hr.status_code == 200
+        except Exception:
+            health_ok = False
+        if not health_ok:
+            b["health_fails"] = b.get("health_fails", 0) + 1
+            if b["health_fails"] >= 2:
+                skipped.append({"name": c["name"], "reason": "health_timeout"})
+                prev_name = c["name"]
+                prev_reason = "health_timeout"
+                continue
+        else:
+            b["health_fails"] = 0
+
+        model = requested_model or (c["models"][0] if c["models"] else None)
+        if not model:
+            try:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(2.0, connect=0.5)) as mc:
+                    mr = await mc.get(f"http://{c['host']}:{c['port']}/v1/models")
+                    data = mr.json()
+                    if isinstance(data, dict) and "data" in data and data["data"]:
+                        model = data["data"][0]["id"]
                     elif isinstance(data, list) and data:
                         model = data[0].get("id", data[0].get("name"))
-                except Exception:
-                    skipped.append({"name": c["name"], "reason": "no_models"})
-                    continue
-            if not model:
-                skipped.append({"name": c["name"], "reason": "no_models"})
-                continue
-
-            try:
-                latency = round((time.time() - t0) * 1000)
-                raw_params = {}
-                for key in ("temperature", "max_tokens", "top_p", "top_k", "frequency_penalty",
-                            "presence_penalty", "repeat_penalty", "repeat_last_n", "min_p",
-                            "seed", "stop", "mirostat", "mirostat_tau", "mirostat_eta",
-                            "num_ctx", "num_batch", "keep_alive"):
-                    val = getattr(body, key, None)
-                    if val is not None:
-                        raw_params[key] = val
-
-                at = _api_type(c["name"])
-                payload = {"model": model, "stream": True, **_adapt(body.messages, raw_params, at, body.thinking)}
-                payload["stream_options"] = {"include_usage": True}
-
-                _routing_log.append({
-                    "ts": time.time(),
-                    "service": c["name"],
-                    "model": model,
-                    "skipped": [s["name"] for s in skipped],
-                    "latency_ms": latency,
-                })
-
-                async def generate(base_url=base, pay=payload, hdrs={}, svc_name=c["name"], mdl=model):
-                    async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as c2:
-                        async with c2.stream("POST", f"{base_url}/chat/completions", json=pay, headers=hdrs) as r:
-                            if r.status_code != 200:
-                                _record_failure(svc_name)
-                                err = await r.aread()
-                                yield f"data: {err.decode()}\n\n"
-                                return
-                            _record_success(svc_name)
-                            # emit metadata as first event
-                            yield f"data: {{}}\n\n"
-                            async for line in r.aiter_lines():
-                                if line:
-                                    yield line + "\n"
-                                else:
-                                    yield "\n"
-
-                skipped_names = ",".join(s["name"] for s in skipped) if skipped else ""
-                return StreamingResponse(
-                    generate(),
-                    media_type="text/event-stream",
-                    headers={
-                        "X-Saturn-Service": c["name"],
-                        "X-Saturn-Model": model,
-                        "X-Saturn-Skipped": skipped_names,
-                        "X-Saturn-Latency": str(latency),
-                        "Access-Control-Expose-Headers": "X-Saturn-Service, X-Saturn-Model, X-Saturn-Skipped, X-Saturn-Latency",
-                    },
-                )
             except Exception:
-                _record_failure(c["name"])
-                skipped.append({"name": c["name"], "reason": "error"})
-                continue
+                pass
+        if not model:
+            skipped.append({"name": c["name"], "reason": "no_models"})
+            prev_name = c["name"]
+            prev_reason = "active_5xx"
+            continue
 
-    raise HTTPException(502, "All backends failed")
+        at = _api_type(c["name"])
+        payload = {"model": model, "stream": True, **_adapt(body.messages, raw_params, at, body.thinking)}
+        payload["stream_options"] = {"include_usage": True}
+
+        client = httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10))
+        try:
+            req = client.build_request("POST", f"http://{c['host']}:{c['port']}/v1/chat/completions",
+                                       json=payload, headers={})
+            resp = await client.send(req, stream=True)
+        except Exception:
+            try: await client.aclose()
+            except Exception: pass
+            _record_failure(c["name"])
+            skipped.append({"name": c["name"], "reason": "error"})
+            prev_name = c["name"]
+            prev_reason = "active_5xx"
+            continue
+        if resp.status_code != 200:
+            try: await resp.aclose()
+            except Exception: pass
+            try: await client.aclose()
+            except Exception: pass
+            _record_failure(c["name"])
+            skipped.append({"name": c["name"], "reason": f"http_{resp.status_code}"})
+            prev_name = c["name"]
+            prev_reason = "active_5xx"
+            continue
+
+        _record_success(c["name"])
+        if convo_id:
+            _failover_state[convo_id] = c["name"]
+        else:
+            _failover_hysteresis["name"] = c["name"]
+            _failover_hysteresis["at"] = time.time()
+        chosen = c
+        chosen_response = resp
+        chosen_client = client
+        chosen_model = model
+        break
+
+    if not chosen:
+        raise HTTPException(502, "All backends failed")
+
+    from saturn import receipt as _receipt
+    configured = {"model": chosen_model, **raw_params}
+    system_prompt = next(
+        (m.get("content") for m in body.messages if isinstance(m, dict) and m.get("role") == "system" and isinstance(m.get("content"), str)),
+        None,
+    )
+    latency = round((time.time() - t0) * 1000)
+    _routing_log.append({
+        "ts": time.time(),
+        "service": chosen["name"],
+        "model": chosen_model,
+        "skipped": [s["name"] for s in skipped],
+        "latency_ms": latency,
+    })
+
+    async def generate():
+        applied = {"max_tokens": body.max_tokens}
+        try:
+            async for line in chosen_response.aiter_lines():
+                if line.startswith("data:") and "[DONE]" in line:
+                    meta = _receipt.build_meta(configured, applied, system_prompt, requested_model=chosen_model)
+                    meta.setdefault("routing", {})["events"] = events
+                    meta["routing"]["service"] = chosen["name"]
+                    yield f"data: {json.dumps({'saturn_meta': meta})}\n\n"
+                    yield line + "\n"
+                    continue
+                _receipt.update_applied_from_chunk(applied, line)
+                if line:
+                    yield line + "\n"
+                else:
+                    yield "\n"
+        finally:
+            try: await chosen_response.aclose()
+            except Exception: pass
+            try: await chosen_client.aclose()
+            except Exception: pass
+
+    skipped_names = ",".join(s["name"] for s in skipped) if skipped else ""
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "X-Saturn-Service": chosen["name"],
+            "X-Saturn-Model": chosen_model,
+            "X-Saturn-Skipped": skipped_names,
+            "X-Saturn-Latency": str(latency),
+            "Access-Control-Expose-Headers": "X-Saturn-Service, X-Saturn-Model, X-Saturn-Skipped, X-Saturn-Latency",
+        },
+    )
 
 
 @app.get("/api/system/status")
