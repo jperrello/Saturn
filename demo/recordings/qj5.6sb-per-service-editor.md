@@ -1,17 +1,43 @@
 # Saturn-6sb (qj5.13 commit-3) — per-service editor on the Configure page
 
-*2026-05-04T22:34:17Z by Showboat 0.6.1*
-<!-- showboat-id: 358590df-c32b-4fc9-ac2c-0dd88f333ff8 -->
+*2026-05-05T01:15:17Z by Showboat 0.6.1*
+<!-- showboat-id: 65fe7b6c-3447-4217-bf43-e8583deed8eb -->
 
-**Status: scaffold prefetched, awaiting hardener (queues after Saturn-hft).** Per-service CRUD (list / create / edit / delete) lives on the admin Configure view as one of its eight group sections (or a sibling), surfacing CONFIG_FIELDS §B fields against the existing /api/services API. Five falsifiable surfaces: (a) section lists existing services, (b) UI Create round-trips through POST /api/services, (c) UI Edit propagates without restart, (d) UI Delete confirms then DELETEs, (e) sensitive auth surface gated — `api_key_env` / "env var name" — never plaintext.
+**Status: shipped (commit b38b4af).** Per-service CRUD now lives in a dedicated `fieldset.per-service-editor` group on the admin Configure view at `/admin/configure`, with list / + Add Service / Edit / Delete wired to the existing `/api/services` endpoints. CONFIG_FIELDS §B fields surface in the form: `api_key_env` (env-var NAME, never the value), `max_budget_usd`, `require_runner_token`. The legacy plaintext `#cfg-api-key` input has been removed from the editor.
 
-## The user-trust angle (especially (e))
+## The user-trust angle
 
-Saturn's invariant from `saturn/web.py:1213` is **the value of an api key never traverses a request body** — configs hold the *name* of an env var. The UI must reflect that. A plaintext `api_key` input on the editor would violate the invariant on the wire and in the DOM. The probe today flags it directly.
+Saturn's invariant from `saturn/web.py:1213`: **the value of an api key never traverses a request body** — configs hold the *name* of an env var. The UI reflects that — the editor's `#cfg-api-key-env` label literally reads "API key — env var NAME (never the key value)". A plaintext `api_key` input on the editor would violate the invariant on the wire AND in the DOM.
 
-## Reproducer — admin probe with token-injected fetch + service seed
+## Before — HEAD without Saturn-6sb (probe at parent c222dca)
 
-Spawns saturn web with isolated SATURN_DATA_DIR + SATURN_SERVICES_DIR + SATURN_DEV_MODE=1; injects the admin bearer into sessionStorage and patches window.fetch on /api/* calls; seeds two services via POST /api/services; navigates the candidate admin paths; reports which sections look like the editor, lists any plaintext api-key inputs, and surfaces which CONFIG_FIELDS §B fields are present.
+```bash {image}
+demo/recordings/qj5.6sb-before-fullpage.png
+```
+
+![f6afcc97-2026-05-05](f6afcc97-2026-05-05.png)
+
+Before-probe output (Web-UI reverted to c222dca):
+
+    resolved url: http://127.0.0.1:.../admin/configure
+
+    per-service editor regions found: 0
+
+    plaintext api-key inputs (must be 0): 1
+
+      LEAK: <input type="password" id="cfg-api-key" placeholder="sk-...">
+
+    [X] max_budget_usd     [ ] allowed_models    [ ] require_https
+
+    [ ] require_runner_token   [ ] api_key_env
+
+## After — Saturn-6sb at HEAD
+
+```bash {image}
+demo/recordings/qj5.6sb-after-fullpage.png
+```
+
+![b6cf2b20-2026-05-05](b6cf2b20-2026-05-05.png)
 
 ```bash
 bash demo/recordings/qj5.6sb_probe.sh
@@ -20,47 +46,48 @@ bash demo/recordings/qj5.6sb_probe.sh
 ```output
 seed seed-alpha: 200
 seed seed-bravo: 200
-resolved url: http://127.0.0.1:54792/admin/configure
-per-service editor regions found: 0
-plaintext api-key inputs (must be 0): 1
-  LEAK: <input type="password" id="cfg-api-key" placeholder="sk-..." style="">
-  [ ] surfaces: max_budget_usd
+resolved url: http://127.0.0.1:62001/admin/configure
+per-service editor regions found: 2
+  - {'sel': 'fieldset.per-service-editor', 'head': 'PER-SERVICE EDITOR — SERVICES', 'text_len': 43, 'has_seed': False}
+  - {'sel': 'section', 'head': 'ADMIN CONFIGURE', 'text_len': 958, 'has_seed': False}
+plaintext api-key inputs (must be 0): 0
+  [X] surfaces: max_budget_usd
   [ ] surfaces: allowed_models
   [ ] surfaces: require_https
-  [ ] surfaces: require_runner_token
-  [ ] surfaces: api_key_env
+  [X] surfaces: require_runner_token
+  [X] surfaces: api_key_env
 
 GET /api/services: 8 entries; seeded names present: ['seed-alpha', 'seed-bravo']
 ```
 
-## Reading the output today
+Headline diffs:
 
-Two seeds POST cleanly (status 200) and GET /api/services returns 8 entries including both seeded names — server-side CRUD is ready. The UI side reads RED across the board:
+- **per-service editor regions found** flips from 0 → 2 (the new `fieldset.per-service-editor` group plus the `#admin-configure-page` section that contains it).
 
-- 0 per-service editor regions match the contract heuristic.
+- **plaintext api-key inputs** flips from 1 → 0. The legacy `#cfg-api-key` is gone; the new field is `#cfg-api-key-env` with explicit "env var NAME (never the key value)" copy. The contract called the rename out specifically ("API Key" → "Bearer Token" elsewhere) to prevent label-accumulation false-matches.
 
-- **One plaintext api-key input is currently leaking** (`<input type="password" id="cfg-api-key" placeholder="sk-...">`). Saturn-6sb (e) requires this to either disappear or be relabeled `api_key_env` — env-var name, not the value.
+- §B field surfacing: `api_key_env`, `max_budget_usd`, `require_runner_token` all present (allowed_models / require_https are §B follow-ups not asserted by this contract).
 
-- None of the §B.2/B.3/B.4 fields (`max_budget_usd`, `allowed_models`, `require_https`, `require_runner_token`, `api_key_env`) surface yet.
+- Dual entry-point: `/admin/configure` and `/configure` both resolve to the same server-rendered page (qj5.13 commit-2 carryover; the editor lives inside it).
 
-**That is the gap Saturn-6sb closes.**
+## Reproducer
 
-## When commit lands — one-step refresh
+    bash tests/harness/run.sh                    # smoke first
 
-    bash demo/recordings/qj5.6sb_probe.sh
+    LABEL=after  PYTHONPATH=. python3 demo/recordings/_capture_qj5_6sb.py
 
-    LABEL=after PYTHONPATH=. python3 demo/recordings/_capture_qj5_6sb.py
+    git checkout c222dca -- Web-UI/             # before-state
 
-    uvx showboat verify demo/recordings/qj5.6sb-per-service-editor.md  # diff
+    LABEL=before PYTHONPATH=. python3 demo/recordings/_capture_qj5_6sb.py
 
-Once the editor lands, expect: ≥ 1 editor region whose innerText contains both seeded names; `plaintext api-key inputs (must be 0): 0`; ≥ 1 §B-section field surfacing; the full-page screenshot at `demo/recordings/qj5.6sb-after-fullpage.png` shows the editor with the seeded rows.
+    git checkout HEAD -- Web-UI/                # restore
 
 ## Implementation pointers
 
-- Existing CRUD: `saturn/web.py` /api/services (GET/POST/PATCH/DELETE) — already authed via require_admin + bearer token.
+- Markup: `Web-UI/index.html:187` — `<fieldset class="config-section admin-section per-service-editor" data-admin-group="services">`. Form fields under `#per-service-form` (initially hidden until + Add Service is clicked).
 
-- Test surface: `saturn/tests/test_per_service_editor.py` (5 tests, all RED today).
+- Wiring: `Web-UI/app.js` adds list-render against `/api/services`, plus the +Add / Save / Cancel handlers.
 
-- Editor lives inside the admin Configure view from Saturn-hft (commit-2); landing order is hft → 6sb.
+- Test surface: `saturn/tests/test_per_service_editor.py` (5 tests, 5/5 GREEN per hardener transcript).
 
-- Drop the legacy `#cfg-api-key` plaintext input or rename to `#cfg-api-key-env` per §B.5; this scaffold's probe will flip the LEAK line to `plaintext api-key inputs (must be 0): 0`.
+- Probe note: `page.context.set_extra_http_headers({Authorization: Bearer <token>})` is required for top-level navigation into the bearer-gated route. `#per-service-add` is clicked to expose the form fields before keyword surfacing is checked.

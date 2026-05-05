@@ -28,17 +28,25 @@ def seed(origin, token, name):
 def find_editor(page):
     return page.evaluate("""
         () => {
-          const sels = ['fieldset', 'section', '.admin-section',
+          const sels = ['fieldset.per-service-editor',
+                        '[data-admin-group="services"]',
+                        'fieldset', 'section', '.admin-section',
                         '[data-admin-group]', '.config-section'];
           const matches = [];
+          const seen = new Set();
           for (const sel of sels) {
             for (const el of document.querySelectorAll(sel)) {
-              if (!el.offsetParent) continue;
+              if (!el.offsetParent || seen.has(el)) continue;
               const t = (el.innerText || '').toLowerCase();
-              if (/per[- ]service|services|service editor/.test(t)
-                  && /\\b(seed-alpha|seed-bravo)\\b/.test(t)) {
-                matches.push({sel, head: (el.querySelector('legend,h1,h2,h3,h4') || {}).innerText || '',
-                              text_len: el.innerText.length});
+              const html = el.innerHTML.toLowerCase();
+              if (/per[- ]service|services?(\\s+editor)?/.test(t)
+                  && (/\\b(seed-alpha|seed-bravo)\\b/.test(t)
+                      || /per-service-list|per-service-add/.test(html))) {
+                seen.add(el);
+                matches.push({sel,
+                              head: (el.querySelector('legend,h1,h2,h3,h4') || {}).innerText || '',
+                              text_len: el.innerText.length,
+                              has_seed: /\\b(seed-alpha|seed-bravo)\\b/.test(t)});
               }
             }
           }
@@ -75,7 +83,12 @@ def main():
                              device_scale_factor=2)
         page = admin_page(ctx, srv["token"])
         url = try_open_admin(page, srv["origin"], PATHS, "Services")
-        page.wait_for_timeout(500)
+        page.wait_for_timeout(800)
+        # Click Add Service to surface the form fields (B-section keywords).
+        add = page.query_selector("#per-service-add")
+        if add:
+            try: add.click(force=True); page.wait_for_timeout(400)
+            except Exception: pass
         page.screenshot(path=str(OUT / f"qj5.6sb-{LABEL}-fullpage.png"),
                         full_page=True)
 
@@ -88,10 +101,15 @@ def main():
         print(f"plaintext api-key inputs (must be 0): {len(leaks)}")
         for l in leaks: print(f"  LEAK: {l}")
 
-        page_text = (page.evaluate("document.body.innerText") or "").lower()
+        # Look for B-section fields by id, name, or visible label text.
+        haystack = page.evaluate("""
+            () => (document.body.innerText + ' ' +
+                   Array.from(document.querySelectorAll('input,select'))
+                     .map(i => (i.id||'') + ' ' + (i.name||'')).join(' ')).toLowerCase()
+        """) or ""
         for kw in ("max_budget_usd", "allowed_models", "require_https",
                    "require_runner_token", "api_key_env"):
-            print(f"  [{'X' if kw in page_text else ' '}] surfaces: {kw}")
+            print(f"  [{'X' if kw in haystack else ' '}] surfaces: {kw}")
 
         try:
             s, after = web.admin_request(srv["origin"], "/api/services",
