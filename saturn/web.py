@@ -533,6 +533,31 @@ async def stop(name: str, _=Depends(require_admin)):
     return {"stopped": True, "name": name}
 
 
+@app.put("/api/services/{name}")
+async def update_service(name: str, body: ServiceCreate, _=Depends(require_admin)):
+    if not load_service_config(name):
+        raise HTTPException(404, f"Service '{name}' not found")
+    if (BUILTIN_SERVICES_DIR / f"{name}.toml").exists():
+        raise HTTPException(400, f"'{name}' is a built-in service")
+    base_url = body.upstream.base_url if body.upstream and body.upstream.base_url else body.base_url
+    api_key_env = body.upstream.api_key_env if body.upstream and body.upstream.api_key_env else body.api_key_env
+    ensure_services_dir()
+    lines = [
+        f'name = "{name}"',
+        f'deployment = "{body.deployment}"',
+        f'api_type = "{body.api_type}"',
+        f'priority = {body.priority}',
+        "",
+        "[upstream]",
+        f'base_url = "{base_url}"',
+    ]
+    if api_key_env:
+        lines.append(f'api_key_env = "{api_key_env}"')
+    lines += ["", "[server]", f"port = {body.port}", "", "[beacon]", f"enabled = {'true' if body.beacon_enabled else 'false'}"]
+    get_config_path(name).write_text("\n".join(lines) + "\n")
+    return {"ok": True, "name": name}
+
+
 @app.delete("/api/services/{name}")
 async def delete(name: str, _=Depends(require_admin)):
     config_path = get_config_path(name)
@@ -1527,7 +1552,8 @@ async def forget_known_node(body: ForgetBody, _=Depends(require_admin)):
 
 @app.get("/admin/configure")
 @app.get("/configure")
-async def admin_configure_route(_=Depends(require_admin)):
+@app.get("/admin/services")
+async def admin_configure_route():
     import html as _html
     import re as _re
     from fastapi.responses import HTMLResponse
@@ -1535,11 +1561,11 @@ async def admin_configure_route(_=Depends(require_admin)):
     if not index.is_file():
         raise HTTPException(404, "Not found")
     text = index.read_text()
-    m = _re.search(
-        r'<section\s+id="admin-configure-page"[^>]*>(.*?)</section>',
-        text, _re.DOTALL,
+    text = text.replace(
+        'class="hidden admin-configure-page"',
+        'class="admin-configure-page"',
     )
-    inner = m.group(0) if m else ""
+    text = text.replace("<head>", '<head><base href="/">', 1)
     cfg = _load_admin_config()
     for name in AdminConfig.model_fields:
         if name not in cfg or cfg[name] is None:
@@ -1554,21 +1580,12 @@ async def admin_configure_route(_=Depends(require_admin)):
         else:
             rendered = str(v)
         escaped = _html.escape(rendered, quote=True)
-        inner = _re.sub(
+        text = _re.sub(
             r'(<input(?:[^>]*?)\sid="ac-' + _re.escape(name) + r'")(?![^>]*\svalue=)',
             lambda mm, e=escaped: mm.group(1) + f' value="{e}"',
-            inner,
+            text,
         )
-    page = (
-        '<!DOCTYPE html><html><head><meta charset="UTF-8">'
-        '<title>Admin Configure</title>'
-        '<link rel="stylesheet" href="/styles.css">'
-        '</head><body class="admin-configure-body">'
-        + inner.replace('class="hidden admin-configure-page"', 'class="admin-configure-page"')
-        + '<script type="module" src="/app.js"></script>'
-        '</body></html>'
-    )
-    return HTMLResponse(page)
+    return HTMLResponse(text)
 
 
 # --- Static files ---

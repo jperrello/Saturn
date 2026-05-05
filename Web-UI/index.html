@@ -184,6 +184,23 @@
           </label>
           <label>Trusted node IDs (UUIDs, comma-separated) <input id="ac-trusted_node_ids" type="text"></label>
         </fieldset>
+        <fieldset class="config-section admin-section per-service-editor" data-admin-group="services">
+          <legend>Per-service editor — Services</legend>
+          <div id="per-service-list" class="checklist"></div>
+          <button id="per-service-add" class="btn">+ Add Service</button>
+          <div id="per-service-form" class="hidden">
+            <label>Name <input id="cfg-name" name="name" type="text" placeholder="my-service"></label>
+            <label>Base URL <input id="cfg-base-url" name="upstream.base_url" type="text" placeholder="http://localhost:11434/v1"></label>
+            <label>API key — env var NAME (never the key value) <input id="cfg-api-key-env" name="api_key_env" type="text" placeholder="OPENROUTER_API_KEY"></label>
+            <label>Deployment <select id="cfg-deployment" name="deployment"><option value="local">local</option><option value="network">network</option><option value="cloud">cloud</option></select></label>
+            <label>API type <select id="cfg-api-type" name="api_type"><option value="ollama">ollama</option><option value="openai">openai</option></select></label>
+            <label>Priority <input id="cfg-priority" name="priority" type="number" value="50"></label>
+            <label>Max budget USD <input id="cfg-max-budget-usd" name="max_budget_usd" type="number" step="0.01"></label>
+            <label>Require runner token <input id="cfg-require-runner-token" name="require_runner_token" type="checkbox"></label>
+            <button id="per-service-save" class="btn">Save</button>
+            <button id="per-service-cancel" class="btn btn-secondary">Cancel</button>
+          </div>
+        </fieldset>
         <div class="ac-actions">
           <button id="ac-save" class="btn">Save</button>
           <button id="ac-close" class="btn btn-secondary">Close</button>
@@ -227,8 +244,8 @@
                     <input type="text" id="cfg-base-url" placeholder="https://api.example.com/v1" required>
                   </label>
                   <label>
-                    API Key
-                    <input type="password" id="cfg-api-key" placeholder="sk-...">
+                    API Key — env var name (never the key value)
+                    <input type="text" id="cfg-api-key-env-legacy" placeholder="OPENROUTER_API_KEY">
                   </label>
                 </div>
                 <div id="network-fields" class="hidden">
@@ -609,7 +626,7 @@
                     </div>
                   </div>
                   <div class="connector-field">
-                    <label class="connector-label">API Key</label>
+                    <label class="connector-label">Bearer Token</label>
                     <div class="connector-copy-row">
                       <code id="connector-key" class="connector-value masked">saturn-key</code>
                       <button id="connector-key-reveal" class="btn btn-secondary" style="padding:4px 8px;font-size:9px">Show</button>
