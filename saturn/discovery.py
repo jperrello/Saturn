@@ -275,7 +275,7 @@ class SaturnDiscovery:
 def discover(timeout: float = 8.0, settle_time: float = 1.0) -> List[SaturnService]:
     from saturn.mdns.settle import SettleDetector
 
-    settle = SettleDetector()
+    settle = SettleDetector(timeout=settle_time)
 
     def on_change(action, service):
         if action == 'added':
