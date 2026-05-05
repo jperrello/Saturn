@@ -8,6 +8,7 @@ import logging
 import argparse
 import json
 from dataclasses import dataclass, field, asdict
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from saturn.mdns.identity import get_node_id
@@ -25,6 +26,39 @@ DISCOVERY_TIMEOUT = 5.0
 _SELECTABLE = {"pinned", "first_seen", "allowlist"}
 _trust_mode = "tofu"
 _allowlist: set = set()
+
+ALLOWLIST_PATH = Path.home() / ".saturn" / "allowlist.json"
+_allowlist_map: dict = {}
+_allowlist_mtime: float = -1.0
+_allowlist_lock = threading.Lock()
+
+
+def _load_allowlist() -> None:
+    global _allowlist_map, _allowlist_mtime
+    try:
+        st = ALLOWLIST_PATH.stat()
+    except (OSError, FileNotFoundError):
+        with _allowlist_lock:
+            _allowlist_map = {}
+            _allowlist_mtime = -1.0
+        return
+    if st.st_mtime == _allowlist_mtime:
+        return
+    try:
+        import json as _json
+        data = _json.loads(ALLOWLIST_PATH.read_text())
+    except (OSError, ValueError):
+        return
+    if isinstance(data, dict):
+        with _allowlist_lock:
+            _allowlist_map = {str(k): str(v) for k, v in data.items()}
+            _allowlist_mtime = st.st_mtime
+
+
+def reload_allowlist() -> None:
+    global _allowlist_mtime
+    _allowlist_mtime = -2.0
+    _load_allowlist()
 
 
 class TrustRebindError(RuntimeError):
@@ -66,6 +100,11 @@ def _classify_trust(s: "SaturnService") -> str:
         return "unknown"
     if _trust_mode == "allowlist":
         return "allowlist" if s.node_id and s.node_id in _allowlist else "rebind_rejected"
+    _load_allowlist()
+    with _allowlist_lock:
+        expected = _allowlist_map.get(s.name)
+    if expected is not None:
+        return "allowlist" if s.node_id == expected else "rebind_rejected"
     pinned = known_nodes.known_node_id(s.name)
     if pinned is None:
         return "first_seen"
