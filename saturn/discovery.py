@@ -181,6 +181,8 @@ class SaturnDiscovery:
             capabilities=capabilities,
             context=int(props.get('context', 4096)),
             cost=props.get('cost', 'unknown'),
+            addresses=list(rec.addresses or []),
+            ipv6=next((a for a in (rec.addresses or []) if ":" in a), None),
             node_id=rec.node_id,
         )
 
@@ -225,8 +227,24 @@ class SaturnDiscovery:
                     if s.node_id == service.node_id and s.name != service.name:
                         logger.warning(f"Duplicate node_id {service.node_id}: {service.name} and {s.name}")
                         break
-            is_new = key not in self.services
-            self.services[key] = service
+            existing = self.services.get(key)
+            is_new = existing is None
+            if existing is not None:
+                seen = set(existing.addresses or [])
+                for a in (service.addresses or []):
+                    if a not in seen:
+                        existing.addresses.append(a)
+                        seen.add(a)
+                if service.ipv6 and not existing.ipv6:
+                    existing.ipv6 = service.ipv6
+                existing.last_seen = service.last_seen
+                existing.trust = service.trust
+                existing.priority = service.priority
+                existing.models = service.models or existing.models
+                existing.capabilities = service.capabilities or existing.capabilities
+                existing.api_base = service.api_base or existing.api_base
+            else:
+                self.services[key] = service
 
             if is_new:
                 svc_type = "beacon" if service.is_beacon else "service"
