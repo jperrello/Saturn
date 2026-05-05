@@ -4357,6 +4357,7 @@ const AC_FIELDS = [
   ['mcp_auth_token_envs', 'json'],
   ['trust_mode', 'string'],
   ['trusted_node_ids', 'list'],
+  ['beacon_max_budget_usd', 'float'],
 ]
 
 let _acDirty = false

@@ -145,6 +145,7 @@ ROUNDTRIP_TABLE = [
     # A.8 service identity
     ("trust_mode",               "allowlist"),
     ("trusted_node_ids",         ["d2a0c4d8-c7a1-4d88-a575-7f68cdf1812e"]),
+    ("beacon_max_budget_usd",    2.50),
 ]
 
 

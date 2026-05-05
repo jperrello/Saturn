@@ -1460,6 +1460,7 @@ class AdminConfig(BaseModel):
     mcp_auth_token_envs: Optional[dict] = None
     trust_mode: Optional[str] = None
     trusted_node_ids: Optional[List[str]] = None
+    beacon_max_budget_usd: Optional[float] = None
 
 
 def validate_admin_config(cfg: dict) -> List[str]:

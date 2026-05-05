@@ -77,22 +77,27 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelna
 
 
 class CredentialManager:
-    def __init__(self, provider, api_key, rotation_interval=300,
-                 expiration_interval=600):
+    def __init__(self, provider, api_key, rotation_interval=400,
+                 expiration_interval=600, max_budget_usd=None):
         self.provider = provider
         self.api_key = api_key
         self.endpoint = provider.endpoint
         self.api_base = provider.api_base
         self.rotation_interval = rotation_interval
         self.expiration_interval = expiration_interval
+        self.max_budget_usd = max_budget_usd
         self._lock = threading.Lock()
         self._credential: Optional[str] = None
         self._handles: list = []
         self._last_rotation: Optional[float] = None
+        self._sleep_invalidated: bool = False
 
     def create(self) -> str:
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-        payload = self.provider.payload(self.expiration_interval)
+        try:
+            payload = self.provider.payload(self.expiration_interval, max_budget_usd=self.max_budget_usd)
+        except TypeError:
+            payload = self.provider.payload(self.expiration_interval)
         response = requests.post(self.endpoint, headers=headers, json=payload)
         response.raise_for_status()
         credential, handle = self.provider.parse(response.json())
@@ -112,6 +117,18 @@ class CredentialManager:
             if self._last_rotation is None:
                 return True
             return time.time() - self._last_rotation >= self.rotation_interval
+
+    def invalidate(self) -> None:
+        with self._lock:
+            self._sleep_invalidated = True
+
+    def needs_remint(self) -> bool:
+        with self._lock:
+            return self._sleep_invalidated
+
+    def mark_fresh(self) -> None:
+        with self._lock:
+            self._sleep_invalidated = False
 
     def cleanup(self, final=False) -> None:
         with self._lock:
@@ -183,6 +200,89 @@ class BeaconAdvertiser(SaturnAdvertiser):
         self.register()
 
 
+def _beacon_on_sleep(beacon, credential_manager) -> None:
+    try:
+        beacon.unregister()
+    except Exception as e:
+        logger.warning(f"beacon.unregister on sleep failed: {e}")
+    credential_manager.invalidate()
+
+
+def _beacon_on_wake(beacon, credential_manager) -> None:
+    credential_manager.create()
+    credential_manager.mark_fresh()
+    try:
+        beacon.re_register()
+    except Exception as e:
+        logger.warning(f"beacon.re_register on wake failed: {e}")
+
+
+def _rotation_tick(credential_manager, last_tick_monotonic: float, rotation_interval: float, now_monotonic: float) -> float:
+    if now_monotonic - last_tick_monotonic > 2 * rotation_interval:
+        credential_manager.create()
+        credential_manager.mark_fresh()
+    return now_monotonic
+
+
+def _warn_no_sleep_handling() -> None:
+    logger.warning(
+        "saturn beacon: no sleep handling installed (SECURITY_AUDIT §16). "
+        "Set beacon.keep_awake=true in the service config OR run saturn under "
+        "caffeinate / systemd-inhibit to prevent unwitnessed sleep gaps."
+    )
+
+
+def _prompt_keep_awake(config_path) -> bool:
+    from pathlib import Path as _Path
+    try:
+        import tomllib as _tomllib
+    except ImportError:
+        import tomli as _tomllib  # type: ignore
+    p = _Path(config_path)
+    cfg = _tomllib.loads(p.read_text())
+    beacon = cfg.get("beacon") or {}
+    if beacon.get("keep_awake_decided"):
+        return bool(beacon.get("keep_awake", False))
+    if not sys.stdin.isatty():
+        return False
+    answer = input("Keep this host awake while beacon runs? [Y/n] ").strip().lower()
+    decision = answer in ("", "y", "yes")
+    text = p.read_text()
+    lines = text.splitlines()
+    out = []
+    in_beacon = False
+    seen_keep_awake = False
+    seen_keep_awake_decided = False
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("[beacon]"):
+            in_beacon = True
+            out.append(line)
+            continue
+        if stripped.startswith("[") and in_beacon:
+            if not seen_keep_awake:
+                out.append(f"keep_awake = {'true' if decision else 'false'}")
+            if not seen_keep_awake_decided:
+                out.append("keep_awake_decided = true")
+            in_beacon = False
+        if in_beacon and "=" in stripped:
+            key = stripped.split("=", 1)[0].strip()
+            if key == "keep_awake":
+                seen_keep_awake = True
+                line = f"keep_awake = {'true' if decision else 'false'}"
+            elif key == "keep_awake_decided":
+                seen_keep_awake_decided = True
+                line = "keep_awake_decided = true"
+        out.append(line)
+    if in_beacon:
+        if not seen_keep_awake:
+            out.append(f"keep_awake = {'true' if decision else 'false'}")
+        if not seen_keep_awake_decided:
+            out.append("keep_awake_decided = true")
+    p.write_text("\n".join(out) + "\n")
+    return decision
+
+
 def run_beacon(config: ServiceConfig, port: int = 8090) -> int:
     api_key = None
     if config.upstream.api_key_env:
@@ -206,7 +306,8 @@ def run_beacon(config: ServiceConfig, port: int = 8090) -> int:
         provider=provider,
         api_key=api_key,
         rotation_interval=config.beacon.rotation_interval,
-        expiration_interval=config.beacon.expiration_interval
+        expiration_interval=config.beacon.expiration_interval,
+        max_budget_usd=config.beacon.max_budget_usd,
     )
 
     if is_service_running(config.name):

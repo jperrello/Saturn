@@ -35,8 +35,12 @@ class UpstreamConfig:
 class BeaconConfig:
     enabled: bool = False
     provider: Optional[str] = None
-    rotation_interval: int = 300
+    rotation_interval: int = 400
     expiration_interval: int = 600
+    max_budget_usd: Optional[float] = None
+    keep_awake: bool = False
+    keep_awake_decided: bool = False
+    sleep_handling: str = "watch"
 
 
 @dataclass
@@ -73,8 +77,12 @@ class ServiceConfig:
         beacon = BeaconConfig(
             enabled=beacon_data.get("enabled", False),
             provider=beacon_data.get("provider"),
-            rotation_interval=beacon_data.get("rotation_interval", 300),
+            rotation_interval=beacon_data.get("rotation_interval", 400),
             expiration_interval=beacon_data.get("expiration_interval", 600),
+            max_budget_usd=beacon_data.get("max_budget_usd"),
+            keep_awake=beacon_data.get("keep_awake", False),
+            keep_awake_decided=beacon_data.get("keep_awake_decided", False),
+            sleep_handling=beacon_data.get("sleep_handling", "watch"),
         )
 
         return cls(

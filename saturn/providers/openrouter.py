@@ -9,12 +9,15 @@ logger = logging.getLogger(__name__)
 endpoint = "https://openrouter.ai/api/v1/keys"
 api_base = "https://openrouter.ai/api/v1"
 
-def payload(expiration):
+def payload(expiration, max_budget_usd=None):
     expires = datetime.now(timezone.utc) + timedelta(seconds=expiration)
-    return {
+    body = {
         "name": f"saturn-beacon-{int(time.time())}",
-        "expires_at": expires.strftime("%Y-%m-%dT%H:%M:%SZ")
+        "expires_at": expires.strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
+    if max_budget_usd is not None:
+        body["limit"] = max_budget_usd
+    return body
 
 def parse(data):
     return data["key"], data["data"]["hash"]
