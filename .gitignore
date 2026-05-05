@@ -62,3 +62,12 @@ tests/bombadil/test-config.json
 
 # MkDocs build output
 site/
+
+# macOS
+.DS_Store
+
+# Playwright MCP transient logs
+.playwright-mcp/
+
+# Runtime data (admin_config.json, saturn.db)
+data/
