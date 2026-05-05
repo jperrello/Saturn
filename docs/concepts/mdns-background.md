@@ -1487,4 +1487,77 @@ Material implication for Saturn beacon deployments, lifted from `SECURITY_AUDIT.
 >
 > Proxy-mode services (the default) are not affected — the Saturn host is in the data path, so if it sleeps the service simply disappears from the LAN until it wakes, with no stale-credential failure mode.
 
-Sourcing: Apple SPS behaviour per [TN2353](https://developer.apple.com/library/archive/technotes/tn2353/_index.html) and Stuart Cheshire's Bonjour overview talks. The "no third-party update push" property is structural, rooted in [RFC 6762 §17](https://datatracker.ietf.org/doc/html/rfc6762#section-17). The "SPS extends past TTL while the host is asleep" observation is on-the-wire empirical, not contractual — which is why the in-flight Saturn-side fix (qj5.16.14) is to unregister on sleep-notification (`NSWorkspaceWillSleepNotification`) rather than rely on TTL.
+Sourcing: Apple SPS behaviour per [TN2353](https://developer.apple.com/library/archive/technotes/tn2353/_index.html) and Stuart Cheshire's [Understanding Sleep Proxy Service](https://stuartcheshire.org/sleepproxy/). The wire format is documented in [draft-cheshire-edns0-owner-option](https://datatracker.ietf.org/doc/draft-cheshire-edns0-owner-option/): "DNS-SD Sleep Proxy Service uses a message format identical to that used by standard DNS Update." That is the structural fact the writer-bonjour-gaps research surfaced: SPS is a one-shot DNS Update at sleep time, replayed verbatim by the proxy until the host wakes. **There is no streaming channel from a sleeping host to the proxy.** The proxy cannot receive TXT mutations because the host, by definition, is asleep.
+
+Two consequences for Saturn:
+
+1. **For beacons on laptops with periodic key rotation:** the rotation cadence must be longer than the typical idle-sleep window, OR the laptop must be configured not to sleep while beaconing. A beacon that rotates every five minutes behind a sleep proxy will publish a key that is stale within minutes of the laptop sleeping. `pmset -a sleep 0` (macOS) or `systemd-inhibit` (Linux) is the operational answer; the documentation answer is to align rotation cadence with the longest plausible sleep window (24 h rotation / 1 h max sleep is a reasonable starting point).
+2. **The "SPS extends past TTL" observation in the original addendum is the same property viewed from the cache side** — the proxy holds the records as long as it stays up; clients see them past the upstream credential's logical expiry.
+
+The in-flight Saturn-side fix (qj5.16.14) is to unregister on sleep-notification (`NSWorkspaceWillSleepNotification`) rather than rely on the proxy or TTL.
+
+---
+
+## Addendum: Field gotchas (Bonjour vs Avahi)
+
+Protocol-level differences that affect Saturn's wire behaviour and that have bitten implementers. Sourcing throughout follows the writer-bonjour-gaps research (see `BONJOUR_AVAHI_FACTS.md` in the repo root for the full citation set).
+
+### TXT record size budget — RFC 6763 §6.2
+
+RFC 6763 §6.2 gives three canonical tiers, not folklore:
+
+| Budget | Why | Saturn target |
+|---|---|---|
+| **< 200 bytes** | Typical operational guidance — fits comfortably alongside SRV/A in a single small response. | Default. |
+| **< 400 bytes** | Fits a single 512-byte DNS message without truncation. | Acceptable when carrying `ephemeral_key` (Ed25519 pub key, ~44 base64 bytes). |
+| **< 1300 bytes** | Fits a single 1500-byte Ethernet frame, avoiding IP fragmentation. | Hard ceiling. Beyond this many mDNS clients fall back to TCP poorly or drop the response. |
+
+The DNS RDATA hard limit is 65535 bytes and each TXT *string* is capped at 255 bytes (RFC 6763 §6.1), but those numbers are not useful operational targets. mDNSResponder warns in syslog above ~1300 bytes; Saturn should treat that as the structural ceiling.
+
+### Conflict-suffix format — Bonjour vs Avahi
+
+RFC 6762 §9 mandates conflict resolution but leaves the renaming algorithm implementation-defined.
+
+| Stack | Suffix shape | Example progression |
+|---|---|---|
+| Apple mDNSResponder (`IncrementLabelSuffix` in mDNSCore) | space-paren-N-paren | `ollama` → `ollama (2)` → `ollama (3)` |
+| Avahi (hostname *and* service-instance) | hyphen-N | `ollama` → `ollama-2` → `ollama-3` |
+
+**Saturn implication:** never tiebreak on instance-name string equality. If two beacons both register `ollama`, one becomes `ollama (2)` (or `ollama-2`); a client that filters on `instance == "ollama"` will then see only one of them. Match on TXT keys (e.g. `priority=`) instead.
+
+### `.local.` trailing dot
+
+Functionally equivalent. RFC 6762 §3 writes `.local.` with the trailing dot to emphasise the FQDN root pseudo-TLD; Apple's `dns-sd` accepts either; Avahi CLI drops it (`avahi-publish -s foo _saturn._tcp 8080`). Saturn docs use the dotted form to match the RFC; parsers tolerate both.
+
+### Network browser visibility (macOS Finder)
+
+macOS Finder's "Network" sidebar **does not** render arbitrary `_saturn._tcp.local.` services. It special-cases AFP, SMB, NFS, `_device-info._tcp`, `_adisk._tcp`, and a handful of others. Saturn services are visible to `dns-sd -B _saturn._tcp`, the App Store *Discovery — DNS-SD Browser*, and *Bonjour Browser* — but never to Finder. Don't promise "shows up in Finder" in user-facing copy.
+
+### Avahi defaults and confirmation one-liners
+
+Avahi serves `.local` by default; configurable via `domain-name=` in `/etc/avahi/avahi-daemon.conf`.
+
+| Question | Command |
+|---|---|
+| What does the running daemon serve? | `avahi-browse -d local -art` |
+| Is hostname resolution wired through NSS? | `getent hosts $(hostname).local` |
+| Which browse domains are active? | `avahi-browse -D` |
+
+`mdns4_minimal` resolves IPv4 only. If a Saturn responder advertises only AAAA on a host that has `mdns4_minimal` (and not `mdns_minimal` or `mdns6_minimal`) in `/etc/nsswitch.conf`, resolution silently fails. Document the `nsswitch.conf` line per distro.
+
+### `avahi-publish` TXT escaping
+
+`avahi-publish-service` takes each TXT pair as its own argv element, so `=` inside a value needs no escaping. Quote the whole `key=value` argument when the value contains spaces or shell metacharacters; never escape the `=` itself:
+
+```bash
+avahi-publish-service ollama _saturn._tcp 8080 \
+  "endpoint=https://1.2.3.4:443" "priority=10"
+```
+
+The "you must escape `=`" folklore is from pre-0.7 Avahi mis-parsing values that started with `-`; current versions pass values through unchanged after the first `=` (RFC 6763 §6.4 delimiter rule).
+
+### AP isolation is unfixable from the responder side
+
+AP isolation drops L2 frames between wireless clients on the same access point, including multicast frames to `224.0.0.251:5353`. **No mDNS reflector defeats AP isolation by itself** — Avahi `enable-reflector=yes`, `mdns-repeater`, and commercial mDNS gateways all bridge between separate L2 segments on a multi-interface host; they cannot bridge clients that can't reach each other on the same segment.
+
+Reflectors are useful for VLAN A ↔ VLAN B routing on a host with an interface in each. They are not a workaround for guest-mode WiFi. Saturn's "enterprise WiFi breaks discovery" warning is correct and unfixable from the Saturn side; the documented fallback is manual endpoint entry. See [`docs/admin/platform-notes.md`](../admin/platform-notes.md) for the deployment-side framing.
