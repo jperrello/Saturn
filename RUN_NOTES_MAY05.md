@@ -224,6 +224,15 @@ Bombadil `chat` spec — playwright captures recorded for cbt.2.{a.ui, b}, cbt.b
 | `docs/admin/failover.md` | _New this run_ — operator runbook for `/api/system/chat` failover (breakers, sticky, hysteresis, `routing.events`). |
 | `docs/admin/network-troubleshooting.md` | _New this run_ — first-pass probe + per-edge triage (AP isolation, multi-interface, IPv6, large TXT). |
 
+## ✈ PLANE LANDED
+
+- **Run:** MAY05 autonomous promo-push
+- **Branch tip at land:** `52053cc`
+- **Total commits this run** (`50750fe..HEAD`): **56**
+- **Total beads closed this run:** **38**
+- **Elapsed:** ~3h30m of 8h cap
+- **In-flight at land:** none
+
 ## Suggested re-entry prompt
 
 > Resume `autonomous/promo-push`. Branch tip: `3bfe268`. MAY05 ran to natural completion at ~3h30m of the 8h cap with **38 beads green** across five phases: cbt.{1,4,5,6,7,8} + cbt.3.{a,b,c,d,d.sweep} + cbt.2.{a,a.ui,b,c,c.timeout,c.large,bny,9ha,ao6} + cbt.5.1.ui (Phase 1+3); the Phase 3 cbt.4 security wave (zor/zd6/68j/zt2/x9c/b3o); the Phase 4 FAILOVER_SECURITY P1 chain (xqw/93w/eon/jfs); plus carry-over qj5.16.13.3. No beads in_progress at land. Open follow-ups filed this run but not closed: `Saturn-oqh` (config plumbing for new mDNS env knobs `SATURN_ADVERTISE_ALL` / `SATURN_PREFER_V6` / `SATURN_TXT_CEILING`), `Saturn-b5a` / `Saturn-5ir` (cbt.5 Web-UI + adversarial), `Saturn-v60` (demo capture vs test fixture single-source), `Saturn-3bq` (`SATURN_ADMIN_PASSWORD` env for bombadil), `Saturn-b46` (TXT models for custom-module servers). MAY04 P2/P3 carry-overs are still open and not blocking; map in `RUN_NOTES_MAY04.md`. Operator docs landed at `docs/admin/{discovery, failover, network-troubleshooting}.md`; wire them into `docs/index.md` if a Diátaxis pass is in scope. Idle artifacts available for next-run scaffolding: `SPLIT_BRAIN_PATTERNS.md` (split-brain research, no implementation committed), `PARITY_REVIEW_MAY05.md` (post-ship integration snapshot), `FAILOVER_SECURITY.md` (geoff audit, all P1 closed). `CHEATSHEET.md` (brutus) and `RUN_INDEX_MAY05.md` (writer) are reserved Phase-5 idle slots — pick up if scope allows. Start with `bd ready`.
