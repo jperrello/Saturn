@@ -97,7 +97,7 @@ Reference: `saturn/mdns/interfaces.py:7`. Pre-spec: `PRE_SPECS_B3.md §17.G.2`.
 
 **Spec:** `ServiceRecord.addresses: List[str]` carries every resolved address — A and AAAA. `SaturnService` exposes `addresses` plus a convenience `ipv6: Optional[str]` (first AAAA, if any).
 
-**Operator knob:** `SATURN_PREFER_V6` (default `0`). When `1`, the client prefers the first AAAA over the first A on connection; falls back to A on connect timeout.
+**Operator knob:** `SATURN_PREFER_V6` (default `0`). When `1`, the client prefers the first AAAA over the first A on connection; falls back to A on connect timeout. The address selection helper is `connect_address(service)` (`saturn/discovery.py:311`); it returns a single address string suitable for an HTTP URL.
 
 **Dedup:** when the same `node_id` is resolved over both v4 and v6 backends, Saturn collapses it into a single `SaturnService` with both addresses populated. The discovery cache key is `node_id:name`, not address — same node = same entry.
 

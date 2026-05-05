@@ -60,6 +60,8 @@ Saturn does not run its own TTL sweep over the cache. Removal is driven by the u
 - Web-UI Network Scan: `max_age=10`. Stale entries vanish within a refresh cycle.
 - Long-running router/runner process: do not pass `max_age` on every call — trust the backend's TTL, but call `discover(max_age=60)` periodically as a sweep.
 
+For long-lived browsers that keep a `SaturnDiscovery` instance alive (rather than instantiating one per `discover()` call), `cbt.3.d.sweep` (`c53760c`) adds `SaturnDiscovery.sweep_stale(max_age)` (`saturn/discovery.py:289`). Call it on a timer (every 30–60s is reasonable) to evict zombies from the persistent cache; it fires the same `on_service_change("removed", svc)` callback as a real backend goodbye.
+
 Cross-reference with `cbt.4`: the failover circuit breaker eats stale entries from a different angle — even if a zombie shows up in `discover()`, two consecutive `/v1/health` failures will skip it. Belt and braces.
 
 ## Multi-NIC binding
