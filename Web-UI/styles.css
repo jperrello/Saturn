@@ -3532,3 +3532,47 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
   padding: 0 8px;
 }
 .tools-panel-close:hover { color: #fff; }
+
+/* Saturn-8ve: quick-params chat-settings popup */
+.chat-settings-popup .popup-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-weight: 600;
+  font-size: 12px;
+  color: #ddd;
+}
+.chat-settings-popup .qp-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+  font-size: 12px;
+  color: #bbb;
+}
+.chat-settings-popup .qp-row > span {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.chat-settings-popup .qp-row em {
+  font-style: normal;
+  color: #ddd;
+  font-variant-numeric: tabular-nums;
+}
+.chat-settings-popup .qp-row input[type=text],
+.chat-settings-popup .qp-row textarea {
+  width: 100%;
+  background: #0d0d12;
+  border: 1px solid #2a2a36;
+  color: #fff;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+.chat-settings-popup .qp-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}

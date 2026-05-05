@@ -3302,16 +3302,97 @@ function openConfig(serviceName) {
   configOverlay.classList.remove('hidden')
 }
 
+// Saturn-8ve: hydrate quick-params popup from global params; persist on change.
+function _qpReadField(row) {
+  const key = row.dataset.qp
+  const range = row.querySelector('input[type=range]')
+  const text = row.querySelector('input[type=text]')
+  const ta = row.querySelector('textarea')
+  if (range) {
+    const v = parseFloat(range.value)
+    return Number.isFinite(v) ? v : null
+  }
+  if (ta) return ta.value.trim() || null
+  if (text) {
+    const raw = text.value.trim()
+    if (!raw) return null
+    if (key === 'stop') return raw.split(',').map(s => s.trim()).filter(Boolean)
+    if (key === 'seed' || key === 'max_tokens') {
+      const n = parseInt(raw, 10)
+      return Number.isFinite(n) ? n : null
+    }
+    return raw
+  }
+  return null
+}
+
+function _qpHydrate() {
+  const params = (loadAllConfig().global) || {}
+  document.querySelectorAll('#chat-settings-popup .qp-row').forEach(row => {
+    const key = row.dataset.qp
+    const range = row.querySelector('input[type=range]')
+    const text = row.querySelector('input[type=text]')
+    const ta = row.querySelector('textarea')
+    const val = params[key]
+    if (range) {
+      if (val !== undefined && val !== null) range.value = val
+      const out = row.querySelector('.qp-val')
+      if (out) out.textContent = range.value
+    }
+    if (text) {
+      if (val === undefined || val === null) text.value = ''
+      else if (Array.isArray(val)) text.value = val.join(', ')
+      else text.value = String(val)
+    }
+    if (ta) ta.value = val == null ? '' : String(val)
+  })
+}
+
+function _qpPersist() {
+  const cfg = loadAllConfig()
+  const params = { ...(cfg.global || {}) }
+  document.querySelectorAll('#chat-settings-popup .qp-row').forEach(row => {
+    const key = row.dataset.qp
+    const v = _qpReadField(row)
+    if (v === null || v === '' || (Array.isArray(v) && v.length === 0)) delete params[key]
+    else params[key] = v
+  })
+  cfg.global = params
+  saveAllConfig(cfg)
+}
+
+document.querySelectorAll('#chat-settings-popup .qp-row input, #chat-settings-popup .qp-row textarea').forEach(el => {
+  el.addEventListener('input', () => {
+    const row = el.closest('.qp-row')
+    const range = row?.querySelector('input[type=range]')
+    if (range) {
+      const out = row.querySelector('.qp-val')
+      if (out) out.textContent = range.value
+    }
+    _qpPersist()
+  })
+})
+
+document.getElementById('chat-settings-reset')?.addEventListener('click', () => {
+  const cfg = loadAllConfig()
+  cfg.global = {}
+  saveAllConfig(cfg)
+  _qpHydrate()
+})
+
+document.getElementById('chat-settings-advanced')?.addEventListener('click', (e) => {
+  e.stopPropagation()
+  document.getElementById('chat-settings-popup')?.classList.add('hidden')
+  if (typeof openConfig === 'function') openConfig('global')
+  else configOverlay?.classList.remove('hidden')
+})
+
 document.querySelectorAll('.chat-settings-btn').forEach(b => b.addEventListener('click', (e) => {
   e.stopPropagation()
   const popup = document.getElementById('chat-settings-popup')
   if (!popup) return
   popup.classList.toggle('hidden')
-  if (!popup.classList.contains('hidden')) {
-    const svc = document.getElementById('service-select')
-    const cur = document.getElementById('chat-current-service')
-    if (cur) cur.textContent = (svc && svc.value) ? svc.value : '—'
-  }
+  if (!popup.classList.contains('hidden')) _qpHydrate()
 }))
 
 document.addEventListener('click', (e) => {
