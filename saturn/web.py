@@ -1572,6 +1572,12 @@ async def admin_configure_route():
             continue
         v = cfg[name]
         if isinstance(v, bool):
+            if v:
+                text = _re.sub(
+                    r'(<input(?:[^>]*?)\sid="ac-' + _re.escape(name) + r'"(?:[^>]*?)\stype="checkbox")(?![^>]*\schecked)',
+                    lambda mm: mm.group(1) + ' checked',
+                    text,
+                )
             continue
         if isinstance(v, list):
             rendered = ",".join(str(x) for x in v)
@@ -1580,6 +1586,25 @@ async def admin_configure_route():
         else:
             rendered = str(v)
         escaped = _html.escape(rendered, quote=True)
+        select_pat = _re.search(
+            r'(<select(?:[^>]*?)\sid="ac-' + _re.escape(name) + r'"[^>]*>)(.*?)(</select>)',
+            text, _re.DOTALL,
+        )
+        if select_pat:
+            opts = _re.sub(
+                r'\sselected\b', '', select_pat.group(2),
+            )
+            opts = _re.sub(
+                r'(<option\s+value="' + _re.escape(escaped) + r'")(?![^>]*\sselected)',
+                lambda mm: mm.group(1) + ' selected',
+                opts,
+            )
+            text = text.replace(
+                select_pat.group(0),
+                select_pat.group(1) + opts + select_pat.group(3),
+                1,
+            )
+            continue
         text = _re.sub(
             r'(<input(?:[^>]*?)\sid="ac-' + _re.escape(name) + r'")(?![^>]*\svalue=)',
             lambda mm, e=escaped: mm.group(1) + f' value="{e}"',
