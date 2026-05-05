@@ -1,0 +1,45 @@
+{
+  "pre": {
+    "isolation": "undefined",
+    "services_dom_count": 0
+  },
+  "post": {
+    "moons_is_array": true,
+    "services_dom_count": 0,
+    "isolation_is_object": true,
+    "isolation_keys": [
+      "advertising",
+      "diagnosis",
+      "ifaces_with_link",
+      "peers_seen",
+      "self_seen",
+      "suspected_ap_isolation"
+    ],
+    "isolation_advertising_is_bool": true,
+    "isolation_self_seen_is_bool": true,
+    "isolation_peers_seen_is_number": true,
+    "isolation_ifaces_is_array": true,
+    "isolation_suspected_is_bool": true,
+    "isolation_diagnosis_is_string": true,
+    "scan_kind": "empty",
+    "scan_text": "No peers found on this LAN."
+  },
+  "fallback_source_check": {
+    "envelope_branch_present": true,
+    "bare_list_branch_present": true,
+    "isolation_cache_present": true
+  },
+  "js_errors": [],
+  "oracle": {
+    "no_js_errors": true,
+    "services_consumed_via_envelope": true,
+    "isolation_object_set": true,
+    "isolation_has_documented_fields": true,
+    "isolation_field_types": true,
+    "scan_status_left_busy": true,
+    "fallback_envelope_branch": true,
+    "fallback_bare_list_branch": true,
+    "fallback_isolation_cache": true
+  },
+  "pass": true
+}
