@@ -1060,7 +1060,7 @@ class BrutusChat(BaseModel):
 
 
 @app.post("/api/system/chat")
-async def brutus_chat(body: BrutusChat, request: Request):
+async def brutus_chat(body: BrutusChat, request: Request, _=Depends(require_admin)):
     ip = _client_ip(request)
     blocked = _check_rate(ip)
     if blocked:
