@@ -2469,10 +2469,21 @@ document.getElementById('plus-attach')?.addEventListener('click', () => {
   document.getElementById('plus-menu')?.classList.add('hidden')
   fileInput.click()
 })
+function openMcpPanel() {
+  const panel = document.getElementById('tools-panel')
+  if (!panel) return
+  panel.classList.remove('hidden')
+  if (typeof refreshMCPTools === 'function') refreshMCPTools()
+  if (typeof refreshMCPServers === 'function') refreshMCPServers()
+}
+function closeMcpPanel() {
+  document.getElementById('tools-panel')?.classList.add('hidden')
+}
 document.getElementById('plus-mcp')?.addEventListener('click', () => {
   document.getElementById('plus-menu')?.classList.add('hidden')
-  document.getElementById('tools-toggle')?.click()
+  openMcpPanel()
 })
+document.getElementById('tools-close')?.addEventListener('click', closeMcpPanel)
 document.addEventListener('click', (e) => {
   const menu = document.getElementById('plus-menu')
   if (!menu || menu.classList.contains('hidden')) return
@@ -2579,16 +2590,7 @@ function renderPermissionBadges(calls, results) {
   }).join('')
 }
 
-document.getElementById('tools-toggle').addEventListener('click', () => {
-  toolsPanel.classList.toggle('hidden')
-  if (!toolsPanel.classList.contains('hidden')) refreshMCPTools()
-})
-
-document.getElementById('tools-refresh').addEventListener('click', refreshMCPTools)
-
-document.getElementById('tools-toggle').addEventListener('click', () => {
-  if (!document.getElementById('tools-panel').classList.contains('hidden')) refreshMCPServers()
-})
+document.getElementById('tools-refresh')?.addEventListener('click', refreshMCPTools)
 
 async function refreshMCPTools() {
   toolsList.innerHTML = '<div class="tool-item"><span style="color:var(--muted)">Loading...</span></div>'
