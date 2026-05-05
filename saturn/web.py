@@ -665,7 +665,11 @@ async def delete(name: str, _=Depends(require_admin)):
 
 
 @app.get("/api/discover")
-async def api_discover():
+async def api_discover(request: Request):
+    ip = _client_ip(request)
+    blocked = _check_rate(ip)
+    if blocked:
+        return blocked
     from saturn.mdns.isolation import probe as _isolation_probe
     from dataclasses import asdict as _asdict
     loop = asyncio.get_event_loop()
