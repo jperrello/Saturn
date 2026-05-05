@@ -1,0 +1,35 @@
+{
+  "ttfb_s": 1.608,
+  "stream_duration_s": 47.125,
+  "samples": 62,
+  "raf": {
+    "count": 356,
+    "p50_ms": 17.8,
+    "p99_ms": 1270,
+    "max_ms": 12704.9
+  },
+  "timer": {
+    "p50_ms": 0.1,
+    "p99_ms": 13.2,
+    "max_ms": 18.7
+  },
+  "bubble": {
+    "final_len": 12444,
+    "monotonic": true
+  },
+  "scroll": {
+    "final_height": 4631,
+    "monotonic": true
+  },
+  "send_recovered": true,
+  "console_errors": [],
+  "oracle": {
+    "stream_lasted_min": true,
+    "timer_p99_ok": true,
+    "bubble_grew": true,
+    "scroll_grew": true,
+    "no_console_errors": true,
+    "send_recovered": true
+  },
+  "pass": true
+}

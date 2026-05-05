@@ -1,33 +1,18 @@
-# qj5.16.10 GREEN — /api/usage* admin auth + DB path honors SATURN_DATA_DIR + drop XFF in _client_ip
+# qj5.16.10 green phase
 
-*2026-05-04T19:34:27Z by Showboat 0.6.1*
-<!-- showboat-id: d1dca53e-5a52-4607-a99e-37e22f0aa5e6 -->
+*2026-05-04T19:35:25Z by Showboat 0.6.1*
+<!-- showboat-id: 22c73332-fa73-4871-9f9d-250d4af857d2 -->
 
-Implementation: (1) Depends(require_admin) on GET /api/usage and GET /api/usage/history. (2) DB_PATH now honors SATURN_DATA_DIR env (was hardcoded; tests need isolation). (3) _client_ip no longer honors X-Forwarded-For (the cross-row admin-read test depends on POST and GET resolving the same caller; F-3 trusted_proxies allowlist is still its own bead, but blindly trusting untrusted XFF was unsafe regardless). UsageReport schema unchanged — Pydantic ignores extra body.user_id, so forged body field has no attribution effect (test 6 passes). POST /api/usage/report stays unauth + self-keyed.
+Implementer 3345dbb. 45/45 across all auth suites.
 
 ```bash
-python3 -m pytest saturn/tests/test_usage_auth.py -v 2>&1 | tail -10
+cd /Users/jperr/Documents/Saturn && /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 -m pytest saturn/tests/test_usage_auth.py saturn/tests/test_web_admin_auth.py saturn/tests/test_runner_auth.py 2>&1 | tail -5
 ```
 
 ```output
-saturn/tests/test_usage_auth.py::test_usage_report_forged_user_id_does_not_attribute PASSED [100%]
-
-=============================== warnings summary ===============================
-../../../../Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/_pytest/config/__init__.py:1428
-  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/_pytest/config/__init__.py:1428: PytestConfigWarning: Unknown config option: asyncio_mode
-  
-    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/starlette/testclient.py:445: DeprecationWarning: Setting per-request cookies=<...> is being deprecated, because the expected behaviour on cookie persistence is ambiguous. Set cookies directly on the client instance instead.
+    return super().request(
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-========================= 6 passed, 1 warning in 0.86s =========================
-```
-
-```bash
-python3 -m pytest saturn/tests/test_runner_auth.py saturn/tests/test_web_admin_auth.py 2>&1 | tail -3
-```
-
-```output
-
--- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-======================== 39 passed, 2 warnings in 6.52s ========================
+======================== 45 passed, 2 warnings in 6.71s ========================
 ```
