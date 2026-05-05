@@ -2,6 +2,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 import logging
 import argparse
 import json
@@ -93,6 +94,7 @@ class SaturnService:
     cost: str = "unknown"                                  # free, paid, unknown
     node_id: str = ""                                      # stable UUID from saturn/mdns/identity.py
     trust: str = "unknown"                                 # pinned|first_seen|rebind_rejected|allowlist|unknown
+    last_seen: float = 0.0                                 # unix seconds; updated on every add/update event
 
     @property
     def is_beacon(self) -> bool:
@@ -189,6 +191,7 @@ class SaturnDiscovery:
     def _add(self, rec: ServiceRecord) -> None:
         service = self._to_service(rec)
         service.trust = _classify_trust(service)
+        service.last_seen = time.time()
         if service.trust == "pinned" and service.node_id:
             known_nodes.pin(service.name, service.node_id, service.host)
         elif service.trust == "first_seen" and service.node_id:
@@ -272,7 +275,7 @@ class SaturnDiscovery:
         self._backend.close()
 
 
-def discover(timeout: float = 8.0, settle_time: float = 1.0) -> List[SaturnService]:
+def discover(timeout: float = 8.0, settle_time: float = 1.0, max_age: Optional[float] = None) -> List[SaturnService]:
     from saturn.mdns.settle import SettleDetector
 
     settle = SettleDetector(timeout=settle_time)
@@ -287,6 +290,9 @@ def discover(timeout: float = 8.0, settle_time: float = 1.0) -> List[SaturnServi
     services = discovery.get_all_services()
     discovery.stop()
     settle.close()
+    if max_age is not None:
+        cutoff = time.time() - max_age
+        services = [s for s in services if s.last_seen >= cutoff]
     return services
 
 
