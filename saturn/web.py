@@ -986,6 +986,87 @@ def _api_type(name: str) -> str:
     return "openai"
 
 
+_OLLAMA_OPTION_KEYS = {
+    "temperature", "top_p", "top_k", "frequency_penalty", "presence_penalty",
+    "repeat_penalty", "repeat_last_n", "min_p", "seed", "stop",
+    "mirostat", "mirostat_tau", "mirostat_eta",
+    "num_ctx", "num_batch", "tfs_z", "typical_p",
+}
+
+
+def _ollama_native_url(base: str) -> str:
+    root = base.rstrip("/")
+    if root.endswith("/v1"):
+        root = root[:-3]
+    return f"{root}/api/chat"
+
+
+def _ollama_native_payload(messages: list[dict], params: dict, model: str, streaming: bool, thinking: str | None) -> dict:
+    options = {k: v for k, v in params.items() if k in _OLLAMA_OPTION_KEYS}
+    if "max_tokens" in params:
+        options["num_predict"] = params["max_tokens"]
+    payload = {"model": model, "messages": messages, "stream": streaming}
+    if options:
+        payload["options"] = options
+    if "keep_alive" in params:
+        payload["keep_alive"] = params["keep_alive"]
+    if thinking and thinking != "off":
+        payload["think"] = True
+    return payload
+
+
+def _ollama_to_openai_chunk(chunk: dict) -> dict:
+    msg = chunk.get("message") or {}
+    delta = {}
+    if "role" in msg:
+        delta["role"] = msg["role"]
+    if "content" in msg:
+        delta["content"] = msg["content"]
+    return {
+        "id": "saturn-ollama",
+        "object": "chat.completion.chunk",
+        "model": chunk.get("model", ""),
+        "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
+    }
+
+
+def _ollama_final_chunk(chunk: dict) -> tuple[dict, dict]:
+    usage = {
+        "prompt_tokens": chunk.get("prompt_eval_count", 0),
+        "completion_tokens": chunk.get("eval_count", 0),
+        "total_tokens": chunk.get("prompt_eval_count", 0) + chunk.get("eval_count", 0),
+    }
+    finish = chunk.get("done_reason") or "stop"
+    final = {
+        "id": "saturn-ollama",
+        "object": "chat.completion.chunk",
+        "model": chunk.get("model", ""),
+        "choices": [{"index": 0, "delta": {}, "finish_reason": finish}],
+        "usage": usage,
+    }
+    return final, usage
+
+
+def _ollama_full_to_openai(data: dict) -> dict:
+    msg = data.get("message") or {}
+    usage = {
+        "prompt_tokens": data.get("prompt_eval_count", 0),
+        "completion_tokens": data.get("eval_count", 0),
+        "total_tokens": data.get("prompt_eval_count", 0) + data.get("eval_count", 0),
+    }
+    return {
+        "id": "saturn-ollama",
+        "object": "chat.completion",
+        "model": data.get("model", ""),
+        "choices": [{
+            "index": 0,
+            "message": {"role": msg.get("role", "assistant"), "content": msg.get("content", "")},
+            "finish_reason": data.get("done_reason") or "stop",
+        }],
+        "usage": usage,
+    }
+
+
 def _adapt(messages: list[dict], params: dict, api_type: str, thinking: str | None = None) -> dict:
     allowed = PARAMS_BY_TYPE.get(api_type, OPENAI_PARAMS)
     payload = {k: v for k, v in params.items() if k in allowed}
@@ -1243,10 +1324,6 @@ async def chat(body: ChatRequest, request: Request):
 
     at = _api_type(body.service)
     streaming = body.stream is not False
-    payload = {"model": body.model, **_adapt(body.messages, raw_params, at, body.thinking)}
-    payload["stream"] = streaming
-    if streaming:
-        payload["stream_options"] = {"include_usage": True}
 
     from saturn import receipt as _receipt
     configured = {"model": body.model, **raw_params}
@@ -1255,12 +1332,24 @@ async def chat(body: ChatRequest, request: Request):
         None,
     )
 
+    if at == "ollama":
+        url = _ollama_native_url(base)
+        payload = _ollama_native_payload(body.messages, raw_params, body.model, streaming, body.thinking)
+    else:
+        url = f"{base}/chat/completions"
+        payload = {"model": body.model, **_adapt(body.messages, raw_params, at, body.thinking)}
+        payload["stream"] = streaming
+        if streaming:
+            payload["stream_options"] = {"include_usage": True}
+
     if not streaming:
         async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
-            r = await client.post(f"{base}/chat/completions", json=payload, headers=headers)
+            r = await client.post(url, json=payload, headers=headers)
             if r.status_code != 200:
                 raise HTTPException(r.status_code, "upstream error")
             data = r.json()
+            if at == "ollama":
+                data = _ollama_full_to_openai(data)
             applied = {"max_tokens": body.max_tokens}
             if data.get("model"):
                 applied["model"] = data["model"]
@@ -1286,21 +1375,41 @@ async def chat(body: ChatRequest, request: Request):
                 _ip_active[ip] = _ip_active.get(ip, 0) + 1
                 try:
                     async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
-                        async with client.stream("POST", f"{base}/chat/completions", json=payload, headers=headers) as r:
+                        async with client.stream("POST", url, json=payload, headers=headers) as r:
                             if r.status_code != 200:
                                 err = await r.aread()
                                 yield f"data: {err.decode()}\n\n"
                                 return
-                            async for line in r.aiter_lines():
-                                if line.startswith("data:") and "[DONE]" in line:
-                                    yield _receipt.emit_meta_line(configured, applied, system_prompt, body.model)
-                                    yield line + "\n"
-                                    continue
-                                _receipt.update_applied_from_chunk(applied, line)
-                                if line:
-                                    yield line + "\n"
-                                else:
-                                    yield "\n"
+                            if at == "ollama":
+                                async for line in r.aiter_lines():
+                                    if not line.strip():
+                                        continue
+                                    try:
+                                        chunk = json.loads(line)
+                                    except json.JSONDecodeError:
+                                        continue
+                                    if chunk.get("done"):
+                                        final, usage = _ollama_final_chunk(chunk)
+                                        applied["usage"] = usage
+                                        applied["finish_reason"] = final["choices"][0]["finish_reason"]
+                                        if chunk.get("model"):
+                                            applied["model"] = chunk["model"]
+                                        yield f"data: {json.dumps(final)}\n\n"
+                                        yield _receipt.emit_meta_line(configured, applied, system_prompt, body.model)
+                                        yield "data: [DONE]\n\n"
+                                    else:
+                                        yield f"data: {json.dumps(_ollama_to_openai_chunk(chunk))}\n\n"
+                            else:
+                                async for line in r.aiter_lines():
+                                    if line.startswith("data:") and "[DONE]" in line:
+                                        yield _receipt.emit_meta_line(configured, applied, system_prompt, body.model)
+                                        yield line + "\n"
+                                        continue
+                                    _receipt.update_applied_from_chunk(applied, line)
+                                    if line:
+                                        yield line + "\n"
+                                    else:
+                                        yield "\n"
                 finally:
                     _ip_active[ip] = max(0, _ip_active.get(ip, 1) - 1)
 
