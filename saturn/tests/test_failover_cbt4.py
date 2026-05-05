@@ -267,8 +267,9 @@ def test_active_5xx_switches_within_2s_and_records_event(app_client):
     events = (meta.get("routing") or {}).get("events") or []
     assert events, f"saturn_meta.routing.events must be non-empty after a switch; meta={meta!r}"
     e = events[0]
-    assert e.get("from") == "peer-a" and e.get("to") == "peer-b", (
-        f"first event must record from=peer-a → to=peer-b; got {e!r}"
+    from saturn.web import _alias_peer
+    assert e.get("from") == _alias_peer("peer-a") and e.get("to") == _alias_peer("peer-b"), (
+        f"first event must record from=alias(peer-a) → to=alias(peer-b); got {e!r}"
     )
     assert e.get("reason") == "active_5xx", (
         f"reason must be 'active_5xx' for an upstream 5xx switch; got {e.get('reason')!r}"
@@ -340,7 +341,8 @@ def test_sticky_does_not_oscillate_on_peer_a_recovery(app_client):
     meta = _last_meta(r3.text)
     events = (meta.get("routing") or {}).get("events") or []
     # No NEW switch should be recorded on r3 (no oscillation back to peer-a).
-    back_to_a = [e for e in events if e.get("to") == "peer-a"]
+    from saturn.web import _alias_peer
+    back_to_a = [e for e in events if e.get("to") == _alias_peer("peer-a")]
     assert not back_to_a, (
         f"sticky violation: detected a switch back to peer-a after recovery; events={events!r}"
     )

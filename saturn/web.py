@@ -152,6 +152,11 @@ MAX_STICKY = 10000
 STICKY_TTL_S = 3600.0
 
 
+def _alias_peer(name: str) -> str:
+    import hashlib
+    return hashlib.sha256((name or "").encode("utf-8")).hexdigest()[:8]
+
+
 class _StickyMap(OrderedDict):
     def _ttl(self):
         return globals().get("STICKY_TTL_S", 3600.0)
@@ -1185,7 +1190,7 @@ async def brutus_chat(body: BrutusChat, request: Request, _=Depends(require_admi
 
     for c in candidates:
         if prev_name:
-            events.append({"from": prev_name, "to": c["name"], "reason": prev_reason, "at": time.time()})
+            events.append({"from": _alias_peer(prev_name), "to": _alias_peer(c["name"]), "reason": prev_reason, "at": time.time()})
             prev_name = None
             prev_reason = None
 
@@ -1289,7 +1294,7 @@ async def brutus_chat(body: BrutusChat, request: Request, _=Depends(require_admi
                 if line.startswith("data:") and "[DONE]" in line:
                     meta = _receipt.build_meta(configured, applied, system_prompt, requested_model=chosen_model)
                     meta.setdefault("routing", {})["events"] = events
-                    meta["routing"]["service"] = chosen["name"]
+                    meta["routing"]["service"] = _alias_peer(chosen["name"])
                     yield f"data: {json.dumps({'saturn_meta': meta})}\n\n"
                     yield line + "\n"
                     continue
