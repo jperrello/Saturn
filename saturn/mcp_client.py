@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -5,6 +6,8 @@ from typing import Optional
 
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+
+CALL_DEADLINE_S = 5.0
 
 logger = logging.getLogger("saturn.mcp_client")
 
@@ -86,9 +89,16 @@ class MCPClientManager:
             async def invoke(session):
                 result = await session.call_tool(tool, arguments)
                 return {"content": [c.model_dump() for c in result.content], "isError": result.isError}
-            return await _with_session(entry["url"], entry.get("auth_token"), invoke)
+            return await asyncio.wait_for(
+                _with_session(entry["url"], entry.get("auth_token"), invoke),
+                timeout=CALL_DEADLINE_S,
+            )
+        except asyncio.TimeoutError:
+            return {"error": f"MCP tool {tool!r} on {server!r} timed out after {CALL_DEADLINE_S}s deadline"}
         except BaseException as e:
             inner = _unwrap(e)
+            if isinstance(inner, asyncio.TimeoutError):
+                return {"error": f"MCP tool {tool!r} on {server!r} timed out after {CALL_DEADLINE_S}s deadline"}
             if isinstance(inner, (ConnectionError, OSError)):
                 return {"error": f"MCP server '{server}' unreachable at {entry['url']}: {inner}"}
             return {"error": f"MCP server '{server}' at {entry['url']} failed: {inner}"}
