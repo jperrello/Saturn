@@ -22,8 +22,16 @@ def routable_addrs(family: str = "v4") -> List[str]:
                     continue
                 out.append(ip)
             elif a.family == socket.AF_INET6 and want_v6:
-                bare = ip.split("%", 1)[0]
-                if bare in ("::1", "::") or bare.startswith("fe80:") or bare.startswith("FE80:"):
+                bare = ip.split("%", 1)[0].lower()
+                if bare in ("::1", "::"):
+                    continue
+                if bare.startswith("fe80:"):
+                    continue
+                if bare.startswith("fc") or bare.startswith("fd"):
+                    continue
+                if bare.startswith("2002:"):
+                    continue
+                if bare.startswith("2001::") or bare.startswith("2001:0:"):
                     continue
                 out.append(bare)
     return out
