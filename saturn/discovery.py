@@ -476,65 +476,74 @@ class SaturnAdvertiser:
         self._backend = make_backend()
 
     def _properties(self) -> dict:
-        MODELS_KEY = 'models'
-        MAX_VALUE_BYTES = 200
+        from saturn.mdns import txt as _txt
 
-        models_str = ''
-        models_truncated = False
-        if self.models:
-            parts = []
-            for model in self.models:
-                clean = _sanitize_txt_value(model)
-                candidate = ','.join(parts + [clean]) if parts else clean
-                if len(candidate.encode('utf-8')) <= MAX_VALUE_BYTES:
-                    parts.append(clean)
-                else:
-                    models_truncated = True
-                    break
-            models_str = ','.join(parts)
-
-        if models_truncated:
-            logger.info(f"TXT record limited to {len(parts)}/{len(self.models)} models (full list via /v1/models)")
-
-        capabilities_str = ','.join(self.capabilities) if self.capabilities else ''
+        models_list = [_sanitize_txt_value(m) for m in (self.models or [])]
+        caps_list = list(self.capabilities or [])
         features = "network_proxy" if self.deployment == "network" else ""
 
         props = {
             'id': get_node_id(),
             'v': '2',
             'version': '1.0',
-            'dep': self.deployment,       # short key (v2)
-            'deployment': self.deployment, # backward compat
+            'dep': self.deployment,
+            'deployment': self.deployment,
             'api_type': self.api_type,
             'api_base': self.api_base,
             'priority': str(self.priority),
             'features': features,
-            'models': models_str,
-            'capabilities': capabilities_str,
+            'models': ','.join(models_list),
+            'capabilities': ','.join(caps_list),
             'context': str(self.context),
             'cost': self.cost,
         }
-        if models_truncated:
+
+        truncated = False
+        while True:
+            try:
+                _txt.validate(props)
+                break
+            except _txt.TxtTooLarge:
+                if models_list:
+                    models_list.pop()
+                    props['models'] = ','.join(models_list)
+                    truncated = True
+                    continue
+                if caps_list:
+                    caps_list.pop()
+                    props['capabilities'] = ','.join(caps_list)
+                    truncated = True
+                    continue
+                if props.get('features'):
+                    props['features'] = ''
+                    truncated = True
+                    continue
+                break
+        if truncated:
             props['mtrunc'] = '1'
         return props
 
     def register(self) -> bool:
         from saturn.mdns.backend import AdvertiseSpec
+        from saturn.mdns import txt as _txt
         try:
             if not self.api_base:
                 host_ip = get_lan_ip()
                 self.api_base = f"http://{host_ip}:{self.port}/v1"
 
+            props = self._properties()
+            _txt.validate(props)
             spec = AdvertiseSpec(
                 name=self.name,
                 port=self.port,
-                txt=self._properties(),
+                txt=props,
                 subtypes=self._subtypes,
             )
             self._backend.advertise(spec)
             logger.info(f"Registered {self.name} on {self.SERVICE_TYPE} at port {self.port} with priority {self.priority}")
             return True
-
+        except _txt.TxtTooLarge:
+            raise
         except Exception as e:
             logger.error(f"Failed to register service: {e}")
             return False
