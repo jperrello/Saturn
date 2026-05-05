@@ -92,6 +92,14 @@ add_init_script + page.route auth wrapper).
 | cbt.2.a.ui | Saturn-3t8 | [`cbt.2.a.ui-longstream.md`](demo/recordings/cbt.2.a.ui-longstream.md) | Bombadil/Playwright proof that the chat tab stays interactive across a 70 s long-stream turn: `ttfb=2.94 s`, `timer.p99=7.3 ms`, monotonic bubble + scroll, send button recovers, zero console errors. Final-frame screenshot embedded. |
 | cbt.2.b | Saturn-6g1 | [`cbt.2.b-attachments.md`](demo/recordings/cbt.2.b-attachments.md) | Bombadil/Playwright proof for the `+`-menu attachment flow: allowed/disallowed file types, exact 100 KB boundary (=100 KB accepted, +1 byte rejected), `+` → attach hides menu, badge → remove clears input. All 7 oracle bullets green. |
 
+### Phase 3 — security + cross-client hardening (5/5 tests green)
+
+| Bead | Commit | Artifact | Headline |
+|------|--------|----------|----------|
+| cbt.4.sec.token | `b6ab724` (Saturn-zor) | [`cbt.4.sec.token-auth.md`](demo/recordings/cbt.4.sec.token-auth.md) | `Depends(require_admin)` on `brutus_chat` — `/api/system/chat` was the lone `/api/system/*` surface without an auth gate. 401-401-200 matrix; cbt.4 fixture updated to inject the bearer (4/4 failover tests stay green). |
+| cbt.4.sec.ratelimit | regression-guard (Saturn-b3o) | [`cbt.4.sec.ratelimit-guard.md`](demo/recordings/cbt.4.sec.ratelimit-guard.md) | `_check_rate` already wired into `brutus_chat`; b3o pins the invariant. With `SATURN_RATE_RPM=2`, 6 rapid POSTs yield ≥1 HTTP 429 with `Retry-After`; first 1-2 stay un-429'd (proves limit > 0). Real subprocess, no mocks. |
+| cbt.cross-client | regression-guard (Saturn-ggn) | [`cbt.cross-client-guard.md`](demo/recordings/cbt.cross-client-guard.md) | Three HTTP stacks (`urllib` / `httpx` / `curl`) hit `/v1/{health,models,chat/completions}` (stream + non-stream) and return identical canonical forms (after stripping per-call `id` / `created`). Go deferred to **Saturn-ggn.go**. Pins the OpenAI-compatible contract before middleware drift. |
+
 ### Wave 2 — integrate beads (12/12 tests green)
 
 | Bead | Commit | Artifact | Headline |
