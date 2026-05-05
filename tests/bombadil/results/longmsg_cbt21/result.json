@@ -1,0 +1,48 @@
+{
+  "c1_keystroke_4k": {
+    "n": 30,
+    "p50_ms": 278.9,
+    "p95_ms": 412.1,
+    "max_ms": 1213.3,
+    "pass": false
+  },
+  "c2_send_block_32k": {
+    "click_to_timer0_ms": 12.9,
+    "click_to_raf_ms": 46.2,
+    "block_ms": 46.2,
+    "pass": true
+  },
+  "c3_stream_4k": {
+    "samples": 103,
+    "final_len": 25673,
+    "distinct_growth_steps": 53,
+    "scroll_probe": null,
+    "console_errors": [
+      {
+        "type": "error",
+        "text": "Failed to load services: TypeError: Failed to fetch\n    at window.fetch (http://localhost:52475/app.js:18:12)\n    at loadServices (http://localhost:52475/app.js:980:23)\n    at http://localhost:52475/app.js:1047:1"
+      }
+    ],
+    "pass": true
+  },
+  "c4_stream_32k": {
+    "samples": 236,
+    "final_len": 52,
+    "distinct_growth_steps": 1,
+    "scroll_probe": {
+      "before": 1828,
+      "set_to": 0,
+      "after": 0,
+      "overflow_px": 1828,
+      "moved": true
+    },
+    "console_errors": [
+      {
+        "type": "error",
+        "text": "Failed to load services: TypeError: Failed to fetch\n    at window.fetch (http://localhost:52475/app.js:18:12)\n    at loadServices (http://localhost:52475/app.js:980:23)\n    at http://localhost:52475/app.js:1047:1"
+      }
+    ],
+    "pass": false
+  },
+  "pass": false
+}
