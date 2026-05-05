@@ -8,6 +8,7 @@ from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
 CALL_DEADLINE_S = 5.0
+LARGE_RESULT_BYTES = 1024 * 1024
 
 logger = logging.getLogger("saturn.mcp_client")
 
@@ -88,7 +89,12 @@ class MCPClientManager:
         try:
             async def invoke(session):
                 result = await session.call_tool(tool, arguments)
-                return {"content": [c.model_dump() for c in result.content], "isError": result.isError}
+                content = [c.model_dump() for c in result.content]
+                total = sum(len(str(c.get("text", ""))) for c in content if isinstance(c, dict))
+                if total > LARGE_RESULT_BYTES:
+                    return {"error": f"MCP tool {tool!r} on {server!r} returned {total} bytes "
+                                     f"(>{LARGE_RESULT_BYTES} ceiling); refusing oversized payload"}
+                return {"content": content, "isError": result.isError}
             return await asyncio.wait_for(
                 _with_session(entry["url"], entry.get("auth_token"), invoke),
                 timeout=CALL_DEADLINE_S,
