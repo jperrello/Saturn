@@ -3,7 +3,7 @@
 Two version axes coexist. Don't conflate them:
 
 - **TXT `version`** — single integer carried in every advertisement. The thesis-time schema is `version=1`; that is the canonical wire format Saturn implementations interoperate against today (Saturn.md:573–575).
-- **Spec document version** (`v0.1` / `v0.2` directories here) — the documentation's own version axis, used to file *proposed* redesigns separately from canonical material. The DOCS_PATTERNS-recommended `v0.x` scheme is orthogonal to the single-integer TXT field.
+- **Spec document version** (`v0.1` / `v0.2` directories here) — the documentation's own version axis, used to file *proposed* redesigns separately from canonical material. The `v0.x` scheme is orthogonal to the single-integer TXT field.
 
 | Spec doc | Status | Maps to TXT | Documents |
 |---|---|---|---|
