@@ -72,6 +72,12 @@ def main():
         return config_main()
 
     if command == 'run':
+        if remaining:
+            from .refusals import check as _refusal
+            msg = _refusal(remaining[0])
+            if msg:
+                print(msg, file=sys.stderr)
+                return 2
         sys.argv = ['saturn-run'] + remaining
         from .runner import main as runner_main
         return runner_main()
@@ -111,6 +117,12 @@ def main():
         sys.argv = ['aider-saturn'] + remaining
         from .aider_saturn import main as aider_main
         return aider_main()
+
+    from .refusals import check as _refusal
+    msg = _refusal(command)
+    if msg:
+        print(msg, file=sys.stderr)
+        return 2
 
     from .config import load_service_config
     if load_service_config(command):
