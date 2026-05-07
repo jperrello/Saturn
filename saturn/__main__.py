@@ -98,6 +98,10 @@ def main():
                 port = int(remaining[i + 1])
         return web_main(host=host, port=port)
 
+    if command == 'serve':
+        from .serve import main as serve_main
+        return serve_main(remaining)
+
     if command == 'aider':
         sys.argv = ['aider-saturn'] + remaining
         from .aider_saturn import main as aider_main
