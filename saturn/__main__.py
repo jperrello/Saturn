@@ -109,6 +109,10 @@ def main():
                 port = int(remaining[i + 1])
         return web_main(host=host, port=port)
 
+    if command == 'cursor-snippet':
+        from .clients.cursor import main as cursor_main
+        return cursor_main(remaining)
+
     if command == 'serve':
         from .serve import main as serve_main
         return serve_main(remaining)
