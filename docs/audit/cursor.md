@@ -89,8 +89,17 @@ should at minimum exercise:
   `/models` suffixes resolve correctly.
 - The snippet warns the user about Ask mode, HTTP/1.1, and subagents.
 
-<!-- bombadil: results table goes here -->
+Run: `python3 -m pytest tests/integrations/test_cursor.py --cache-clear -v`
+Last run: 2026-05-06, autonomous/promo-push, 9/9 PASSED.
 
-| Scenario | Result | Notes |
-|---|---|---|
-| TBD | TBD | TBD |
+| Scenario | Result | Duration | Notes |
+|---|---|---|---|
+| `test_cursor_subcommand_exists` | PASS | 0.08s | `saturn cursor-snippet` is registered. |
+| `test_cursor_snippet_renders_base_url` | PASS | 0.05s | Emitted base URL ends in `/v1`. |
+| `test_cursor_snippet_warns_ask_mode` | PASS | 0.06s | Snippet flags Agent vs Ask mode wire-format mismatch. |
+| `test_cursor_snippet_warns_http2` | PASS | 0.06s | Snippet tells operator to flip Network → HTTP/1.1. |
+| `test_cursor_snippet_describes_gui_flow` | PASS | 0.05s | Five-step Settings → Models walk-through emitted. |
+| `test_cursor_snippet_warns_subagents` | PASS | 0.06s | Subagent fall-back-to-cloud caveat present. |
+| `test_cursor_snippet_discovers_real_service` | PASS | 2.11s | Discovers a live `_saturn._tcp.local.` service and substitutes its endpoint. |
+| `test_cursor_client_module_importable` | PASS | <0.01s | `saturn.clients.cursor` imports clean. |
+| `test_cursor_doc_exists` | PASS | <0.01s | `docs/audit/cursor.md` present and non-empty. |

@@ -26,6 +26,7 @@ node_modules/
 # Claude
 .claude
 CLAUDE.md
+!docs/audit/claude.md
 
 # references/ moved to legacy_code/
 

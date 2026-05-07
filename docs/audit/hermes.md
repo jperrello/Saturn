@@ -53,4 +53,20 @@ provider that actually fronts a Hermes model is whichever runner you pick,
 not Hermes itself.
 
 ## Test
-No test file — there is no Saturn-facing surface to exercise.
+See `tests/integrations/test_hermes.py` (Saturn-f1h). Hermes has no
+Saturn-facing surface, so the test pins the *refusal* — Saturn must not
+ship a Hermes profile, must emit a curated error if asked to run one,
+and must not advertise `hermes` over mDNS.
+
+Run: `python3 -m pytest tests/integrations/test_hermes.py --cache-clear -v`
+Last run: 2026-05-06, autonomous/promo-push, 7/7 PASSED.
+
+| Scenario | Result | Duration | Notes |
+|---|---|---|---|
+| `test_no_builtin_hermes_profile` | PASS | <0.01s | `saturn/services/` ships no `hermes*.toml`. |
+| `test_research_finding_present` | PASS | <0.01s | This audit doc is committed and readable. |
+| `test_saturn_run_hermes_emits_curated_error[hermes]` | PASS | 0.06s | `saturn run hermes` exits non-zero with curated explanation. |
+| `test_saturn_run_hermes_emits_curated_error[hermes-agent]` | PASS | 0.06s | Same for the `hermes-agent` alias. |
+| `test_saturn_hermes_shortcut_rejected` | PASS | 0.05s | Top-level `saturn hermes` shortcut rejected with curated error. |
+| `test_provider_module_explicit_refusal` | PASS | <0.01s | Provider stub raises explicit refusal, not a generic ImportError. |
+| `test_discover_does_not_advertise_hermes` | PASS | 2.01s | Live mDNS discover finds no Saturn instance advertising hermes. |
