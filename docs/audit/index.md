@@ -34,9 +34,9 @@ This directory contains a per-integration audit of every client and backend Satu
 | Jan | TBD | 2026-03-23 (geoff facts) | `tests/integrations/test_jan.py` |
 | VLC | TBD | 2026-05-06 (in-tree) | `tests/integrations/test_vlc.py` |
 | MCP | TBD | 2026-05-06 (in-tree) | `tests/integrations/test_mcp.py` |
-| Claude | TBD | TBD | `tests/integrations/test_claude.py` |
-| Ollama | TBD | TBD | `tests/integrations/test_ollama.py` |
-| Fallback | TBD | TBD | `tests/integrations/test_fallback.py` |
+| Claude | TBD | 2026-05-06 (in-tree) | `tests/integrations/test_claude.py` |
+| Ollama | TBD | 2026-05-06 (in-tree) | `tests/integrations/test_ollama.py` |
+| Fallback | TBD | 2026-05-06 (in-tree) | `tests/integrations/test_fallback.py` |
 | OpenRouter | TBD | TBD | `tests/integrations/test_openrouter.py` |
 | DeepInfra | TBD | TBD | `tests/integrations/test_deepinfra.py` |
 | Cursor | TBD | TBD | `tests/integrations/test_cursor.py` |
