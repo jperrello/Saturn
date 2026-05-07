@@ -49,7 +49,7 @@ def serve(host, port, share=False, root=None, name=None):
 
     app = build(share=share, root=root)
     advertiser_name = name or f"saturn-serve-{port}"
-    adv = SaturnAdvertiser(name=advertiser_name, port=port)
+    adv = SaturnAdvertiser(name=advertiser_name, port=port, kind=("claude" if share else "openai"))
     try:
         adv.register()
     except Exception as e:

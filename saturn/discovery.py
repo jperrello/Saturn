@@ -133,6 +133,7 @@ class SaturnService:
     context: int = 4096                                    # max context window
     cost: str = "unknown"                                  # free, paid, unknown
     node_id: str = ""                                      # stable UUID from saturn/mdns/identity.py
+    kind: str = "openai"                                   # "openai" or "claude" (claudemount variant)
     trust: str = "unknown"                                 # pinned|first_seen|rebind_rejected|allowlist|unknown
     last_seen: float = 0.0                                 # unix seconds; updated on every add/update event
     addresses: List[str] = field(default_factory=list)     # all resolved A + AAAA addresses
@@ -223,6 +224,7 @@ class SaturnDiscovery:
             addresses=list(rec.addresses or []),
             ipv6=next((a for a in (rec.addresses or []) if ":" in a), None),
             node_id=rec.node_id,
+            kind=props.get('kind', 'openai'),
         )
 
     def _on_event(self, event) -> None:
@@ -569,6 +571,7 @@ class SaturnAdvertiser:
         # Legacy fields (kept for backwards compatibility but not advertised)
         mcp: str = "none",
         role: str = "",
+        kind: str = "openai",
     ):
         self.name = name
         self.port = port
@@ -583,6 +586,7 @@ class SaturnAdvertiser:
         self.context = context
         self.cost = cost
         self.mcp = mcp
+        self.kind = kind
         from saturn.mdns.subtypes import subtypes_for_role
         self._subtypes = subtypes_for_role(role)
         from saturn.mdns.detect import backend as make_backend
@@ -610,6 +614,8 @@ class SaturnAdvertiser:
             'context': str(self.context),
             'cost': self.cost,
         }
+        if self.kind and self.kind != 'openai':
+            props['kind'] = self.kind
 
         truncated = False
         while True:
