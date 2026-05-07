@@ -89,8 +89,26 @@ Saturn at `https://api.deepinfra.com/v1/openai`.
 See `tests/integrations/test_deepinfra.py`. In-tree coverage:
 `saturn/tests/test_providers.py`, `saturn/tests/test_beacon_sleep.py`.
 
-<!-- bombadil: results table goes here -->
+Run: `python3 -m pytest tests/integrations/test_deepinfra.py --cache-clear -v`
+Last run: 2026-05-06, autonomous/promo-push, 7/8 PASS, 1 SKIP.
 
 | Scenario | Result | Notes |
 |---|---|---|
-| TBD | TBD | TBD |
+| `test_deepinfra_profile_shipped` | PASS | `deepinfra.toml` shape, beacon-on, provider="deepinfra". |
+| `test_deepinfra_provider_module_importable` | PASS | endpoint/api_base constants + payload/parse/revoke surface. |
+| `test_deepinfra_payload_shape` | PASS | `api_key_name=auto`, `expires_delta` seconds, no budget by default. |
+| `test_deepinfra_payload_with_budget` | PASS | `max_budget_usd` round-trips when set. |
+| `test_deepinfra_parse_returns_token_twice` | PASS | DeepInfra uses the JWT itself as both key and revocation handle. |
+| `test_deepinfra_revoke_no_handle_is_noop` | PASS | Defensive guard against missing handle. |
+| `test_deepinfra_config_loadable` | PASS | `load_service_config('deepinfra')` returns expected. |
+| `test_deepinfra_mint_and_revoke_live` | SKIP | gated on `SATURN_INTEGRATION_LIVE=1` + `DEEPINFRA_API_KEY`. |
+
+**Live test gating.** The mint/revoke round-trip is intentionally
+skipped by default — running it issues a real DeepInfra scoped-JWT
+provisioning call (and a corresponding revoke). Operators with
+DeepInfra credentials can enable it with:
+
+```bash
+SATURN_INTEGRATION_LIVE=1 DEEPINFRA_API_KEY=... \
+  python3 -m pytest tests/integrations/test_deepinfra.py
+```

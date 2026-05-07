@@ -146,8 +146,27 @@ See `tests/integrations/test_openrouter.py`. In-tree coverage that exercises
 the provider plumbing: `saturn/tests/test_providers.py`,
 `saturn/tests/test_beacon_sleep.py`.
 
-<!-- bombadil: results table goes here -->
+Run: `python3 -m pytest tests/integrations/test_openrouter.py --cache-clear -v`
+Last run: 2026-05-06, autonomous/promo-push, 8/9 PASS, 1 SKIP.
 
 | Scenario | Result | Notes |
 |---|---|---|
-| TBD | TBD | TBD |
+| `test_openrouter_static_profile_shipped` | PASS | `openrouter.toml` shape + env-var name. |
+| `test_orbeacon_profile_shipped` | PASS | `orbeacon.toml` beacon-on + provisioning-key env. |
+| `test_openrouter_provider_module_importable` | PASS | endpoint/api_base constants + payload/parse/revoke surface. |
+| `test_openrouter_payload_shape` | PASS | `saturn-beacon-` prefix, RFC3339-Z `expires_at`, no `limit` when budget unset. |
+| `test_openrouter_payload_with_budget` | PASS | `limit` set when `max_budget_usd` passed. |
+| `test_openrouter_parse_extracts_key_and_hash` | PASS | `(key, handle)` tuple from documented response shape. |
+| `test_openrouter_static_config_loadable` | PASS | `load_service_config('openrouter')` returns expected. |
+| `test_orbeacon_config_loadable` | PASS | `load_service_config('orbeacon')` returns expected. |
+| `test_openrouter_mint_and_revoke_live` | SKIP | gated on `SATURN_INTEGRATION_LIVE=1` + `OPENROUTER_PROVISIONING_KEY`. |
+
+**Live test gating.** The mint/revoke round-trip is intentionally
+skipped by default — running it costs real OpenRouter API calls
+(creates and deletes a scoped key). Operators with provisioning
+credentials can enable it with:
+
+```bash
+SATURN_INTEGRATION_LIVE=1 OPENROUTER_PROVISIONING_KEY=sk-or-... \
+  python3 -m pytest tests/integrations/test_openrouter.py
+```
