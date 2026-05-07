@@ -386,7 +386,134 @@ half is the part most vendor write-ups silently drop.
 
 ## Headline: Claude-artifacts live-mount
 
-TBD
+### What it is
+
+Saturn's `serve` subcommand gains a `--share-claude` flag (default OFF).
+When set, the same process that serves Saturn's OpenAI-compatible
+endpoints additionally:
+
+1. Adds TXT key `kind=claude` to its mDNS advertisement on
+   `_saturn._tcp.local.` — variant distinguished by TXT, *not* a new
+   service type (`SATURN_ECO_RUN.md:24`,
+   `dist/contracts/claudemount.md`).
+2. Mounts a server-enforced read-only WebDAV view of the share directory
+   (default `~/.claude/`, override `--share-claude-path <dir>`) at HTTP
+   path `/share/claude/`.
+3. Populates a `kind` field on `saturn.discovery.SaturnService` so
+   OpenAI consumers can filter claude-kind services without touching
+   exception flow.
+
+A run without `--share-claude` does not advertise `kind=claude` and
+returns `404` for `/share/claude/`.
+
+The contract (Saturn-7im, `dist/contracts/claudemount.md`) is twelve
+falsifiable tests in `tests/integrations/test_claudemount.py`. Hardener
+landed the implementation across three commits on `autonomous/promo-push`:
+`6eb80ac` (wsgidav read-only mount), `fd05572` (`kind=claude` TXT
+variant), `02364bb` (`--share-claude` CLI flag). All twelve tests pass.
+
+### What it enables
+
+A laptop on the LAN can publish its Claude artifacts directory with one
+flag flip. Every other host on the same multicast domain — running any
+Saturn-aware client, a stock WebDAV client (macOS Finder Cmd-K, Windows
+"Map Network Drive", Linux `davfs2`), or a fresh `httpx` GET — sees the
+files immediately, with no commit, no push, no out-of-band setup.
+
+The honest framing for the comparison space, per oracle's caveat
+(`dist/research/oracle_faq.md` Q4): chezmoi (git-pull) and claudeSpread
+(push) solve adjacent but distinct problems — dotfile sync and broadcast
+push, respectively. Neither is named in the Saturn thesis. The
+defensible novelty is *composition*, not head-to-head replacement:
+
+- **Discovery is part of the artifact.** chezmoi requires the receiver
+  to know the repo URL and hold credentials; claudeSpread requires the
+  sender to enumerate receivers and hold credentials for each. Saturn
+  turns "where is this person's Claude artifacts directory" into a
+  DNS-SD query the OS already answers with the same primitive that
+  finds printers (`chomp/Saturn.md:269–273, :382–392`).
+- **No git, no push, no out-of-band setup.** chezmoi assumes a
+  versioned remote; claudeSpread assumes sender-side enumeration.
+  Saturn requires neither, because discovery and transport are already
+  the protocol.
+- **Live read-only by construction.** Pull and push both operate on
+  snapshots and require an explicit synchronisation event. A WebDAV
+  mount is whatever the producer's filesystem says now; there is no
+  propagation gap to reason about.
+- **Trust posture is inherited, not invented.** The Claude mount
+  inherits Saturn's documented LAN trust boundary
+  (`docs/reference/protocol/security.md:9, :22, :38`). It introduces no
+  new secret material, no new auth surface, no new credential
+  lifecycle.
+
+This is a category extension, not a replacement.
+
+### How it works
+
+`wsgidav` (4.3.4a1) hosts the WebDAV provider; the read-only switch is
+a provider-level config flag, not a filesystem permission
+(`dist/research/wsgidav_ro.md`). Concrete shape:
+
+```python
+config = {
+    "host": "127.0.0.1", "port": <auto>,
+    "provider_mapping": {
+        "/": {"root": "<share-claude-path>", "readonly": True},
+    },
+    "simple_dc": {"user_mapping": {"*": True}},  # anonymous
+    "verbose": 2,
+}
+dav = WsgiDAVApp(config)
+```
+
+With `readonly=True`, `FilesystemProvider` raises
+`DAVError(HTTP_FORBIDDEN)` on `PUT`, `MKCOL`, `PROPPATCH`, `DELETE`,
+`MOVE`, and `COPY`. The `403` originates in the provider gate before
+any filesystem call — a misconfigured share with writeable Unix mode
+bits is still read-only on the wire.
+
+The WSGI app is mounted onto the FastAPI ASGI surface via `a2wsgi`'s
+`WSGIMiddleware` (the forward-compatible path; Starlette's
+`WSGIMiddleware` has been deprecated for years —
+`https://github.com/fastapi/fastapi/discussions/8404` —
+`a2wsgi.WSGIMiddleware` is the documented migration target):
+
+```python
+from a2wsgi import WSGIMiddleware
+app.mount("/share/claude", WSGIMiddleware(dav))
+```
+
+Path containment is enforced *after* URL-decoding and normalisation:
+`/share/claude/../../etc/passwd`, `..%2F..%2Fetc%2Fpasswd`, and
+`%2e%2e/%2e%2e/etc/passwd` all return non-200 without leaking content
+outside the share root. The contract names three traversal variants and
+the test suite drives each.
+
+### Trust model
+
+The Claude mount is open on the LAN, with no auth. This is the same
+posture as `/v1/chat/completions`
+(`docs/reference/protocol/security.md:22`,
+`docs/reference/protocol/security.md:38`) and is restated as a hard
+rule for this run (`SATURN_ECO_RUN.md:25-26`). Concretely:
+
+- **Read-only on the wire.** `wsgidav` returns `403` for every write
+  verb. The defense argument is server-enforced, not "trust the
+  client".
+- **No bearer token, no PSK.** Anyone on the multicast domain who can
+  see `kind=claude` can `GET` and `PROPFIND` the share. This is the
+  Bonjour-for-printers posture the thesis already commits to.
+- **Opt-in.** `--share-claude` is OFF by default. Saturn never
+  advertises `kind=claude` unless the operator turns the flag on. A
+  default Saturn install ships nothing new on the wire.
+- **Hardening paths inherited.** The same Caddy + `tls internal`,
+  Tailscale mesh, cloudflared tunnel, `trust_mode=tofu` /
+  `trust_mode=allowlist`, and admin-token paths that harden `/v1/*`
+  also cover `/share/claude/` (`docs/admin/security.md:14–18, 99–147`).
+
+Claudemount is thus the small headline feature the audit pass earned
+the right to ship: it adds one TXT key, one mount path, one CLI flag,
+and zero new trust assumptions.
 
 ## Trust model honesty
 
@@ -444,4 +571,91 @@ the artifacts pass.)
 
 ## Limitations & future work
 
-TBD
+The audit pass surfaced enough gaps between documented behaviour and
+in-tree implementation that listing them is part of the deliverable.
+This section is the honest residual.
+
+**OpenRouter beacon — revoke and create have no HTTP timeout.**
+`saturn/providers/openrouter.py:28` (`requests.delete(...)`) and
+`saturn/runner.py:102` (`requests.post(...)`) both pass no `timeout=`.
+The `requests` default is `None` — block until the OS or peer resets
+the socket. A hung TLS handshake or upstream slow-down stalls
+`CredentialManager.cleanup()` (`saturn/runner.py:134–146`), serialises
+the rotation thread (`saturn/runner.py:362–377`), and blocks Ctrl-C
+shutdown via `cleanup(final=True)` (`saturn/runner.py:389`). Soft key
+leak is bounded by `expiration_interval` (default 600 s); orphan keys
+expire on the upstream's clock rather than persisting indefinitely.
+Test coverage for the hang path is zero. Recommended fix —
+`timeout=(5, 10)` on both calls and isolating revoke onto a small
+executor — is **not yet applied**. Source:
+`dist/research/openrouter_revoke_timeout.md` (gullivan2).
+
+**MCP `auth_token` storage falls short of the documented hardening
+bar.** `saturn/mcp_client.py:43–51` writes `~/.saturn/mcp-servers.json`
+via `Path.write_text()` — default umask, typically `0o644` on macOS, no
+explicit `chmod(0o600)`, no atomic `os.replace()` from a tempfile.
+Parent directory created at default `0o755`. Tokens are static — set
+once via `add()` (`mcp_client.py:225–234`); a 401 surfaces as
+`errorKind="internal"`, not `"auth"`. Recommended hardening
+(`chmod(0o600)`, atomic write, `errorKind="auth"`) is **not yet
+applied**. Source: `dist/research/mcp_auth_token.md` (gullivan2).
+
+**`claude.py` `CLAUDECODE` pop is load-bearing on the installed SDK.**
+`saturn/servers/claude.py:14` mutates `os.environ` at module import to
+remove `CLAUDECODE`, because `claude-agent-sdk` 0.1.48 (the version in
+the tree) does not filter that variable from the inherited subprocess
+env. Mainline 0.1.76 closes this at the source
+(`_internal/transport/subprocess_cli.py:425–434`, issue #573). Planned
+cleanup: bump the SDK pin and delete the pop. Source:
+`dist/research/claude_env_contract.md` (gullivan).
+
+**`ollama.toml` `upstream.base_url` divergence.** The TOML declares
+`http://localhost:11434/v1` (with `/v1`); the module hits
+`http://localhost:11434/api/version`, `/api/tags`, `/api/chat` (no
+`/v1`). The field is dead in the ollama runtime path —
+`runner.build_app()` (`saturn/runner.py:613–621`) takes only `mod.app`
+from the module branch. It is *not* fully dead: `web.py:1144`
+(`/api/models/all` aggregation) consults the field as a fallback when
+the service's pid is not alive. Documented divergence; remediation
+options (mark informational, or push the value into an env var the
+module reads and fix the trailing-`/v1` mismatch) are listed in
+`dist/research/ollama_base_url_drift.md` (gullivan).
+
+**Hermes is recorded as a defensible negative result, not a feature.**
+NousResearch ships no OpenAI-compatible HTTP server (`docs/audit/hermes.md`,
+fact-sheet `dist/research/repos/hermes.md`). Saturn does not advertise
+Hermes by default; `saturn.providers.hermes` is a stub that documents
+the redirect to vLLM, llama.cpp `server`, SGLang, or Ollama as the
+practical path for running Nous-trained weights behind a Saturn
+advertisement. Future work for an actual Hermes provider waits on the
+upstream shipping a server surface; until then there is no contract to
+satisfy.
+
+**Cursor integration works only via the GUI walk-through Saturn ships
+with `saturn cursor-snippet`.** There is no public `settings.json` key
+for "Override OpenAI Base URL"; values live in encrypted Electron
+state. Cursor's Agent mode is incompatible (sends a Responses-API
+payload to `/chat/completions`, expects Chat-Completions SSE back —
+forum sources in `dist/research/cursor_config.md`); Ask mode is the
+documented path. HTTP/2 must be off
+(`Settings → Network → HTTP Compatibility Mode → HTTP/1.1`). Subagents
+silently bypass the override and call cloud OpenAI. None of these are
+fixable from the Saturn side; the snippet warns the user about each.
+
+**Claudemount is opt-in, default OFF, no auth.** This is a design
+choice, not a gap. The flag is `--share-claude`; the mount is
+read-only on the wire by `wsgidav`'s provider gate; the trust boundary
+is the L2 broadcast domain, identical to `/v1/chat/completions`. An
+operator who wants the Claude mount on a less-trusted network has the
+same hardening paths available as for the rest of Saturn — Caddy +
+TLS, Tailscale mesh, allowlist (`docs/admin/security.md:99–147`). The
+defense argument is that adding bearer-token auth to the mount would
+contradict the thesis-level zero-configuration commitment and is
+explicitly out of scope per `SATURN_ECO_RUN.md:25-26`.
+
+**Future work, in priority order:** (1) apply the OpenRouter timeout
+fix and add hang-path test coverage; (2) tighten MCP token storage
+(`chmod`, atomic write, `errorKind="auth"`); (3) bump
+`claude-agent-sdk` past 0.1.76 and remove the env pop; (4) decide the
+ollama TOML field's status (informational vs. wired). Each is a
+discrete, scoped patch; none invalidates the audit verdicts above.
