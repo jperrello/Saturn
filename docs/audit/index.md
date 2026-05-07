@@ -16,13 +16,8 @@ This directory contains a per-integration audit of every client and backend Satu
 - [OpenRouter](openrouter.md)
 - [DeepInfra](deepinfra.md)
 - [Cursor](cursor.md)
+- [Hermes](hermes.md)
 - [omlx](omlx.md)
-
-## Considered backends
-
-- [Hermes (NousResearch)](hermes.md) — surveyed, rejected: no
-  OpenAI-compatible HTTP surface. Run Nous-trained weights behind vLLM /
-  llama.cpp / SGLang / Ollama and advertise that.
 
 ## Results matrix
 
@@ -40,5 +35,5 @@ This directory contains a per-integration audit of every client and backend Satu
 | OpenRouter | TBD | 2026-05-06 (in-tree) | `tests/integrations/test_openrouter.py` |
 | DeepInfra | TBD | 2026-05-06 (in-tree) | `tests/integrations/test_deepinfra.py` |
 | Cursor | snippet CLI green (9/9, 2026-05-06) | 2026-05-06 (gullivan2) | `tests/integrations/test_cursor.py` |
-| Hermes | rejected — refusal pinned (7/7, 2026-05-06) | 2026-05-06 | `tests/integrations/test_hermes.py` |
+| Hermes | TBD (client integration, contract pivot in flight) | 2026-05-06 (geoff) | `tests/integrations/test_hermes.py` |
 | omlx | proxy green (9/9, 2026-05-06) | 2026-05-06 | `tests/integrations/test_omlx.py` |
