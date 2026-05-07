@@ -582,6 +582,39 @@ class ServiceRunner:
             except requests.RequestException as e:
                 raise HTTPException(status_code=502, detail=f"Upstream error: {e}")
 
+        async def forward(request, suffix):
+            base_url = runner.config.upstream.base_url.rstrip("/")
+            headers = {"Content-Type": "application/json"}
+            if runner.api_key:
+                headers["Authorization"] = f"Bearer {runner.api_key}"
+            body = await request.body()
+            try:
+                response = requests.post(f"{base_url}{suffix}", headers=headers, data=body, timeout=120)
+            except requests.Timeout:
+                raise HTTPException(status_code=504, detail="Upstream request timed out")
+            except requests.RequestException as e:
+                raise HTTPException(status_code=502, detail=f"Upstream error: {e}")
+            from starlette.responses import Response
+            return Response(
+                content=response.content,
+                status_code=response.status_code,
+                media_type=response.headers.get("Content-Type", "application/json"),
+            )
+
+        from fastapi import Request
+
+        @app.post("/v1/embeddings")
+        async def embeddings(request: Request, _=Depends(auth)):
+            return await forward(request, "/embeddings")
+
+        @app.post("/v1/messages")
+        async def messages(request: Request, _=Depends(auth)):
+            return await forward(request, "/messages")
+
+        @app.post("/v1/rerank")
+        async def rerank(request: Request, _=Depends(auth)):
+            return await forward(request, "/rerank")
+
         self.app = app
         return app
 
