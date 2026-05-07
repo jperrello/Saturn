@@ -21,6 +21,11 @@ Commands:
   config new            Create a new service (interactive)
   config delete <name>  Delete a user service configuration
     --force               Stop the service first if running
+  serve                 Run a generic Saturn HTTP service
+    --host <addr>         Host to bind to (default: 127.0.0.1)
+    --port <port>         Port to bind to (default: 8080)
+    --share-claude        Mount read-only WebDAV view of Claude artifacts at /share/claude/
+    --share-claude-path <dir>  Directory to share (default: ~/.claude)
   web                   Launch the Saturn Web UI
     --host <addr>         Host to bind to (default: 0.0.0.0)
     --port <port>         Port to bind to (default: 3000)

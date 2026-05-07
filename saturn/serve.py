@@ -55,10 +55,14 @@ def serve(host, port, share=False, root=None, name=None):
     except Exception as e:
         logger.warning(f"mDNS register failed: {e}")
 
-    if share:
-        logger.info(f"saturn serve: share-claude=ON path={Path(root).expanduser().resolve()}")
-    else:
-        logger.info("saturn serve: share-claude=OFF")
+    receipt = (
+        f"saturn serve: host={host} port={port} share-claude=ON "
+        f"path={Path(root).expanduser().resolve()} mount=/share/claude/"
+        if share
+        else f"saturn serve: host={host} port={port} share-claude=OFF"
+    )
+    logger.info(receipt)
+    print(receipt, flush=True)
 
     try:
         uvicorn.run(app, host=host, port=port, log_level="warning", access_log=False)
