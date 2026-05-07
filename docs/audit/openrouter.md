@@ -108,10 +108,38 @@ maps to the OpenRouter `limit` field on the key-creation payload
 - **Revocation not retried.** A failed `DELETE` (network blip, OpenRouter
   500) leaves the prior key live until its `expires_at`
   (`saturn/providers/openrouter.py:28–32`).
-- **`requests.delete` has no timeout** (`saturn/providers/openrouter.py:28`).
-  A hung TCP connection to OpenRouter can stall the rotation loop.
-  [needs-research] whether the rotation loop wraps this call in its own
-  timeout.
+- **`requests.delete` has no timeout** (`saturn/providers/openrouter.py:28`)
+  — confirmed. The rotation loop does **not** wrap the call in any
+  bounding timeout. The same omission appears on the credential-create
+  side at `saturn/runner.py:102` (`requests.post(self.endpoint, …)`,
+  also no `timeout=`). The default for `requests` is `None` — block
+  indefinitely until the OS or peer drops the socket.
+  `CredentialManager.cleanup()` (`saturn/runner.py:134–146`) iterates
+  handles serially and calls `revoke()` on each; the per-call
+  `try/except` is inside `revoke()` and catches connection errors but
+  not waits. Failure modes:
+
+  - **Rotation thread stalls.** `cleanup()` blocks → next 10 s tick of
+    `rotation_loop` (`saturn/runner.py:362–377`) is delayed → no
+    further rotations until the hung socket resolves. The mDNS TXT
+    keeps advertising the current key past its window; clients begin
+    seeing 401s only after the upstream's `expires_at` lapses.
+  - **Soft key leak.** Prior handles are not deleted at OpenRouter
+    while `revoke()` hangs; they expire on the upstream clock at
+    `expires_at` (default 600 s).
+  - **Shutdown hang.** `cleanup(final=True)` at
+    `saturn/runner.py:389` runs on the main thread; a single hung
+    DELETE serialises Ctrl-C until it resolves.
+
+  Test coverage for the hang path is zero
+  (`saturn/tests/test_beacon_sleep.py` uses a fake provider).
+  Recommended fix: `timeout=(5, 10)` (or env-tunable) on both calls;
+  consider isolating revoke onto a small executor so a slow DELETE
+  cannot serialise behind subsequent rotations. Source:
+  `dist/research/openrouter_revoke_timeout.md` (gullivan2). Note: the
+  research file also clarifies that `rotation_interval` defaults to
+  **400 s** in code (`saturn/runner.py:81`); the 300 s figure in the
+  service files is a per-service override.
 
 ## Test
 See `tests/integrations/test_openrouter.py`. In-tree coverage that exercises

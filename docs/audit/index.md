@@ -28,7 +28,7 @@ This directory contains a per-integration audit of every client and backend Satu
 
 | Integration | Status | Last verified | Test file |
 |---|---|---|---|
-| Open WebUI | TBD | 2026-04-24 (geoff facts) | `tests/integrations/test_openwebui.py` |
+| Open WebUI | TBD | 2026-04-24 (geoff) | `tests/integrations/test_openwebui.py` |
 | OpenCode | TBD | 2026-05-07 (geoff facts) | `tests/integrations/test_opencode.py` |
 | Aider | TBD | 2026-04-25 (geoff facts) | `tests/integrations/test_aider.py` |
 | Jan | TBD | 2026-03-23 (geoff facts) | `tests/integrations/test_jan.py` |

@@ -90,10 +90,24 @@ the underlying cause.
   remainder out-of-band; clients that ignore the truncation envelope will
   see partial output. Result cache lifetime is `SATURN_MCP_RESULT_TTL_SEC`
   (10 min default); after expiry the download URL 404s.
-- Surface B's `auth_token` is sent as `Authorization: Bearer …`
-  (`saturn/mcp_client.py:97–99`); per-server tokens live in
-  `~/.saturn/mcp-servers.json` in plaintext. [needs-research] whether the
-  v0.2 spec mandates a different storage path.
+- **Surface B's `auth_token` storage falls short of the documented
+  hardening bar.** Tokens are sent as `Authorization: Bearer …`
+  (`saturn/mcp_client.py:97–99`) and persisted in
+  `~/.saturn/mcp-servers.json` in plaintext. The file is written via
+  `Path.write_text()` (`saturn/mcp_client.py:43–51`) — default umask,
+  typically `0o644` on macOS, **no explicit `chmod(0o600)` and no
+  atomic `os.replace()` from a temp-file**. The parent directory is
+  created with `mkdir(parents=True, exist_ok=True)` (default `0o755`).
+  Concurrent `add()` / `remove()` operations have no lock; a crash
+  mid-write can truncate the file. Tokens are **static** — set once via
+  `add()` (`saturn/mcp_client.py:225–234`), never refreshed; a 401 from
+  the MCP server is classified `internal` rather than `auth`. On a
+  shared-UID host the file is world-readable. Source:
+  `dist/research/mcp_auth_token.md` (gullivan2). Recommended hardening:
+  `os.chmod(CONFIG_PATH, 0o600)` after every `_save()`,
+  `chmod(0o700)` on the parent dir, atomic write via
+  `mcp-servers.json.tmp` + `os.replace()`, and a distinct
+  `errorKind="auth"` so the UI can prompt for re-auth.
 
 ## Test
 See `tests/integrations/test_mcp.py`. Existing in-tree coverage:

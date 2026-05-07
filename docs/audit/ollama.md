@@ -66,10 +66,20 @@ Non-streaming response (`saturn/servers/ollama.py:125–146`) maps
 - **TOML drift between `[upstream]` and the module.** `ollama.toml` declares
   `base_url = "http://localhost:11434/v1"` (with `/v1`); the module hits
   `http://localhost:11434/api/version`, `/api/tags`, `/api/chat`
-  (no `/v1`). The TOML value is never consulted by the module — it is
-  metadata for the advertiser, not configuration for the proxy.
-  [needs-research] whether any consumer reads `[upstream].base_url`
-  meaningfully.
+  (no `/v1`). The TOML value is never consulted by the module — the
+  module imports neither `saturn.config` nor any helper that threads
+  config through, and `runner.build_app()`
+  (`saturn/runner.py:613–621`) takes only `mod.app` from the module
+  branch. So the field is **dead for the ollama service's runtime
+  path**. It is *not* fully dead globally: `saturn/web.py:1144`
+  (`/api/models/all` aggregation) still consults `cfg.upstream.base_url`
+  as a fallback when the service's pid is not alive, so the field has
+  one residual consumer. Recommended remediations
+  (`dist/research/ollama_base_url_drift.md`, gullivan): (a) document the
+  field as informational and note `web.py:1144` as the only live reader,
+  or (b) have `runner.build_app()` push `cfg.upstream.base_url` into an
+  env var the module reads (`OLLAMA_HOST` / `SATURN_OLLAMA_BASE_URL`)
+  and fix the trailing-`/v1` mismatch at the same time.
 - **Stream cleanup.** `response.close()` runs in a `finally`
   (`saturn/servers/ollama.py:120–121`); upstream errors during streaming
   raise, the SSE channel terminates without a `[DONE]` sentinel, and the
