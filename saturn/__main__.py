@@ -113,6 +113,10 @@ def main():
         from .clients.cursor import main as cursor_main
         return cursor_main(remaining)
 
+    if command == 'hermes-config':
+        from .clients.hermes import main as hermes_main
+        return hermes_main(remaining)
+
     if command == 'serve':
         from .serve import main as serve_main
         return serve_main(remaining)
