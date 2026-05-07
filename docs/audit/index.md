@@ -31,9 +31,9 @@ This directory contains a per-integration audit of every client and backend Satu
 | Open WebUI | TBD | 2026-04-24 (geoff facts) | `tests/integrations/test_openwebui.py` |
 | OpenCode | TBD | 2026-05-07 (geoff facts) | `tests/integrations/test_opencode.py` |
 | Aider | TBD | 2026-04-25 (geoff facts) | `tests/integrations/test_aider.py` |
-| Jan | TBD | TBD | `tests/integrations/test_jan.py` |
-| VLC | TBD | TBD | `tests/integrations/test_vlc.py` |
-| MCP | TBD | TBD | `tests/integrations/test_mcp.py` |
+| Jan | TBD | 2026-03-23 (geoff facts) | `tests/integrations/test_jan.py` |
+| VLC | TBD | 2026-05-06 (in-tree) | `tests/integrations/test_vlc.py` |
+| MCP | TBD | 2026-05-06 (in-tree) | `tests/integrations/test_mcp.py` |
 | Claude | TBD | TBD | `tests/integrations/test_claude.py` |
 | Ollama | TBD | TBD | `tests/integrations/test_ollama.py` |
 | Fallback | TBD | TBD | `tests/integrations/test_fallback.py` |
