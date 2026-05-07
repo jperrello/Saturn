@@ -39,6 +39,6 @@ This directory contains a per-integration audit of every client and backend Satu
 | Fallback | TBD | 2026-05-06 (in-tree) | `tests/integrations/test_fallback.py` |
 | OpenRouter | TBD | 2026-05-06 (in-tree) | `tests/integrations/test_openrouter.py` |
 | DeepInfra | TBD | 2026-05-06 (in-tree) | `tests/integrations/test_deepinfra.py` |
-| Cursor | TBD | TBD | `tests/integrations/test_cursor.py` |
+| Cursor | TBD (snippet CLI) | 2026-05-06 (gullivan2) | `tests/integrations/test_cursor.py` |
 | Hermes | rejected | 2026-05-06 | — (no `/v1/*` surface) |
-| omlx | TBD | TBD | `tests/integrations/test_omlx.py` |
+| omlx | held — pending contracts | — | `tests/integrations/test_omlx.py` |
