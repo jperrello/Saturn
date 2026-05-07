@@ -167,19 +167,222 @@ permissions.
 
 ## Audit methodology
 
-TBD
+The audit pass produces one `docs/audit/<integration>.md` per integration
+the project claims to support. Each audit doc is structured around four
+questions:
+
+1. **Status.** A single verdict — `works`, `bit-rotted`, `broken`, or
+   `considered, rejected` — written only after the matching integration
+   test runs. Until bombadil produces results, the verdict is `TBD`.
+2. **2026-verified install.** The exact install path on a 2026 toolchain
+   — pip / npm / brew / source — with the version number that was
+   verified and the date of verification (in the index matrix). Stale
+   install instructions are the most common form of bit-rot in
+   integration docs and the audit is willing to record `bit-rotted` for
+   that alone.
+3. **How it points at Saturn.** The mechanism by which the integration
+   accepts a Saturn-discovered endpoint. The audit pass discovered four
+   distinct shapes:
+   - **Env var** (Aider, MCP-client knobs) — `OPENAI_API_BASE` or a
+     Saturn-side `SATURN_*` knob. The lowest-friction integration
+     surface.
+   - **JSON file** (Open WebUI persistent config, OpenCode
+     `provider.<id>.options.baseURL`) — Saturn writes / patches a config
+     file the client reads on boot. Requires file-write semantics, atomic
+     replace, and a backup of any pre-existing user file.
+   - **GUI-only** (Cursor) — Saturn cannot write the config; it can only
+     emit a snippet of GUI instructions for the user. `saturn cursor-
+     snippet` exists for exactly this case.
+   - **Runtime-only / WebView** (Jan) — persistence lives in browser
+     `localStorage` inside a Tauri window; a Saturn-aware Tauri
+     extension or in-WebView script is required.
+   The audit doc names the shape, cites the upstream code that consumes
+   it, and notes whichever Saturn-side mechanism (writer, env injector,
+   snippet emitter) covers it.
+4. **Known issues.** Edge cases the integration test should exercise,
+   plus open questions tagged `[needs-research]`.
+
+`[needs-research]` tags are resolved by a Pass-2 loop. When a librarian
+agent — gullivan, gullivan2, or geoff — produces a fact-sheet under
+`dist/research/`, the writer pass folds the resolution back into the
+relevant audit doc and removes the tag. Pass-2 of this run resolved four
+such tags: the `claude-agent-sdk` `CLAUDECODE` env-var contract
+(`dist/research/claude_env_contract.md`), the `ollama` `upstream.base_url`
+drift (`dist/research/ollama_base_url_drift.md`), the MCP `auth_token`
+storage posture (`dist/research/mcp_auth_token.md`), and the OpenRouter
+revoke-call timeout omission
+(`dist/research/openrouter_revoke_timeout.md`). After Pass-2,
+`grep needs-research docs/audit/*.md` is empty.
+
+Negative findings — integrations the audit considered and could not
+support — are recorded with the same shape as positive findings, under a
+"Considered backends" subsection of the index. Hermes is the only entry
+in that subsection in this run (`docs/audit/hermes.md`). Recording
+rejection in the same place as acceptance keeps the audit honest about
+scope.
+
+The full state of the audit pass at any point is the index matrix at
+`docs/audit/index.md` — fourteen rows, one per integration, with
+`Integration | Status | Last verified | Test file`.
 
 ## Per-integration results
 
-TBD
+The audit produced fourteen integration docs. The verdicts below are
+distilled from the matrix at `docs/audit/index.md` and the per-integration
+files; integration-test verdicts (`works` / `bit-rotted` / `broken`)
+remain TBD until bombadil's run lands.
+
+| Integration | Shape | Saturn handle | Audit flag |
+|---|---|---|---|
+| Open WebUI | Env on first boot, then DB-persisted JSON via `PersistentConfig`. | `OPENAI_API_BASE_URLS` semicolon list, or admin URL-update on running instance. | Persistence trap: env-var changes ignored after first boot unless `ENABLE_PERSISTENT_CONFIG=False`. |
+| OpenCode | JSON file (`~/.config/opencode/opencode.json`, `provider.<id>.options.baseURL`). | Saturn-side config writer required; `${ENV_VAR}` substitution only works if user has opted in. | No env-var fallback — pure file-mutation integration. |
+| Aider | Env / CLI / YAML; CLI > env > YAML precedence. | `OPENAI_API_BASE` env injection. | LiteLLM dummy-bearer requirement. |
+| Jan | Browser `localStorage` (zustand `persist`), Tauri-side mirror not persisted. | WebView script *or* Tauri extension calling `register_provider_config`. | No file-drop config, no env-var override. |
+| VLC | Saturn-shipped Lua extension + bundled Python/FastAPI bridge on loopback. | Saturn extension *is* the integration; default bridge port 9876. | `vlc.stream()` is GET-only, 2048-char URL ceiling, no JSON parser in VLC Lua. |
+| MCP | Saturn-shipped `saturn-mcp` stdio server; Saturn-shipped MCP host (`saturn/mcp_client.py`). | Hosts (Claude Code, Cursor, Claude Desktop) spawn `saturn-mcp`; Saturn web UI consumes remote MCP servers via `~/.saturn/mcp-servers.json`. | Token storage default `0o644`, non-atomic, static — see §Trust-model honesty. |
+| Claude | Saturn-shipped FastAPI server fronting `claude-agent-sdk`. | `saturn/servers/claude.py`; advertises three pseudo-models (opus/sonnet/haiku). | `permission_mode="bypassPermissions"` and hard-coded `cwd` constrain deployment scope. |
+| Ollama | Saturn-shipped FastAPI proxy to local `http://localhost:11434`. | `saturn/servers/ollama.py`; auto-allocated port, `priority=50`. | `upstream.base_url` is dead in the runtime path, alive only at `web.py:1144`. |
+| Fallback | Saturn-shipped sentinel for failover testing. | `saturn/servers/fallback.py`; `priority=99`, model `dont_pick_me`. | Not for production; advertise must be disabled by operators. |
+| OpenRouter | Saturn-shipped provider, two TOMLs: static proxy + ephemeral-key beacon (`orbeacon`). | Beacon mints child keys on rotation and broadcasts via TXT. | Revoke `requests.delete` has no `timeout=` — see §Trust-model honesty. |
+| DeepInfra | Saturn-shipped beacon-only provider. | Mints scoped JWTs at `/v1/scoped-jwt` and broadcasts via TXT. | Same provisioning-key blast radius as OpenRouter; revoke has 10 s timeout, create on shared codepath does not. |
+| Cursor | GUI-only (`Settings → Models → Override OpenAI Base URL`). | `saturn cursor-snippet` emits the GUI walk-through; Saturn never writes Cursor state. | Subagents bypass the override; Agent mode breaks; HTTP/1.1 only. |
+| Hermes | — | — (rejected). | NousResearch ships no OpenAI-compatible HTTP server; wrap weights with vLLM / llama.cpp / SGLang / Ollama and advertise *that*. |
+| omlx | Saturn-shipped provider profile fronting `jundot/omlx` on `http://localhost:8000/v1`. | `saturn/services/omlx.toml`, `saturn/providers/omlx`. | Held — pending hardener implementation against `dist/contracts/omlx.md` (Saturn-0m9). |
+
+Cross-cutting flags worth restating: dummy-bearer is a client-side
+convention (Aider, Cursor, others) not a Saturn requirement; beacon
+provisioning keys delegate mint authority to the Saturn host;
+inbound-token storage in MCP and outbound-key timeout in OpenRouter both
+fall short of the documented hardening bar (§Trust-model honesty).
 
 ## New: Cursor client
 
-TBD
+Cursor is a Saturn integration in name only — there is no public
+`settings.json` key for "Override OpenAI Base URL", no environment
+variable, no config file Saturn can write. Cursor stores override values
+in its encrypted Electron state (`app.getPath('userData')`), and the only
+documented configuration channel is the `Settings → Models` GUI flow
+(`docs/audit/cursor.md`; primary forum sources collected in
+`dist/research/cursor_config.md`).
+
+Saturn-5pe ships `saturn cursor-snippet`, a CLI that emits the GUI
+walk-through with the Saturn-discovered endpoint already substituted in.
+The user runs the CLI, copy-pastes, and follows the steps in Cursor.
+Saturn writes nothing to disk on the Cursor side. The brutus contract for
+the snippet shape is at `dist/contracts/cursor.md` (planned path; not yet
+committed at the time of this writing) and the integration test lives at
+`tests/integrations/test_cursor.py`.
+
+The snippet emits five steps:
+
+1. Open `Cursor Settings → Models`.
+2. Set OpenAI API Key to any non-empty string (`sk-no-auth`,
+   `sk-dummy`, or `not-needed` are commonly reported placeholders;
+   empty string fails form validation).
+3. Toggle "Override OpenAI Base URL" and enter the Saturn endpoint
+   ending in `/v1` (so Cursor's `/chat/completions` and `/models`
+   suffixes resolve).
+4. Click "+ Add Model" and enter the model ID. Cursor validates by
+   hitting `/v1/models` — the Saturn endpoint must list the chosen ID.
+5. Use **Ask mode**, not Agent mode. In Agent mode Cursor emits a
+   Responses-API payload to `/v1/chat/completions` and expects
+   Chat-Completions SSE chunks back; Saturn proxies cannot satisfy
+   both halves of that asymmetric contract without an in-Saturn
+   translator.
+
+The snippet additionally warns the user about two structural
+limitations that no Saturn-side change can paper over:
+
+- **HTTP/1.1 only.** HTTP/2 trips errors against custom endpoints; the
+  user must flip
+  `Cursor Settings → Network → HTTP Compatibility Mode → HTTP/1.1`.
+- **Subagents bypass the override.** Only the main agent pane uses the
+  custom base URL; subagents silently fall back to cloud OpenAI. A
+  Saturn-routed Cursor session is partial by Cursor's design, not by
+  Saturn's.
+
+The honest framing: Saturn-5pe is a copy-paste aid, not a configuration
+plug-in. Treating it as anything else would overstate what Cursor
+exposes.
 
 ## New: Hermes & omlx backends
 
-TBD
+Two new backends were scoped for this run. One ships; the other is
+recorded as a defensible negative result.
+
+### omlx (ships)
+
+Source: `github.com/jundot/omlx` (12,440 stars at the time of the audit;
+last push 2026-05-06; canonical for the brand "oMLX" — full URL
+resolution in `dist/research/omlx_url.md`). Apache-2.0, Python, requires
+macOS 15.0+ on Apple Silicon, default port `8000`. Exposes a broad
+OpenAI- and Anthropic-compatible surface: `/v1/chat/completions`,
+`/v1/completions`, `/v1/messages`, `/v1/embeddings`, `/v1/rerank`,
+`/v1/models`.
+
+Saturn-0m9 (`dist/contracts/omlx.md`) ships an `omlx` service profile
+that wraps a locally-running jundot/omlx as an `api_type="openai"`
+Saturn service:
+
+- `saturn/services/omlx.toml` — `name="omlx"`,
+  `deployment="local"`, `api_type="openai"`, upstream
+  `http://localhost:8000/v1`.
+- `saturn/providers/omlx` — importable module (parity with
+  `saturn/providers/openrouter.py`; near-empty for a local provider with
+  no key rotation, but present so the loader contract holds).
+- Proxy surface: `/v1/models`, `/v1/chat/completions`, `/v1/embeddings`,
+  `/v1/messages`, `/v1/rerank` are proxied verbatim to upstream.
+- Advertise: `_saturn._tcp.local.` with TXT `api_type=openai`, gated by
+  `SATURN_RUNNER_TOKEN`.
+
+The brutus contract names nine tests in
+`tests/integrations/test_omlx.py`, four of which are red against the
+current tree (TOML missing, provider module missing, `/v1/embeddings`,
+`/v1/messages`, `/v1/rerank` returning 404, config-loader returning
+`None`). No mocks; upstream is a `BaseHTTPRequestHandler` fixture on a
+free localhost port. Implementation lands once hardener turns those red
+tests green.
+
+The audit doc for omlx is held until that pass completes
+(`docs/audit/omlx.md` retains the skeleton; index matrix marks it
+"held — pending contracts"). The defense-relevant point is that omlx is
+a Saturn-shipped *profile*, not a new protocol — the contract is the
+same `_saturn._tcp.local.` advertisement and the same OpenAI-compatible
+endpoint shape Saturn already commits to.
+
+### Hermes (does not ship)
+
+Hermes was scoped as a Saturn backend on the assumption that the Nous
+ecosystem ships an OpenAI-compatible inference server. The audit found
+otherwise. Survey of `github.com/NousResearch/hermes-agent` (`v2026.4.30`,
+HEAD `3cdbf33`) and the broader org:
+
+- `hermes-agent` is a *client* — `hermes web`
+  (`hermes_cli/web_server.py:67`) exposes a UI backend at `/api/*`, with
+  no `/v1/chat/completions`, `/v1/models`, or `/v1/health`. Provider
+  client code (`plugins/model-providers/openrouter|anthropic|bedrock`)
+  POSTs *out* to upstream OpenAI-compatible providers.
+- `Hermes-Function-Calling` is CLI inference scripts, no HTTP server.
+- `atropos` is RL/training infrastructure that *consumes* an external
+  OpenAI-compatible inference server.
+- The remaining ~78 NousResearch repos are weights, training code, and
+  agent demos — none expose `/v1/*` HTTP endpoints.
+
+The defensible result is to record this in
+`docs/audit/hermes.md` under "Considered backends" and state plainly
+that running a Nous-trained Hermes *model* behind Saturn requires
+wrapping the GGUF / HF weights with a generic OpenAI-compatible server
+(vLLM, llama.cpp `server`, SGLang, Ollama) and advertising *that*. Nous
+ships weights; Saturn advertises servers; the bridge between them is
+whichever runner the operator picks. The brutus contract that *would*
+have governed a Hermes provider lives at the planned path
+`dist/contracts/hermes.md`; in this run it remains unmaterialised
+because there is no in-scope server to wrap.
+
+The defense argument is not "we shipped one and rejected the other" —
+it is "we surveyed both, shipped the one with an OpenAI surface, and
+recorded the absence of an OpenAI surface for the other." That second
+half is the part most vendor write-ups silently drop.
 
 ## Headline: Claude-artifacts live-mount
 
