@@ -1,6 +1,6 @@
 # Configure page — admin runbook
 
-This page is for the person running Saturn. It documents every control on the **Configure** tab in the admin UI: what it does, when the change takes effect, and what the safe value looks like. Threat-model decisions and the "which posture for which network" matrix live in [`docs/admin/security.md`](security.md). The structural audit those defaults were lifted from is [`SECURITY_AUDIT.md`](../../SECURITY_AUDIT.md) at the repo root. Field-level schema is `CONFIG_FIELDS.md`; this page is the user-facing complement.
+This page is for the person running Saturn. It documents every control on the **Configure** tab in the admin UI: what it does, when the change takes effect, and what the safe value looks like. Threat-model decisions and the "which posture for which network" matrix live in [`docs/admin/security.md`](security.md). The structural audit those defaults were lifted from is `SECURITY_AUDIT.md` (archived at `archive/may05/SECURITY_AUDIT.md`) at the repo root. Field-level schema is `CONFIG_FIELDS.md`; this page is the user-facing complement.
 
 ---
 
@@ -177,6 +177,6 @@ If you are migrating from a config that had plaintext keys, move them to env var
 ## Cross-references
 
 - [`docs/admin/security.md`](security.md) — operational decision matrix: which posture for which network, the four required env vars, TLS-fronting recipes.
-- [`SECURITY_AUDIT.md`](../../SECURITY_AUDIT.md) — structural audit. Each boot rule cited above maps to a §C.1.x check there.
+- `SECURITY_AUDIT.md` (archived at `archive/may05/SECURITY_AUDIT.md`) — structural audit. Each boot rule cited above maps to a §C.1.x check there.
 - `CONFIG_FIELDS.md` — field-level schema reference. Authoritative for types and defaults.
 - `PRE_SPECS_B3.md` §17.A — the spec this page documents.

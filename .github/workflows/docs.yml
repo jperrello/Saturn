@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
+      - 'mkdocs.yml'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -29,7 +30,7 @@ jobs:
         with:
           python-version: '3.x'
       - run: pip install mkdocs-material
-      - run: mkdocs build -f docs/mkdocs.yml
+      - run: mkdocs build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

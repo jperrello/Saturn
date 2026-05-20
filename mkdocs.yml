@@ -4,12 +4,9 @@ site_url: https://jperrello.github.io/Saturn/
 repo_url: https://github.com/jperrello/Saturn
 repo_name: jperrello/Saturn
 
-docs_dir: .
-site_dir: ../site
-
 theme:
   name: material
-  custom_dir: overrides
+  custom_dir: docs/overrides
   palette:
     - scheme: slate
       primary: blue
