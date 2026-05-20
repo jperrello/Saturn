@@ -1,0 +1,117 @@
+site_name: Saturn
+site_description: Zero-configuration AI service discovery using mDNS/DNS-SD
+site_url: https://jperrello.github.io/Saturn/
+repo_url: https://github.com/jperrello/Saturn
+repo_name: jperrello/Saturn
+
+docs_dir: .
+site_dir: ../site
+
+theme:
+  name: material
+  custom_dir: overrides
+  palette:
+    - scheme: slate
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - content.code.copy
+    - content.tabs.link
+    - search.highlight
+    - search.suggest
+    - toc.follow
+  font:
+    code: JetBrains Mono
+  logo: assets/saturn-logo.svg
+  favicon: assets/saturn-logo.svg
+  icon:
+    repo: fontawesome/brands/github
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - tables
+  - toc:
+      permalink: ""
+  - attr_list
+  - def_list
+  - md_in_html
+
+nav:
+  - Home: index.md
+  - Tutorial:
+    - Overview: tutorial/index.md
+    - Quickstart: getting-started/quickstart.md
+    - For ML Researchers: how-to/for-researchers.md
+    - Troubleshooting: how-to/troubleshooting.md
+    - FAQ: how-to/faq.md
+    - Web UI:
+      - Overview: web-ui/overview.md
+      - Chat: web-ui/chat.md
+      - Models & Parameters: web-ui/models.md
+      - MCP Tools: web-ui/mcp-tools.md
+      - System & Monitoring: web-ui/system.md
+      - Remote Access: web-ui/remote.md
+      - Cost Tracking: web-ui/cost-tracking.md
+    - Admin:
+      - Security Runbook: admin/security.md
+    - Configuration:
+      - Service Configuration: configuration/service-config.md
+      - Config TOML Reference: configuration/config-toml.md
+      - Environment Variables: configuration/env-vars.md
+      - Priority & Failover: configuration/priority-routing.md
+      - Rate Limiting & Budgets: configuration/rate-limiting.md
+      - Cloudflare Tunnels: configuration/tunnels.md
+  - Integrations:
+    - Overview: integrations/index.md
+    - OpenCode: integrations/opencode.md
+    - Aider: integrations/aider.md
+    - MCP Server: integrations/mcp-server.md
+    - VLC Extension: integrations/vlc.md
+    - Open WebUI: integrations/open-webui.md
+    - Jan AI: integrations/jan.md
+    - Reference Clients: implementations/index.md
+  - Spec:
+    - Overview: spec/index.md
+    - Saturn on the Wire: concepts/protocol.md
+    - mDNS at the OS Level: concepts/mdns-background.md
+    - Protocol:
+      - Wire Format: reference/protocol/wire-format.md
+      - TXT Keys: reference/protocol/txt-keys.md
+      - Discovery Flow: reference/protocol/discovery.md
+      - Beacons & Ephemeral Keys: reference/protocol/beacons.md
+      - Security Model: reference/protocol/security.md
+      - HTTP API: reference/protocol/http-api.md
+    - v0.2:
+      - v0.2 Proposal: spec/v0.2/proposal.md
+      - v0.2 Wire Format: spec/v0.2/wire-format.md
+    - Client API:
+      - Go (saturnd): reference/clients/go/api.md
+      - Python (saturn-ai): reference/clients/python/api.md
+      - Rust (saturn-router): reference/clients/rust-router.md
+      - TypeScript (AI SDK): reference/clients/typescript-api.md
+      - CLI: reference/clients/cli/cli.md
+      - MCP Tools: reference/clients/mcp-tools.md
