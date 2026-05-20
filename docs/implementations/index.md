@@ -72,7 +72,7 @@ Each implementation discovers the highest-priority Saturn instance and prints it
 
 ## Per-language deep dives
 
-### [Go — `saturnd`](../reference/clients/clients/cli/cli.md)
+### [Go — `saturnd`](../reference/clients/cli/cli.md)
 
 Standalone daemon under `saturnd/`. Browses mDNS, parses TXT, re-exports discovered backends over HTTP and MCP. Built with `grandcat/zeroconf`. No Python required.
 

@@ -127,4 +127,3 @@ A fourth, smaller direction: the credential schema is currently JWT-shaped becau
 - Cheshire, S., & Krochmal, M. (2013). *DNS-Based Service Discovery.* RFC 6763, IETF.
 - Perrello, J. (2026). *Saturn: Zero-Configuration AI Service Discovery.* M.S. thesis, UC Santa Cruz. eScholarship: <https://escholarship.org/uc/item/74r4d4c5#main>. Cited inline as `Saturn.md:<lines>`.
 - Repository: <https://github.com/jperrello/Saturn>
-- Promo-push framing memo: [`SATURN_CONTEXT.md`](../SATURN_CONTEXT.md) (canonical claim list, used by the writer/demo lanes of this project).

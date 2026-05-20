@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-The Saturn MCP server exposes 6 tools and 1 resource. For setup instructions, see the [MCP Server Setup guide](../integrations/mcp-server.md).
+The Saturn MCP server exposes 6 tools and 1 resource. For setup instructions, see the [MCP Server Setup guide](../../integrations/mcp-server.md).
 
 ## Tools
 
