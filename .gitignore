@@ -63,6 +63,8 @@ tests/bombadil/test-config.json
 
 # MkDocs build output
 site/
+mkdocs.yml
+.brutus/
 
 # macOS
 .DS_Store
