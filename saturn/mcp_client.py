@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -11,6 +12,9 @@ import httpx
 
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+
+if sys.version_info < (3, 11):
+    from exceptiongroup import BaseExceptionGroup
 
 
 # Saturn-cbt.2.3: knobs are env-driven so deployments can tune without
