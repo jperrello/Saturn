@@ -29,7 +29,10 @@ dependencies = [
     "pydantic>=2.0.0",
     "python-dotenv>=1.0.0",
     "tomli>=2.0.0;python_version<'3.11'",
+    "exceptiongroup>=1.0.0;python_version<'3.11'",
     "psutil>=5.9.0",
+    "mcp>=1.0.0",
+    "claude-agent-sdk>=0.1.0",
 ]
 
 [project.optional-dependencies]

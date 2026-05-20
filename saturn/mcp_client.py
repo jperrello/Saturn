@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -11,6 +12,9 @@ import httpx
 
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+
+if sys.version_info < (3, 11):
+    from exceptiongroup import BaseExceptionGroup
 
 
 # Saturn-cbt.2.3: knobs are env-driven so deployments can tune without
@@ -31,7 +35,7 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-CALL_DEADLINE_S = _env_float("SATURN_MCP_TOOL_TIMEOUT_SEC", 30.0)
+CALL_DEADLINE_S = _env_float("SATURN_MCP_TOOL_TIMEOUT_SEC", 8.0)
 LARGE_RESULT_BYTES = _env_int("SATURN_MCP_MAX_RESULT_BYTES", 1024 * 1024)
 RESULT_CACHE_TTL_S = _env_float("SATURN_MCP_RESULT_TTL_SEC", 600.0)
 

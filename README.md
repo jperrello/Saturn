@@ -1,6 +1,6 @@
 # Saturn
 
-**DNS-SD for AI. Discover and call any model on your network with one query.**
+**Discover and call any model on your network with one query.**
 
 Saturn is a protocol — mDNS/DNS-SD service type `_saturn._tcp.local.` — that lets any OpenAI-compatible AI endpoint announce itself on a LAN. Clients discover and call it with stock tools.
 
@@ -128,15 +128,6 @@ Saturn names three roles and concentrates configuration in exactly one of them.
 - **End user** — connects to the network. Nothing else.
 
 The cognitive walkthrough in the thesis shows the application-developer step count drops 19 → 4 (−79%) and the end-user count drops 7 → 0 (−100%). Asymptotic form: `12 + 19N + 7M` (traditional) → `14 + 4N + 0M` (Saturn) over `N` developers and `M` end users. Methodology and threats to validity: [docs/how-to/for-researchers.md](docs/how-to/for-researchers.md).
-
----
-
-## What Saturn is not
-
-- **Not a Python package.** The Python reference implementation is one of seven; the protocol is the contract.
-- **Not field-evaluated.** The step-reduction and threat-model arguments are derived from a single-author cognitive walkthrough and a structured threat analysis. There is no user study and no production deployment yet.
-- **Not safe on AP-isolated networks.** Enterprise WiFi (eduroam, many guest SSIDs) blocks client-to-client multicast. A hybrid mDNS+HTTPS-fallback path is designed but not shipped.
-- **Not authenticated per-device.** Any device on the LAN can observe service advertisements. Saturn trusts the network operator the way a printer protocol does.
 
 ---
 
