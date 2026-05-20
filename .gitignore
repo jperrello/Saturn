@@ -26,6 +26,7 @@ node_modules/
 # Claude
 .claude
 CLAUDE.md
+!docs/audit/claude.md
 
 # references/ moved to legacy_code/
 
@@ -62,6 +63,7 @@ tests/bombadil/test-config.json
 
 # MkDocs build output
 site/
+.brutus/
 
 # macOS
 .DS_Store

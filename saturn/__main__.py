@@ -21,6 +21,11 @@ Commands:
   config new            Create a new service (interactive)
   config delete <name>  Delete a user service configuration
     --force               Stop the service first if running
+  serve                 Run a generic Saturn HTTP service
+    --host <addr>         Host to bind to (default: 127.0.0.1)
+    --port <port>         Port to bind to (default: 8080)
+    --share-claude        Mount read-only WebDAV view of Claude artifacts at /share/claude/
+    --share-claude-path <dir>  Directory to share (default: ~/.claude)
   web                   Launch the Saturn Web UI
     --host <addr>         Host to bind to (default: 0.0.0.0)
     --port <port>         Port to bind to (default: 3000)
@@ -67,6 +72,12 @@ def main():
         return config_main()
 
     if command == 'run':
+        if remaining:
+            from .refusals import check as _refusal
+            msg = _refusal(remaining[0])
+            if msg:
+                print(msg, file=sys.stderr)
+                return 2
         sys.argv = ['saturn-run'] + remaining
         from .runner import main as runner_main
         return runner_main()
@@ -98,10 +109,28 @@ def main():
                 port = int(remaining[i + 1])
         return web_main(host=host, port=port)
 
+    if command == 'cursor-snippet':
+        from .clients.cursor import main as cursor_main
+        return cursor_main(remaining)
+
+    if command == 'hermes-config':
+        from .clients.hermes import main as hermes_main
+        return hermes_main(remaining)
+
+    if command == 'serve':
+        from .serve import main as serve_main
+        return serve_main(remaining)
+
     if command == 'aider':
         sys.argv = ['aider-saturn'] + remaining
         from .aider_saturn import main as aider_main
         return aider_main()
+
+    from .refusals import check as _refusal
+    msg = _refusal(command)
+    if msg:
+        print(msg, file=sys.stderr)
+        return 2
 
     from .config import load_service_config
     if load_service_config(command):
